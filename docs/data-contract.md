@@ -26,6 +26,25 @@
 
 Для `save` обязательны читаемый `quick.save` с записью мира типа 56, каталог `platoon/`, активные файлы отрядов игрока из реестра и полностью читаемые активные `.platoon`. Старые файлы вне реестра не определяют состав. Для `export` наличие бинарного сейва не требуется. Агрегатные расхождения `quick.save: members/squads` не заменяют фактический состав и сохраняются как предупреждения. Предупреждения по `player_towns`/`zone/`, исследованиям, неизвестным sid и модам не удаляются; `diagnostics.categories` отмечает `available`, `unavailable`, `incomplete` или `inconsistent`. Наличие данных не означает независимой сверки с UI.
 
+## Реестр снимков и веток: `kenshi-index/1`
+
+Проектный контракт `contracts/index.schema.json` (JSON Schema Draft 2020-12) фиксирует реестр снимков, отслеживание родительства и веток в `data/index.json`:
+- Формат: `format: "kenshi-index/1"`.
+- Метаданные: `updated_at` (UTC ISO-8601), `active_branch_id` (`string | null`).
+- Ветки (`branches`): `{branch_id: {"name": ..., "head_snapshot_id": ..., "created_at": ...}}`.
+- Записи снимков (`snapshots`): отображение `snapshot_id -> record`:
+  - `snapshot_id`, `parent_snapshot_id` (или `null`), `branch_id`, `campaign_id`, `game_time` (`{"day": ..., "time": ...}` или `null`), `world_ref_id`, `source_kind` (`save`/`export`), `source_sha256`, `registered_at` (UTC ISO-8601).
+- Инварианты целостности:
+  - Атомарная запись через staging-файл и `replace` на одном томе под файловой блокировкой.
+  - Защита от циклов в графе родительства ($A \to \dots \to A$) и защита от сирот (несуществующих родителей).
+  - Уникальность `snapshot_id`: совпадение данных идемпотентно, конфликт вызывает отказ.
+  - Восстановление `rebuild_index` из каталогов `data/snapshots/*/provenance.json` без автоматического назначения текущего снимка публикации.
+- Семантика reload и хронологии:
+  - Сравнение между параллельными ветками или ветками без связи предка блокируется: `diff.valid = false`, `reason = "different_branches"`. Синхронно `locations.movement.valid = false`, исключая ложные прямолинейные перемещения и потери ресурсов/навыков.
+  - Обратное время (`to < from`) дает `valid: false`, `reason = "game_time_regression"`.
+  - Возрастающее время ($game\_time(C) > game\_time(B)$) при общем родителе $A$ (reload) НЕ делает $C$ продолжением $B$.
+  - Явный выбор ветки через CLI разрешает публикацию нового снимка $C$ от его легитимного предка $A$ (или как новый корень без предка).
+
 ## Контракт bundle: `kenshi-publication/1`
 
 Реализованный release bundle в `published/`:

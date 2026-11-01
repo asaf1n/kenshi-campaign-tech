@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/index.schema.json",
+  "title": "Kenshi snapshots and branches index",
+  "description": "Контракт файлового реестра снимков и веток kenshi-index/1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "updated_at",
+    "active_branch_id",
+    "branches",
+    "snapshots"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-index/1"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "active_branch_id": {
+      "type": ["string", "null"]
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "head_snapshot_id",
+          "created_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "head_snapshot_id": {
+            "type": ["string", "null"]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "snapshots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "parent_snapshot_id",
+          "branch_id",
+          "campaign_id",
+          "game_time",
+          "world_ref_id",
+          "source_kind",
+          "source_sha256",
+          "registered_at"
+        ],
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parent_snapshot_id": {
+            "type": ["string", "null"]
+          },
+          "branch_id": {
+            "type": ["string", "null"]
+          },
+          "campaign_id": {
+            "type": ["string", "null"]
+          },
+          "game_time": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "day": {
+                "type": ["number", "null"]
+              },
+              "time": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "world_ref_id": {
+            "type": ["string", "null"]
+          },
+          "source_kind": {
+            "enum": [
+              "save",
+              "export"
+            ]
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

@@ -6,6 +6,8 @@ from typing import Any
 
 from tools.config import Config
 from tools.extraction import ROOT, extract
+from tools.index import register_snapshot
+from tools.io_utils import read_json
 from tools.publisher import publish
 
 
@@ -21,11 +23,13 @@ def run_pipeline(
     parent_snapshot_id: str | None = None,
     world_ref_id: str | None = None,
     world_dir: Path | None = None,
+    index_path: Path | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     snapshots_dir = output_snapshots or ROOT / "data/snapshots"
     diffs_dir = output_diffs or ROOT / "data/diffs"
     pub_dir = published_dir or ROOT / "published"
+    idx_path = index_path or (snapshots_dir.parent / "index.json")
 
     extract_res = extract(
         source=source,
@@ -39,6 +43,19 @@ def run_pipeline(
 
     snapshot_id = extract_res["snapshot_id"]
 
+    prov = read_json((snapshots_dir / snapshot_id / "provenance.json").read_bytes())
+    index_res = register_snapshot(
+        snapshot_id=snapshot_id,
+        parent_snapshot_id=parent_snapshot_id or prov.get("parent_snapshot_id"),
+        branch_id=branch_id or prov.get("branch_id"),
+        campaign_id=campaign_id or prov.get("campaign_id"),
+        game_time=prov.get("game_time"),
+        world_ref_id=world_ref_id or prov.get("world_ref_id"),
+        source_kind=source_kind,
+        source_sha256=prov.get("source_sha256", ""),
+        index_path=idx_path,
+    )
+
     publish_res = publish(
         snapshot_id=snapshot_id,
         snapshots_dir=snapshots_dir,
@@ -49,6 +66,7 @@ def run_pipeline(
         campaign_id=campaign_id,
         world_ref_id=world_ref_id,
         world_dir=world_dir,
+        index_path=idx_path,
         dry_run=dry_run,
     )
 
@@ -56,5 +74,6 @@ def run_pipeline(
         "pipeline_status": "success",
         "snapshot_id": snapshot_id,
         "extract": extract_res,
+        "index": index_res,
         "publish": publish_res,
     }

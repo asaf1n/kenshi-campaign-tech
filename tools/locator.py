@@ -480,10 +480,16 @@ def resolve_locations(
     if not diff_is_valid:
         from_snap = None
         if changes and changes.get("from"):
-            from_snap = changes["from"].get("snapshot_id")
+            f_ref = changes["from"]
+            from_snap = f_ref.get("snapshot_id") if isinstance(f_ref, dict) else f_ref
+        elif previous_locations:
+            from_snap = previous_locations.get("snapshot_id")
+
         reason = None
-        if changes:
-            reason = changes.get("reason") or "; ".join(changes.get("problems", []))
+        if changes and changes.get("reason"):
+            reason = changes.get("reason")
+        elif changes and changes.get("problems"):
+            reason = "; ".join(changes.get("problems", []))
         if not reason:
             reason = "базовое сравнение отсутствует (diff.valid == false либо нет previous_locations)"
 

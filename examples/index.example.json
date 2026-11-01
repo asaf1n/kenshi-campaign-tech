@@ -1,0 +1,61 @@
+{
+  "format": "kenshi-index/1",
+  "updated_at": "2026-11-01T12:00:00Z",
+  "active_branch_id": "main",
+  "branches": {
+    "main": {
+      "name": "Основная ветка",
+      "head_snapshot_id": "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "created_at": "2026-11-01T10:00:00Z"
+    },
+    "reload-1": {
+      "name": "Ветка отката",
+      "head_snapshot_id": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "created_at": "2026-11-01T11:00:00Z"
+    }
+  },
+  "snapshots": {
+    "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "snapshot_id": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parent_snapshot_id": null,
+      "branch_id": "main",
+      "campaign_id": "campaign-default",
+      "game_time": {
+        "day": 10,
+        "time": "10:00"
+      },
+      "world_ref_id": "sha256-1111111111111111111111111111111111111111111111111111111111111111",
+      "source_kind": "save",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "registered_at": "2026-11-01T10:00:00Z"
+    },
+    "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+      "snapshot_id": "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "parent_snapshot_id": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "branch_id": "main",
+      "campaign_id": "campaign-default",
+      "game_time": {
+        "day": 10,
+        "time": "14:00"
+      },
+      "world_ref_id": "sha256-1111111111111111111111111111111111111111111111111111111111111111",
+      "source_kind": "save",
+      "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "registered_at": "2026-11-01T10:30:00Z"
+    },
+    "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": {
+      "snapshot_id": "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "parent_snapshot_id": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "branch_id": "reload-1",
+      "campaign_id": "campaign-default",
+      "game_time": {
+        "day": 10,
+        "time": "16:00"
+      },
+      "world_ref_id": "sha256-1111111111111111111111111111111111111111111111111111111111111111",
+      "source_kind": "save",
+      "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "registered_at": "2026-11-01T11:00:00Z"
+    }
+  }
+}

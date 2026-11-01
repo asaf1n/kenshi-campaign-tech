@@ -99,6 +99,13 @@ def main() -> int:
             "locations-run.json",
         ),
         (
+            "branches",
+            [sys.executable, "-m", "unittest", "tests/test_branches.py", "-v"],
+            ["python", "-m", "unittest", "tests/test_branches.py", "-v"],
+            "branches.log",
+            "branches-run.json",
+        ),
+        (
             "converter",
             [
                 sys.executable,

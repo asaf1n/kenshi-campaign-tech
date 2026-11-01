@@ -21,6 +21,7 @@ import tempfile
 from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
+from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index, save_index
 from tools.io_utils import canonical, read_json
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
@@ -141,6 +142,7 @@ def publish(
     campaign_id: str | None = None,
     world_ref_id: str | None = None,
     world_dir: Path | None = None,
+    index_path: Path | None = None,
     generated_at: str | None = None,
     dry_run: bool = False,
     fault_inject: str | None = None,
@@ -168,6 +170,69 @@ def publish(
         else None
     )
 
+    # Проверка индекса снимков и веток (data/index.json)
+    idx_target = (index_path or (snapshots_dir.parent / "index.json")).resolve()
+    idx_data: dict[str, Any] | None = None
+    if idx_target.is_file():
+        try:
+            idx_data = load_index(idx_target)
+        except Exception:
+            idx_data = None
+    elif DEFAULT_INDEX_PATH.is_file():
+        try:
+            idx_data = load_index(DEFAULT_INDEX_PATH)
+            idx_target = DEFAULT_INDEX_PATH.resolve()
+        except Exception:
+            idx_data = None
+
+    if idx_data is not None:
+        idx_snaps = idx_data.get("snapshots", {})
+        if snapshot_id in idx_snaps:
+            snap_entry = idx_snaps[snapshot_id]
+            if not branch_id:
+                effective_branch = snap_entry.get("branch_id") or effective_branch
+            if not parent_snapshot_id:
+                effective_parent = snap_entry.get("parent_snapshot_id") or effective_parent
+
+        active_branch = idx_data.get("active_branch_id")
+        if effective_branch and active_branch and effective_branch != active_branch and branch_id is None:
+            raise PublisherError(
+                f"Снимок {snapshot_id} принадлежит ветке '{effective_branch}', "
+                f"но активной в индексе является '{active_branch}'. "
+                f"Для публикации требуется явное указание или переключение ветки."
+            )
+
+        if effective_parent is not None:
+            compat, branch_reason = check_branch_compatibility(idx_data, effective_parent, snapshot_id)
+            if not compat:
+                raise PublisherError(
+                    f"Несовместимый родитель {effective_parent} для снимка {snapshot_id}: {branch_reason}"
+                )
+
+    # Проверка против существующей публикации
+    pub_manifest_file = published_dir / "manifest.json"
+    if pub_manifest_file.is_file():
+        try:
+            pub_manifest = read_json(pub_manifest_file.read_bytes())
+            pub_snap = pub_manifest.get("snapshot_id")
+            pub_branch = pub_manifest.get("branch_id")
+            if pub_branch and effective_branch and pub_branch != effective_branch and branch_id is None:
+                raise PublisherError(
+                    f"Снимок {snapshot_id} принадлежит ветке '{effective_branch}', "
+                    f"а текущая публикация — ветке '{pub_branch}'. "
+                    f"Для смены ветки публикации укажите явный branch_id."
+                )
+            if effective_parent is not None and pub_snap is not None and effective_parent == pub_snap:
+                if idx_data is not None:
+                    compat, branch_reason = check_branch_compatibility(idx_data, pub_snap, snapshot_id)
+                    if not compat:
+                        raise PublisherError(
+                            f"Попытка сравнения между несовместимыми ветками reload ({pub_snap} -> {snapshot_id}): {branch_reason}"
+                        )
+        except Exception as e:
+            if isinstance(e, PublisherError):
+                raise
+
     prev_dir = None
     if effective_parent is not None:
         prev_dir = snapshots_dir / effective_parent
@@ -185,6 +250,14 @@ def publish(
             cur_dir=cur_dir,
             output_dir=diffs_dir,
             parent_snapshot_id=effective_parent,
+            index_data=idx_data,
+        )
+
+    # Если родитель был задан, но сравнение невалидно
+    if effective_parent is not None and diff_data.get("valid") is False:
+        diff_reason = diff_data.get("reason") or "; ".join(diff_data.get("problems", []))
+        raise PublisherError(
+            f"Невалидное сравнение снимков ({effective_parent} -> {snapshot_id}): {diff_reason}"
         )
 
     # 1. Загрузка / подбор справочника мира
@@ -295,7 +368,7 @@ def publish(
             if fault_inject == "before_validate":
                 raise PublisherError("Fault injection: сбой до валидации пакета")
 
-            validation_summary = validate_publication(staging_dir)
+            validation_summary = validate_publication(staging_dir, index_data=idx_data)
 
             if fault_inject == "after_validate":
                 raise PublisherError("Fault injection: сбой после валидации пакета")
@@ -340,6 +413,18 @@ def publish(
             # Очистка backup после подтверждения успеха
             if backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
+
+            # Обновление индекса после успешной публикации
+            if idx_data is not None and effective_branch:
+                if effective_branch in idx_data.get("branches", {}):
+                    idx_data["branches"][effective_branch]["head_snapshot_id"] = snapshot_id
+                if branch_id is not None:
+                    idx_data["active_branch_id"] = effective_branch
+                idx_data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                try:
+                    save_index(idx_data, idx_target, with_lock=False)
+                except Exception:
+                    pass
 
         except Exception:
             if staging_dir.exists():

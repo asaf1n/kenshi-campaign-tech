@@ -80,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     pub_parser.add_argument("--branch-id")
     pub_parser.add_argument("--campaign-id")
     pub_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
+    pub_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     pub_parser.add_argument("--dry-run", action="store_true")
 
     # 7. pipeline
@@ -94,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--branch-id")
     pipe_parser.add_argument("--parent-snapshot-id")
     pipe_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
+    pipe_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     pipe_parser.add_argument("--dry-run", action="store_true")
 
     # 8. build-world
@@ -104,6 +106,36 @@ def main(argv: list[str] | None = None) -> int:
     # 9. check-world
     check_world_parser = commands.add_parser("check-world", help="Проверка валидности справочника мира")
     check_world_parser.add_argument("--world-ref", required=True, help="Путь к файлу или ID справочника мира")
+
+    # 10. index
+    index_parser = commands.add_parser("index", help="Управление реестром снимков (data/index.json)")
+    index_subs = index_parser.add_subparsers(dest="subcommand", required=True)
+
+    index_show = index_subs.add_parser("show", help="Отображение содержимого реестра")
+    index_show.add_argument("--index-file", type=Path, help="Путь к файлу индекса (data/index.json)")
+
+    index_rebuild = index_subs.add_parser("rebuild", help="Восстановление реестра из provenance снимков")
+    index_rebuild.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots", help="Каталог снимков")
+    index_rebuild.add_argument("--index-file", "--output", dest="index_file", type=Path, help="Файл индекса (data/index.json)")
+
+    index_validate = index_subs.add_parser("validate", help="Проверка схемы и связей реестра")
+    index_validate.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
+
+    # 11. branch
+    branch_parser = commands.add_parser("branch", help="Управление ветками кампании")
+    branch_subs = branch_parser.add_subparsers(dest="subcommand", required=True)
+
+    branch_list = branch_subs.add_parser("list", help="Список доступных веток")
+    branch_list.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
+
+    branch_switch = branch_subs.add_parser("switch", help="Переключение активной ветки")
+    branch_switch.add_argument("branch_id", help="Идентификатор ветки")
+    branch_switch.add_argument("--create", action="store_true", help="Создать ветку, если отсутствует")
+    branch_switch.add_argument("--name", help="Отображаемое имя ветки")
+    branch_switch.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
+
+    branch_tree = branch_subs.add_parser("tree", help="Дерево снимков и веток")
+    branch_tree.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
 
     args = parser.parse_args(argv)
     try:
@@ -178,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
                 branch_id=args.branch_id,
                 campaign_id=args.campaign_id,
                 world_ref_id=args.world_ref,
+                index_path=args.index_file,
                 dry_run=args.dry_run,
             )
 
@@ -193,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
                 branch_id=args.branch_id,
                 parent_snapshot_id=args.parent_snapshot_id,
                 world_ref_id=args.world_ref,
+                index_path=args.index_file,
                 dry_run=args.dry_run,
             )
 
@@ -212,6 +246,40 @@ def main(argv: list[str] | None = None) -> int:
             w_ref = load_world_reference(args.world_ref)
             from tools.validation import validate_world_reference
             result = validate_world_reference(w_ref)
+
+        elif args.command == "index":
+            from tools.index import load_index, rebuild_index
+            from tools.validation import validate_index
+            idx_file = getattr(args, "index_file", None) or (ROOT / "data/index.json")
+
+            if args.subcommand == "show":
+                result = load_index(idx_file)
+            elif args.subcommand == "rebuild":
+                result = rebuild_index(snapshots_dir=args.snapshots_dir, index_path=idx_file)
+            elif args.subcommand == "validate":
+                data = load_index(idx_file)
+                result = validate_index(data)
+
+        elif args.command == "branch":
+            from tools.index import get_branch_tree, load_index, switch_branch
+            idx_file = args.index_file or (ROOT / "data/index.json")
+
+            if args.subcommand == "list":
+                data = load_index(idx_file)
+                result = {
+                    "active_branch_id": data.get("active_branch_id"),
+                    "branches": data.get("branches", {}),
+                }
+            elif args.subcommand == "switch":
+                result = switch_branch(
+                    branch_id=args.branch_id,
+                    create=args.create,
+                    name=args.name,
+                    index_path=idx_file,
+                )
+            elif args.subcommand == "tree":
+                data = load_index(idx_file)
+                result = get_branch_tree(data)
 
         sys.stdout.buffer.write(canonical(result))
         return 0

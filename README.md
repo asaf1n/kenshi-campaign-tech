@@ -1,6 +1,6 @@
 # Kenshi Campaign
 
-Локальная обработка сохранений Kenshi и публикация подтверждённого состояния для ChatGPT. Реализован сквозной конвейер: извлечение неизменяемых снимков (`kenshi-session/10`), совместимый diff с сохранением устойчивых ID (`kenshi-session-diff/5`), сборка географического справочника мира (`kenshi-world-reference/1`), пространственное разрешение позиций персонажей и построек (`kenshi-locations/1`, группы близости, перемещения), валидация пакета, детерминированный рендеринг русских `brief.md` и `squad.md`, атомарная публикация release bundle (`published/`) на Windows с защитой `.gitkeep` и rollback.
+Локальная обработка сохранений Kenshi и публикация подтверждённого состояния для ChatGPT. Реализован сквозной конвейер: извлечение неизменяемых снимков (`kenshi-session/10`), реестр снимков и веток (`kenshi-index/1`), совместимый diff с сохранением устойчивых ID и защитой от reload (`kenshi-session-diff/5`), сборка географического справочника мира (`kenshi-world-reference/1`), пространственное разрешение позиций персонажей и построек (`kenshi-locations/1`, группы близости, перемещения), валидация пакета, детерминированный рендеринг русских `brief.md` и `squad.md`, атомарная публикация release bundle (`published/`) на Windows с защитой `.gitkeep` и rollback.
 
 Нужны Python 3.12+ и `jsonschema` с Draft 2020-12 для проверки проектных схем. Для `export` установка игры и конвертер не требуются. Для `save` используется существующий `kenshi-platoon-export/tools/session_export.py`; бинарный парсер здесь не дублируется.
 
@@ -26,7 +26,13 @@ python -m tools.campaign extract --source-kind export --source "$env:KENSHI_CONV
 python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
-python -m tools.campaign publish --snapshot-id <snapshot_id> [--parent-snapshot-id <parent_id>] [--world-ref <world_ref_id_or_path>]
+python -m tools.campaign publish --snapshot-id <snapshot_id> [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>]
+python -m tools.campaign index show
+python -m tools.campaign index rebuild [--snapshots-dir data/snapshots]
+python -m tools.campaign index validate
+python -m tools.campaign branch list
+python -m tools.campaign branch switch <branch_id> [--create] [--name <name>]
+python -m tools.campaign branch tree
 ```
 
 Путь к конкретному входу обязателен: CLI не выбирает «последний» сейв и не устанавливает родителя по времени файла. Имена кампании/ветки задаёт пользователь. `--parent-snapshot-id` передаёт явного родителя; проверка реестра веток относится к задаче 3.1.
@@ -58,7 +64,7 @@ python tests/check_converter.py --converter "$env:KENSHI_CONVERTER_DIR" --report
 ## Файлы и документация
 
 - `tools/`: CLI, конфигурация, адаптер, нормализация, файловые границы и валидация схем.
-- `contracts/`, `examples/`: схемы manifest, timeline-event, world-reference, locations и синтетические примеры.
+- `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и синтетические примеры.
 - `tests/`: проверки; `tests/.evidence/` — локальные результаты вне Git.
 - `data/`, `published/`, `timeline/`, `sessions/`: снимки, будущая публикация и отдельно авторские материалы.
 - [Контракт данных](docs/data-contract.md), [архитектура](docs/architecture.md), [требования](docs/requirements.md), [критерии приёмки](docs/acceptance.md).

@@ -11,7 +11,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, linked, read_json
+
+ROOT = Path(__file__).resolve().parents[1]
 
 DIFF_FORMAT = "kenshi-session-diff/5"
 COMPATIBLE = {
@@ -193,6 +196,9 @@ def diff(
     cur_id: str | None = None,
     explain: bool = False,
     parent_snapshot_id: str | None = None,
+    prev_branch_id: str | None = None,
+    cur_branch_id: str | None = None,
+    index_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     head: dict[str, Any] = {
         "format": DIFF_FORMAT,
@@ -230,8 +236,17 @@ def diff(
 
     problems: list[str] = []
 
-    if parent_snapshot_id is not None and prev_id is not None and prev_id != parent_snapshot_id:
-        problems.append(f"несовпадение родителя: заявлен {parent_snapshot_id}, но сравнивается {prev_id}")
+    # Проверка веток и совместимости предков
+    if prev_id and cur_id and index_data is not None and isinstance(index_data, dict):
+        compat, branch_reason = check_branch_compatibility(index_data, prev_id, cur_id)
+        if not compat:
+            problems.append(branch_reason or "different_branches")
+    else:
+        if prev_branch_id is not None and cur_branch_id is not None and prev_branch_id != cur_branch_id:
+            problems.append("different_branches")
+        if parent_snapshot_id is not None and prev_id is not None and prev_id != parent_snapshot_id:
+            problems.append("different_branches")
+            problems.append(f"несовпадение родителя: заявлен {parent_snapshot_id}, но сравнивается {prev_id}")
 
     if prev.get("format") not in COMPATIBLE or cur.get("format") not in COMPATIBLE:
         problems.append(f"разные форматы: {prev.get('format')} и {cur.get('format')}")
@@ -248,9 +263,11 @@ def diff(
     cur_time = cur.get("world", {}).get("time")
     if prev_day is not None and cur_day is not None:
         if cur_day < prev_day:
+            problems.append("game_time_regression")
             problems.append(f"игровой день уменьшился: был {prev_day}, стал {cur_day} (возможно ветвление или откат)")
         elif cur_day == prev_day and prev_time is not None and cur_time is not None:
             if str(cur_time) < str(prev_time):
+                problems.append("game_time_regression")
                 problems.append(f"игровое время уменьшилось в пределах дня {cur_day}: было {prev_time}, стало {cur_time}")
 
     pa = {c["id"]: c for c in prev.get("characters", []) if "id" in c}
@@ -261,9 +278,16 @@ def diff(
         problems.append("ни одного общего id — вероятно, разные игры или формат идентификаторов")
 
     if problems:
+        if "different_branches" in problems:
+            main_reason = "different_branches"
+        elif "game_time_regression" in problems:
+            main_reason = "game_time_regression"
+        else:
+            main_reason = "; ".join(problems)
+
         return head | {
             "valid": False,
-            "reason": "; ".join(problems),
+            "reason": main_reason,
             "problems": problems,
             "summary": {},
             "compared": {},
@@ -527,23 +551,41 @@ def diff_snapshots(
     output_dir: Path | None = None,
     explain: bool = False,
     parent_snapshot_id: str | None = None,
+    index_path: Path | None = None,
+    index_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cur_raw = (cur_dir / "current.json").read_bytes()
     cur = read_json(cur_raw)
-    cur_prov = read_json((cur_dir / "provenance.json").read_bytes())
+    cur_prov = read_json((cur_dir / "provenance.json").read_bytes()) if (cur_dir / "provenance.json").is_file() else {}
     cur_id = cur_prov.get("snapshot_id", cur_dir.name)
+    cur_branch = cur_prov.get("branch_id")
 
     prev = None
     prev_id = None
+    prev_branch = None
     if prev_dir is not None:
         if not prev_dir.is_dir():
             raise ExtractionError(f"Каталог предыдущего снимка не найден: {prev_dir}")
         prev_raw = (prev_dir / "current.json").read_bytes()
         prev = read_json(prev_raw)
-        prev_prov = read_json((prev_dir / "provenance.json").read_bytes())
+        prev_prov = read_json((prev_dir / "provenance.json").read_bytes()) if (prev_dir / "provenance.json").is_file() else {}
         prev_id = prev_prov.get("snapshot_id", prev_dir.name)
+        prev_branch = prev_prov.get("branch_id")
 
     effective_parent = parent_snapshot_id or cur_prov.get("parent_snapshot_id")
+
+    idx_data = index_data
+    if idx_data is None:
+        if index_path is not None and index_path.is_file():
+            idx_data = load_index(index_path)
+        else:
+            default_idx = ROOT / "data/index.json"
+            if default_idx.is_file():
+                try:
+                    idx_data = load_index(default_idx)
+                except Exception:
+                    idx_data = None
+
     result = diff(
         prev=prev,
         cur=cur,
@@ -553,6 +595,9 @@ def diff_snapshots(
         cur_id=cur_id,
         explain=explain,
         parent_snapshot_id=effective_parent,
+        prev_branch_id=prev_branch,
+        cur_branch_id=cur_branch,
+        index_data=idx_data,
     )
 
     if output_dir is not None:

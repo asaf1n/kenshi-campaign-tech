@@ -25,8 +25,12 @@ class LocationsValidationError(ValueError):
     """Отказ валидации пространственного разрешения локаций."""
 
 
+class IndexValidationError(ValueError):
+    """Отказ валидации реестра снимков и веток."""
+
+
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -35,6 +39,74 @@ def validate(value: Any, schema_name: str) -> None:
 
 def validate_manifest(manifest: dict[str, Any]) -> None:
     validate(manifest, "manifest")
+
+
+def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(index_data, dict):
+        raise IndexValidationError("Индекс обязан быть объектом")
+    try:
+        validate(index_data, "index")
+    except (ValidationError, Exception) as error:
+        raise IndexValidationError(f"Ошибка валидации схемы index: {error}") from error
+
+    snapshots = index_data.get("snapshots", {})
+    branches = index_data.get("branches", {})
+
+    # 1. Проверка соответствия ключей и snapshot_id внутри записей
+    for sid_key, snap_entry in snapshots.items():
+        if snap_entry.get("snapshot_id") != sid_key:
+            raise IndexValidationError(
+                f"Несовпадение ключа снимка '{sid_key}' и поля snapshot_id '{snap_entry.get('snapshot_id')}'"
+            )
+
+    # 2. Проверка связей родительства (отсутствие сирот)
+    for sid, snap_entry in snapshots.items():
+        parent_id = snap_entry.get("parent_snapshot_id")
+        if parent_id is not None:
+            if parent_id == sid:
+                raise IndexValidationError(f"Снимок {sid} ссылается сам на себя как на родителя (цикл)")
+            if parent_id not in snapshots:
+                raise IndexValidationError(f"Снимок {sid} ссылается на отсутствующего родителя '{parent_id}' (сирота)")
+
+    # 3. Защита от циклов (cycle detection)
+    for sid in snapshots:
+        curr = sid
+        visited = set()
+        while curr:
+            if curr in visited:
+                raise IndexValidationError(f"Обнаружен цикл в графе родительства снимка: {sid}")
+            visited.add(curr)
+            curr = snapshots[curr].get("parent_snapshot_id")
+
+    # 4. Проверка активной ветки
+    active_b = index_data.get("active_branch_id")
+    if active_b is not None and branches and active_b not in branches:
+        raise IndexValidationError(f"Активная ветка '{active_b}' отсутствует в словаре branches")
+
+    # 5. Проверка головных снимков веток
+    for bid, b_entry in branches.items():
+        head_id = b_entry.get("head_snapshot_id")
+        if head_id is not None:
+            if head_id not in snapshots:
+                raise IndexValidationError(f"Головной снимок '{head_id}' ветки '{bid}' отсутствует в snapshots")
+            if snapshots[head_id].get("branch_id") != bid:
+                raise IndexValidationError(
+                    f"Головной снимок '{head_id}' ветки '{bid}' имеет branch_id '{snapshots[head_id].get('branch_id')}'"
+                )
+
+    return {
+        "status": "passed",
+        "snapshots_count": len(snapshots),
+        "branches_count": len(branches),
+        "active_branch_id": active_b,
+        "checks": [
+            "schema",
+            "snapshot_id_keys",
+            "no_orphans",
+            "no_cycles",
+            "branches_consistency",
+        ],
+    }
 
 
 def validate_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
@@ -234,6 +306,8 @@ def check_examples() -> int:
             validate_world_reference(value)
         elif fmt == "kenshi-locations/1":
             validate_locations(value)
+        elif fmt == "kenshi-index/1":
+            validate_index(value)
         else:
             validate(value, "timeline-event")
         count += 1
@@ -263,7 +337,7 @@ def check_privacy(raw_text: str, filename: str) -> None:
         )
 
 
-def validate_publication(package_dir: Path) -> dict[str, Any]:
+def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = None) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     manifest_path = package_dir / "manifest.json"
     if not manifest_path.is_file() or linked(manifest_path):
@@ -437,6 +511,38 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
             text = file_p.read_text(encoding="utf-8", errors="replace")
             check_privacy(text, file_p.relative_to(package_dir).as_posix())
 
+    # 6. Проверка согласованности с индексом data/index.json (при наличии)
+    checked_index = False
+    if index_data is None:
+        idx_candidate = ROOT / "data/index.json"
+        if idx_candidate.is_file():
+            try:
+                index_data = read_json(idx_candidate.read_bytes())
+            except Exception:
+                index_data = None
+
+    if index_data is not None and isinstance(index_data, dict):
+        snap_id = manifest.get("snapshot_id")
+        idx_snaps = index_data.get("snapshots", {})
+        if snap_id and snap_id in idx_snaps:
+            idx_entry = idx_snaps[snap_id]
+            checked_index = True
+            if manifest.get("parent_snapshot_id") != idx_entry.get("parent_snapshot_id"):
+                raise PublicationValidationError(
+                    f"Несовпадение parent_snapshot_id между manifest '{manifest.get('parent_snapshot_id')}' "
+                    f"и data/index.json '{idx_entry.get('parent_snapshot_id')}'"
+                )
+            if manifest.get("branch_id") and idx_entry.get("branch_id") and manifest.get("branch_id") != idx_entry.get("branch_id"):
+                raise PublicationValidationError(
+                    f"Несовпадение branch_id между manifest '{manifest.get('branch_id')}' "
+                    f"и data/index.json '{idx_entry.get('branch_id')}'"
+                )
+            if idx_entry.get("world_ref_id") and manifest.get("world_ref_id") != idx_entry.get("world_ref_id"):
+                raise PublicationValidationError(
+                    f"Несовпадение world_ref_id между manifest '{manifest.get('world_ref_id')}' "
+                    f"и data/index.json '{idx_entry.get('world_ref_id')}'"
+                )
+
     return {
         "status": "passed",
         "manifest": manifest,
@@ -446,5 +552,6 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
             "semantics",
             "geography" if (has_locations and has_world_ref) else "no_geography",
             "privacy",
+            "index" if checked_index else "no_index",
         ],
     }
