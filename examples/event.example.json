@@ -2,6 +2,7 @@
   "format": "kenshi-event/1",
   "event_id": "example-event-001",
   "session_id": "example-session-001",
+  "snapshot_id": "example-snapshot-a",
   "recorded_at": "2026-11-01T00:00:00Z",
   "game_day": 116,
   "kind": "recruitment",

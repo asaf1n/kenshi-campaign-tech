@@ -23,5 +23,9 @@ __pycache__/
 .venv/
 dist/
 
+# Локальные снимки регистрирует pipeline; публикация выполняется отдельно
+data/snapshots/*/
+tests/.evidence/
+
 # Этапные локальные сессии AI-Orchestrated-Workflow исключаются
 # ТОЛЬКО точными путями через .git/info/exclude при запуске конкретного плана.

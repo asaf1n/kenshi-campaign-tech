@@ -1,0 +1,12 @@
+{
+  "format": "kenshi-event/1",
+  "event_id": "example-correction-001",
+  "session_id": "example-session-001",
+  "snapshot_id": "example-snapshot-b",
+  "recorded_at": "2026-11-01T01:00:00Z",
+  "kind": "correction",
+  "corrects_event_id": "example-event-001",
+  "status": "confirmed",
+  "summary": "Синтетический пример: уточнён источник события",
+  "evidence": [{"kind": "user_note", "ref": "sessions/example-session-001/notes.md"}]
+}

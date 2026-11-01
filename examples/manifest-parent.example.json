@@ -1,0 +1,21 @@
+{
+  "format": "kenshi-publication/1",
+  "generated_at": "2026-11-01T01:00:00Z",
+  "snapshot_id": "example-snapshot-b",
+  "parent_snapshot_id": "example-snapshot-a",
+  "branch_id": "example-branch",
+  "game_time": "116 12:30",
+  "world_ref_id": null,
+  "source_kind": "save",
+  "source_format": "kenshi-session/10",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "artifacts": {
+    "current": "current.json",
+    "changes": "changes.json",
+    "brief": "brief.md",
+    "squad": "squad.md",
+    "locations": "locations.json",
+    "world_reference": "world-reference.json"
+  },
+  "validation": {"status": "passed", "checks": ["fixture-only"]}
+}

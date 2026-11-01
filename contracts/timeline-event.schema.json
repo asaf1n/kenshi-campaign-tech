@@ -9,6 +9,8 @@
   "properties": {
     "format": {"const": "kenshi-event/1"},
     "event_id": {"type": "string", "minLength": 1},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "corrects_event_id": {"type": "string", "minLength": 1},
     "session_id": {"type": "string", "minLength": 1},
     "recorded_at": {"type": "string", "format": "date-time"},
     "game_day": {"type": ["integer", "null"], "minimum": 0},
@@ -29,5 +31,11 @@
         "additionalProperties": false
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "correction"}}, "required": ["kind"]},
+      "then": {"required": ["corrects_event_id"]}
+    }
+  ]
 }
