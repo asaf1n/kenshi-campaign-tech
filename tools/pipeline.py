@@ -25,6 +25,8 @@ def run_pipeline(
     world_dir: Path | None = None,
     index_path: Path | None = None,
     dry_run: bool = False,
+    timeline_path: Path | None = None,
+    sessions_root: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = output_snapshots or ROOT / "data/snapshots"
     diffs_dir = output_diffs or ROOT / "data/diffs"
@@ -68,6 +70,8 @@ def run_pipeline(
         world_dir=world_dir,
         index_path=idx_path,
         dry_run=dry_run,
+        timeline_path=timeline_path,
+        sessions_root=sessions_root,
     )
 
     return {

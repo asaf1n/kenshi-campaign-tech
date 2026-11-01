@@ -12,6 +12,7 @@ from tools.diff import diff, make_diff_id, store_diff
 from tools.io_utils import canonical, digest, read_json
 from tools.publisher import PublisherError, publish, recover_if_needed
 from tools.rendering import render_brief, render_squad
+from tools.timeline import read_timeline
 from tools.validation import PublicationValidationError, validate_publication
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -254,8 +255,9 @@ class PublishTests(unittest.TestCase):
         loc = read_json(loc_path.read_bytes()) if loc_path.is_file() else None
 
         # 1. Повторный рендер даёт побайтово идентичные файлы (детерминизм)
-        brief1 = render_brief(cur, ch, snap_id, locations=loc)
-        brief2 = render_brief(cur, ch, snap_id, locations=loc)
+        timeline = read_timeline(self.published_dir / "timeline.jsonl", projection=True)
+        brief1 = render_brief(cur, ch, snap_id, locations=loc, timeline=timeline, timeline_projection=True)
+        brief2 = render_brief(cur, ch, snap_id, locations=loc, timeline=timeline, timeline_projection=True)
         self.assertEqual(brief1, brief2)
 
         squad1 = render_squad(cur, snap_id, locations=loc)

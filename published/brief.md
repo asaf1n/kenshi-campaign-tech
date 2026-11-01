@@ -1,4 +1,4 @@
-# Краткая сводка: sha256-ac3947e9e869657188cb09b6653b93f2168292abeb0139ba2bf7735c445cf8da
+# Краткая сводка: sha256-b44baa9c9e44a71c46e9d09abfc61fce327e690c1bbb5647709d1758383a042f
 
 ## Игровой мир
 - **Время:** День 125, время 17:15
@@ -107,9 +107,14 @@
 - property: здания и собственность не сравниваются в kenshi-session-diff/5
 - research: дерево исследований не сравнивается в kenshi-session-diff/5
 
+## Хроника событий
+
+Подтверждённые события отсутствуют.
+
 ## Связанные артефакты
 - [Детальный снимок состояния (current.json)](current.json)
 - [Детальные изменения (changes.json)](changes.json)
 - [Полный состав отряда (squad.md)](squad.md)
+- [Журнал событий (timeline.jsonl)](timeline.jsonl)
 - [Пространственное разрешение локаций (locations.json)](locations.json)
 - [Справочник мира и карты (world_reference.json)](world_reference.json)

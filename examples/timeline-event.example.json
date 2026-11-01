@@ -1,0 +1,12 @@
+{
+  "format": "kenshi-event/1",
+  "event_id": "event-synthetic-arrival",
+  "session_id": "session-synthetic",
+  "snapshot_id": "snapshot-synthetic",
+  "recorded_at": "2026-11-01T08:00:00Z",
+  "game_day": 15,
+  "kind": "arrival",
+  "status": "observed",
+  "summary": "Синтетический пример: положение отряда зафиксировано в снимке.",
+  "evidence": [{"kind": "snapshot", "ref": "data/snapshots/snapshot-synthetic/current.json"}]
+}

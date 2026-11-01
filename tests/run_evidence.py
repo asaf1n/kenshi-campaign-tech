@@ -106,6 +106,13 @@ def main() -> int:
             "branches-run.json",
         ),
         (
+            "timeline",
+            [sys.executable, "-m", "unittest", "tests/test_timeline.py", "-v"],
+            ["python", "-m", "unittest", "tests/test_timeline.py", "-v"],
+            "timeline.log",
+            "timeline-run.json",
+        ),
+        (
             "converter",
             [
                 sys.executable,

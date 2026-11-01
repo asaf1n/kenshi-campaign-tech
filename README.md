@@ -33,13 +33,26 @@ python -m tools.campaign index validate
 python -m tools.campaign branch list
 python -m tools.campaign branch switch <branch_id> [--create] [--name <name>]
 python -m tools.campaign branch tree
+
+# Авторская сессия связывает несколько снимков; заметки сами не создают событий:
+python -m tools.campaign timeline session --session-id session-001 --snapshot-id <id1> --snapshot-id <id2>
+python -m tools.campaign timeline append <event.json>
+python -m tools.campaign timeline import <events.jsonl>
+python -m tools.campaign timeline list --branch-id main --resolved
+python -m tools.campaign timeline validate
 ```
 
 Путь к конкретному входу обязателен: CLI не выбирает «последний» сейв и не устанавливает родителя по времени файла. Имена кампании/ветки задаёт пользователь. `--parent-snapshot-id` передаёт явного родителя; проверка реестра веток относится к задаче 3.1.
 
 Умолчания конфигурации совпадают с показанными стандартными каталогами: конвертер в домашней папке, два корня сейвов, Steam Kenshi и Workshop `233860`. `KENSHI_SAVE_DIRS` разделяется символом `;` и задаёт защищённые корни. `--faction-sid` имеет приоритет над `KENSHI_FACTION_SID`, затем используется `204-gamedata.base`. Несовпадение фракции готового экспорта с эффективной настройкой вызывает отказ.
 
-Результат: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (сравнения), `data/world_references/<world_ref_id>.json` (географические справочники), `data/locations/<loc_id>.json` (пространственные привязки) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `locations.json`, `world_reference.json`, `brief.md`, `squad.md`). При ошибке код выхода — `1`, пакет не публикуется; диагностика выводится в stderr. Генерируемые файлы вручную не исправляются.
+Результат: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (сравнения), `data/world_references/<world_ref_id>.json` (географические справочники), `data/locations/<loc_id>.json` (пространственные привязки) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `locations.json`, `world_reference.json`, `timeline.jsonl`, `brief.md`, `squad.md`). При ошибке код выхода — `1`, пакет не публикуется; диагностика выводится в stderr. Генерируемые файлы вручную не исправляются.
+
+`timeline` (алиас `event`) ведёт append-only `timeline/events.jsonl`; `--root` после подкоманды задаёт другой корень кампании. `append` принимает JSON одного события, `import` — JSONL пакет с завершающим переводом строки. Формат показан в `examples/timeline-event.example.json`; его синтетические ID и источники необходимо заменить действительными. `observed` требует снимок/diff, `confirmed` — явно подтверждённую заметку/скриншот, `inferred` сохраняется как гипотеза. Сначала создаётся сессия, затем событие. `timeline session --notes <notes.md>` импортирует авторские заметки; без аргумента используется шаблон. Источники фактов должны существовать; абсолютные пути и выход из корня запрещены.
+
+Исправление добавляется новым событием `kind="correction"`, `corrects_event_id=<исправляемый_ID>`. Повтор идентичного импорта ничего не меняет; конфликт ID, повреждённая строка или неоднозначная коррекция вызывают отказ. После сбоя журнал восстанавливается из проверенной копии владельцем данных. Публикацию запускает отдельная команда `publish` либо `pipeline`: она включает действующие факты только выбранной цепочки снимков. Гипотезы и события неопределённой/параллельной ветки остаются в исходном журнале. Подробная семантика описана в [контракте данных](docs/data-contract.md#подтверждённые-игровые-события).
+
+Для другого журнала у `publish`/`pipeline` есть `--timeline <events.jsonl>` и `--sessions-root <корень_кампании>`. При повторном рендере опубликованного пакета передайте `render --timeline published/timeline.jsonl` вместе с `current`, `changes` и `locations`. Новый факт может изменить выпуск при прежнем `snapshot_id`: сверяйте также `generated_at` и SHA-256 файла из `artifacts.timeline`. Неизменное содержимое сохраняет дату и хеш выпуска.
 
 ## Проверки
 
@@ -66,5 +79,5 @@ python tests/check_converter.py --converter "$env:KENSHI_CONVERTER_DIR" --report
 - `tools/`: CLI, конфигурация, адаптер, нормализация, файловые границы и валидация схем.
 - `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и синтетические примеры.
 - `tests/`: проверки; `tests/.evidence/` — локальные результаты вне Git.
-- `data/`, `published/`, `timeline/`, `sessions/`: снимки, будущая публикация и отдельно авторские материалы.
+- `data/`, `published/`, `timeline/`, `sessions/`: снимки, публикация, append-only журнал и отдельно авторские заметки с привязками к снимкам.
 - [Контракт данных](docs/data-contract.md), [архитектура](docs/architecture.md), [требования](docs/requirements.md), [критерии приёмки](docs/acceptance.md).

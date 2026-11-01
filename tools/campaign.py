@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     render_parser.add_argument("--locations", type=Path, help="Путь к locations.json")
     render_parser.add_argument("--output-dir", type=Path, required=True, help="Каталог для записи brief.md и squad.md")
     render_parser.add_argument("--snapshot-id", default="snapshot")
+    render_parser.add_argument("--timeline", type=Path, help="Опубликованная проекция timeline.jsonl")
 
     # 6. publish
     pub_parser = commands.add_parser("publish", help="Атомарная публикация release bundle")
@@ -97,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
     pipe_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     pipe_parser.add_argument("--dry-run", action="store_true")
+    for publication_parser in (pub_parser, pipe_parser):
+        publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
+        publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -137,12 +141,49 @@ def main(argv: list[str] | None = None) -> int:
     branch_tree = branch_subs.add_parser("tree", help="Дерево снимков и веток")
     branch_tree.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
 
+    timeline_parser = commands.add_parser("timeline", aliases=["event"], help="Журнал игровых событий")
+    timeline_subs = timeline_parser.add_subparsers(dest="subcommand", required=True)
+    for action in ("append", "import", "list", "validate", "session"):
+        sub = timeline_subs.add_parser(action)
+        sub.add_argument("--root", type=Path, default=ROOT, help="Корень кампании с data/, timeline/, sessions/")
+        if action in ("append", "import"):
+            sub.add_argument("source", type=Path, help="JSON события или JSONL пакет")
+        elif action == "list":
+            sub.add_argument("--branch-id")
+            sub.add_argument("--resolved", action="store_true")
+        elif action == "session":
+            sub.add_argument("--session-id", required=True)
+            sub.add_argument("--snapshot-id", action="append", required=True)
+            sub.add_argument("--notes", type=Path, help="Авторские заметки; по умолчанию шаблон")
+
     args = parser.parse_args(argv)
     try:
         result: Any = None
         if args.command == "check-schemas":
             from tools.validation import check_examples
             result = {"validated_examples": check_examples()}
+
+        elif args.command in {"timeline", "event"}:
+            from tools.index import load_index
+            from tools.timeline import append_event, create_session, filter_events_by_branch, import_events, load_sessions, read_event_batch, read_timeline, resolve_timeline
+            from tools.validation import validate_timeline
+            root = args.root.resolve()
+            idx = load_index(root / "data/index.json")
+            ledger = root / "timeline/events.jsonl"
+            if args.subcommand == "session":
+                result = create_session(args.session_id, args.snapshot_id, idx, root,
+                                        args.notes.read_text(encoding="utf-8") if args.notes else None)
+            elif args.subcommand == "append":
+                result = append_event(read_json(args.source.read_bytes()), ledger, index_data=idx, root=root)
+            elif args.subcommand == "import":
+                result = import_events(read_event_batch(args.source), ledger, index_data=idx, root=root)
+            else:
+                events = read_timeline(ledger)
+                result = validate_timeline(events, idx)
+                if args.subcommand == "list":
+                    if args.branch_id:
+                        events = filter_events_by_branch(events, args.branch_id, idx, load_sessions(root, idx))
+                    result = resolve_timeline(events) if args.resolved else events
 
         elif args.command == "extract":
             result = extract(
@@ -189,7 +230,12 @@ def main(argv: list[str] | None = None) -> int:
             ch = read_json(args.changes.read_bytes())
             loc = read_json(args.locations.read_bytes()) if args.locations else None
             args.output_dir.mkdir(parents=True, exist_ok=True)
-            brief_text = render_brief(cur, ch, args.snapshot_id, locations=loc)
+            from tools.timeline import read_timeline
+            timeline = read_timeline(args.timeline, projection=True) if args.timeline else None
+            brief_text = render_brief(cur, ch, args.snapshot_id, locations=loc,
+                                     timeline=timeline, timeline_projection=True)
+            if timeline is not None:
+                (args.output_dir / "timeline.jsonl").write_bytes(b"".join(canonical(e) for e in timeline))
             squad_text = render_squad(cur, args.snapshot_id, locations=loc)
             (args.output_dir / "brief.md").write_text(brief_text, encoding="utf-8")
             (args.output_dir / "squad.md").write_text(squad_text, encoding="utf-8")
@@ -212,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
                 world_ref_id=args.world_ref,
                 index_path=args.index_file,
                 dry_run=args.dry_run,
+                timeline_path=args.timeline,
+                sessions_root=args.sessions_root,
             )
 
         elif args.command == "pipeline":
@@ -228,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
                 world_ref_id=args.world_ref,
                 index_path=args.index_file,
                 dry_run=args.dry_run,
+                timeline_path=args.timeline,
+                sessions_root=args.sessions_root,
             )
 
         elif args.command == "build-world":

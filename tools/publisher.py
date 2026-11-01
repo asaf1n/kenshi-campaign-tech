@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from datetime import timedelta
 import os
 from pathlib import Path
 import shutil
@@ -22,9 +23,10 @@ from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
 from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index, save_index
-from tools.io_utils import canonical, read_json
+from tools.io_utils import canonical, digest, read_json
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
+from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
 from tools.validation import validate_publication
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
@@ -146,6 +148,8 @@ def publish(
     generated_at: str | None = None,
     dry_run: bool = False,
     fault_inject: str | None = None,
+    timeline_path: Path | None = None,
+    sessions_root: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = snapshots_dir.resolve()
     diffs_dir = diffs_dir.resolve()
@@ -307,8 +311,21 @@ def publish(
     except Exception:
         pass
 
+    # Авторский журнал читается целиком: повреждение не скрывается фильтром ветки.
+    ledger = timeline_path or snapshots_dir.parent.parent / "timeline/events.jsonl"
+    events = read_timeline(ledger)
+    timeline_data = []
+    if events:
+        if idx_data is None or not effective_branch:
+            raise PublisherError("Для публикации событий нужен валидный индекс и выбранная ветка")
+        sessions = load_sessions(sessions_root or ledger.parent.parent, idx_data)
+        selected = filter_events_by_branch(events, effective_branch, idx_data, sessions, snapshot_id=snapshot_id)
+        timeline_data = project_timeline(selected, snapshot_id, diff_id)
+    timeline_bytes = b"".join(canonical(e) for e in timeline_data)
+
     # 3. Рендеринг русскоязычных Markdown с географическими сводками
-    brief_md = render_brief(cur, diff_data, snapshot_id, locations=locations_data)
+    brief_md = render_brief(cur, diff_data, snapshot_id, locations=locations_data,
+                            timeline=timeline_data, timeline_projection=True)
     squad_md = render_squad(cur, snapshot_id, locations=locations_data)
 
     manifest_data = {
@@ -329,6 +346,7 @@ def publish(
             "squad": "squad.md",
             "locations": "locations.json",
             "world_reference": "world_reference.json",
+            "timeline": "timeline.jsonl",
         },
         "validation": {
             "status": "passed",
@@ -337,6 +355,7 @@ def publish(
                 "artifacts",
                 "semantics",
                 "geography",
+                "timeline",
                 "privacy",
             ],
         },
@@ -359,10 +378,32 @@ def publish(
 
             (staging_dir / "current.json").write_bytes(canonical(cur))
             (staging_dir / "changes.json").write_bytes(canonical(diff_data))
+            previous_locations_path = published_dir / "locations.json"
+            if previous_locations_path.is_file():
+                previous_locations_data = read_json(previous_locations_path.read_bytes())
+                stable_locations = dict(locations_data, created_at=previous_locations_data.get("created_at"))
+                if stable_locations == previous_locations_data:
+                    locations_data = stable_locations
             (staging_dir / "locations.json").write_bytes(canonical(locations_data))
             (staging_dir / "world_reference.json").write_bytes(canonical(w_ref))
+            (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
+            # Время выпуска меняется только при изменении содержимого bundle.
+            previous_manifest = published_dir / "manifest.json"
+            if previous_manifest.is_file():
+                previous = read_json(previous_manifest.read_bytes())
+                comparable = dict(manifest_data, generated_at=previous.get("generated_at"))
+                same_files = all(
+                    (published_dir / name).is_file()
+                    and (published_dir / name).read_bytes() == (staging_dir / name).read_bytes()
+                    for name in manifest_data["artifacts"].values()
+                )
+                if same_files and comparable == previous:
+                    manifest_data["generated_at"] = previous["generated_at"]
+                elif manifest_data["generated_at"] == previous.get("generated_at"):
+                    stamp = datetime.fromisoformat(previous["generated_at"].replace("Z", "+00:00"))
+                    manifest_data["generated_at"] = (stamp + timedelta(microseconds=1)).isoformat().replace("+00:00", "Z")
             (staging_dir / "manifest.json").write_bytes(canonical(manifest_data))
 
             if fault_inject == "before_validate":
@@ -438,4 +479,5 @@ def publish(
         "snapshot_id": snapshot_id,
         "published_dir": str(published_dir),
         "manifest": manifest_data,
+        "timeline_sha256": digest(timeline_bytes),
     }

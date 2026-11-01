@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import html
 from typing import Any
 
 
@@ -14,6 +15,8 @@ def render_brief(
     changes: dict[str, Any],
     snapshot_id: str,
     locations: dict[str, Any] | None = None,
+    timeline: list[dict[str, Any]] | None = None,
+    *, timeline_projection: bool = False,
 ) -> str:
     world = current.get("world", {})
     day = world.get("day")
@@ -224,6 +227,30 @@ def render_brief(
         for w in sorted(set(warnings)):
             lines.append(f"- [Неполнота данных] {w}")
 
+    if timeline is not None:
+        from tools.timeline import resolve_timeline
+        from tools.validation import validate_timeline
+        validate_timeline(timeline, projection=timeline_projection)
+        facts = timeline if timeline_projection else resolve_timeline(timeline)
+        lines.extend(["", "## Хроника событий", ""])
+        def event_line(event: dict[str, Any]) -> str:
+            def safe(value: Any) -> str:
+                return html.escape(str(value)).replace("\n", " ").replace("\r", " ").replace("[", "&#91;").replace("]", "&#93;").replace("`", "&#96;")
+            sources = "; ".join(
+                f"{safe(e['kind'])}: {safe(e['ref'])}" + (f" ({safe(e['note'])})" if e.get("note") else "")
+                for e in event["evidence"]
+            )
+            corrected = f"; исправляет {safe(event['corrects_event_id'])}" if event.get("corrects_event_id") else ""
+            day = f"день {event['game_day']}" if event.get("game_day") is not None else "игровой день неизвестен"
+            return f"- [{event['status']}] {safe(event['summary'])} ({day}; ID: {safe(event['event_id'])}{corrected}). Источники: {sources}"
+        lines.extend(event_line(e) for e in facts)
+        if not facts:
+            lines.append("Подтверждённые события отсутствуют.")
+        hypotheses = [] if timeline_projection else [e for e in resolve_timeline(timeline, include_inferred=True) if e["status"] == "inferred"]
+        if hypotheses:
+            lines.extend(["", "### Неподтверждённые гипотезы (inferred)", ""])
+            lines.extend(event_line(e) for e in hypotheses)
+
     lines.extend([
         "",
         "## Связанные артефакты",
@@ -231,6 +258,8 @@ def render_brief(
         "- [Детальные изменения (changes.json)](changes.json)",
         "- [Полный состав отряда (squad.md)](squad.md)",
     ])
+    if timeline is not None:
+        lines.append("- [Журнал событий (timeline.jsonl)](timeline.jsonl)")
     if locations is not None:
         lines.extend([
             "- [Пространственное разрешение локаций (locations.json)](locations.json)",

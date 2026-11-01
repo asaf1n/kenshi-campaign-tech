@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,44 @@ class IndexValidationError(ValueError):
     """Отказ валидации реестра снимков и веток."""
 
 
+class TimelineValidationError(ValueError):
+    """Отказ валидации события или журнала событий."""
+
+
+_TIMELINE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
+    f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+}
+
+
+def validate_timeline_id(value: str, field: str = "ID") -> None:
+    """Идентификатор не должен менять смысл при использовании как имени файла."""
+    if (
+        not isinstance(value, str)
+        or not _TIMELINE_ID.fullmatch(value)
+        or ".." in value
+        or value.endswith(".")
+        or value.split(".", 1)[0].upper() in _WINDOWS_RESERVED
+    ):
+        raise TimelineValidationError(f"Небезопасный идентификатор {field}: {value!r}")
+
+
+def _validate_evidence_ref(ref: str) -> None:
+    parts = ref.split("/")
+    if (
+        any(char in ref for char in '\\:<>"|?*')
+        or any(ord(char) < 32 or ord(char) == 127 for char in ref)
+        or any(
+            not part
+            or part in {".", ".."}
+            or part.endswith((".", " "))
+            or part.split(".", 1)[0].upper() in _WINDOWS_RESERVED
+            for part in parts
+        )
+    ):
+        raise TimelineValidationError(f"Небезопасная относительная ссылка evidence.ref: {ref!r}")
+
+
 def validate(value: Any, schema_name: str) -> None:
     if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
@@ -39,6 +78,94 @@ def validate(value: Any, schema_name: str) -> None:
 
 def validate_manifest(manifest: dict[str, Any]) -> None:
     validate(manifest, "manifest")
+
+
+def validate_event(event: dict[str, Any], index_data: dict[str, Any] | None = None) -> None:
+    """Проверить схему, идентичность и достаточный вид источника события."""
+    try:
+        validate(event, "timeline-event")
+    except ValidationError as error:
+        raise TimelineValidationError(f"Ошибка схемы timeline-event: {error.message}") from error
+
+    for field in ("event_id", "session_id", "snapshot_id", "corrects_event_id"):
+        if field in event:
+            validate_timeline_id(event[field], field)
+
+    snapshot_id = event.get("snapshot_id")
+    if snapshot_id == event["session_id"]:
+        raise TimelineValidationError("session_id не должен совпадать со snapshot_id")
+    if index_data is not None:
+        if not isinstance(index_data, dict) or not isinstance(index_data.get("snapshots"), dict):
+            raise TimelineValidationError("Индекс событий обязан содержать объект snapshots")
+        if snapshot_id is not None and snapshot_id not in index_data["snapshots"]:
+            raise TimelineValidationError(f"Событие ссылается на отсутствующий снимок: {snapshot_id}")
+
+    source_kinds = {source["kind"] for source in event["evidence"]}
+    for source in event["evidence"]:
+        _validate_evidence_ref(source["ref"])
+    if event["status"] == "observed" and not source_kinds & {"snapshot", "diff"}:
+        raise TimelineValidationError("Событие observed требует evidence вида snapshot или diff")
+    if event["status"] == "confirmed" and not source_kinds & {"user_note", "screenshot"}:
+        raise TimelineValidationError("Событие confirmed требует evidence вида user_note или screenshot")
+
+    if event["kind"] != "correction" and "corrects_event_id" in event:
+        raise TimelineValidationError("corrects_event_id допустим только для kind=correction")
+    if event.get("corrects_event_id") == event["event_id"]:
+        raise TimelineValidationError(f"Коррекция {event['event_id']} ссылается сама на себя")
+
+
+def validate_timeline(
+    events: list[dict[str, Any]],
+    index_data: dict[str, Any] | None = None,
+    *,
+    projection: bool = False,
+) -> dict[str, Any]:
+    """Проверить целостность журнала независимо от порядка поступления событий."""
+    if not isinstance(events, list):
+        raise TimelineValidationError("Журнал событий обязан быть списком")
+    by_id: dict[str, dict[str, Any]] = {}
+    corrections: dict[str, str] = {}
+    corrected_by: dict[str, str] = {}
+    for event in events:
+        validate_event(event, index_data)
+        event_id = event["event_id"]
+        if event_id in by_id:
+            raise TimelineValidationError(f"Дублирующийся event_id в журнале: {event_id}")
+        if projection and event["status"] == "inferred":
+            raise TimelineValidationError(f"Гипотеза inferred недопустима в опубликованной проекции: {event_id}")
+        by_id[event_id] = event
+        target = event.get("corrects_event_id")
+        if target is not None:
+            if target in corrected_by:
+                raise TimelineValidationError(
+                    f"Неоднозначные коррекции события {target}: {corrected_by[target]} и {event_id}"
+                )
+            corrected_by[target] = event_id
+            corrections[event_id] = target
+
+    for event_id, target in corrections.items():
+        # Проекция содержит только действующее утверждение; оригинал хранится в журнале.
+        if target not in by_id and not projection:
+            raise TimelineValidationError(f"Коррекция {event_id} ссылается на отсутствующее событие: {target}")
+
+    checked: set[str] = set()
+    for event_id in corrections:
+        visited: set[str] = set()
+        current = event_id
+        while current in corrections and current not in checked:
+            if current in visited:
+                raise TimelineValidationError(f"Обнаружен цикл коррекций события: {event_id}")
+            visited.add(current)
+            current = corrections[current]
+        checked.update(visited)
+
+    return {
+        "status": "passed",
+        "events_count": len(events),
+        "corrections_count": len(corrections),
+        "projection": projection,
+        "checks": ["schema", "safe_references", "evidence_kinds", "unique_event_ids", "correction_graph"],
+    }
 
 
 def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
@@ -309,7 +436,7 @@ def check_examples() -> int:
         elif fmt == "kenshi-index/1":
             validate_index(value)
         else:
-            validate(value, "timeline-event")
+            validate_event(value)
         count += 1
     return count
 
@@ -355,6 +482,11 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     if not required_artifacts.issubset(artifacts.keys()):
         missing = required_artifacts - set(artifacts.keys())
         raise PublicationValidationError(f"В artifacts отсутствуют обязательные файлы: {missing}")
+    timeline_path = package_dir / "timeline.jsonl"
+    if "timeline" not in artifacts and (timeline_path.exists() or linked(timeline_path)):
+        raise PublicationValidationError("timeline.jsonl не зарегистрирован в artifacts.timeline")
+    if "timeline" in artifacts and artifacts["timeline"] != "timeline.jsonl":
+        raise PublicationValidationError("artifacts.timeline обязан указывать на timeline.jsonl")
 
     checked_files: set[Path] = {manifest_path}
 
@@ -494,13 +626,14 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
 
     # 4. Проверка timeline при наличии
     if "timeline" in artifacts:
-        timeline_path = package_dir / artifacts["timeline"]
-        for line in timeline_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            event = read_json(line.encode("utf-8"))
-            validate(event, "timeline-event")
+        from tools.timeline import read_timeline
+
+        try:
+            events = read_timeline(timeline_path, projection=True)
+            validate_timeline(events, index_data, projection=True)
+            check_privacy(timeline_path.read_text(encoding="utf-8"), "timeline.jsonl")
+        except (ValueError, OSError) as error:
+            raise PublicationValidationError(f"Некорректная проекция timeline.jsonl: {error}") from error
 
     # 5. Проверка приватности во всех файлах пакета
     for root_dir, dirs, files in os.walk(package_dir):
@@ -551,6 +684,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             "artifacts",
             "semantics",
             "geography" if (has_locations and has_world_ref) else "no_geography",
+            "timeline" if "timeline" in artifacts else "no_timeline",
             "privacy",
             "index" if checked_index else "no_index",
         ],
