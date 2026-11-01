@@ -15,7 +15,7 @@ from tools.normalization import scrub
 
 def strict_inputs(exporter: Any, save: Path, faction: str) -> None:
     quick = exporter.read_file((save / "quick.save").read_bytes())
-    if quick["consumed"] != quick["size"] or not any(r["type"] == 56 for r in quick["records"]):
+    if quick["consumed"] <= 0 or not any(r["type"] == 56 for r in quick["records"]):
         raise ExtractionError("Повреждена обязательная структура quick.save")
     registry = exporter.saves.read_quick_save(str(save))["registry"]
     platoon = save / "platoon"

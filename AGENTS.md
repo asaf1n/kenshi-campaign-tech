@@ -6,7 +6,7 @@
 
 | Область изменений | Обязательный источник | Проверка |
 |---|---|---|
-| Извлечение, конфигурация и границы записи (`tools/`) | `docs/architecture.md`, `docs/data-contract.md` | `python -m unittest discover -s tests`; по доступным входам `tests/check_live.py` |
+| Извлечение, diff, рендер и границы публикации (`tools/`) | `docs/architecture.md`, `docs/data-contract.md` | `python -m unittest discover -s tests`; `python tests/run_evidence.py` |
 | Схемы и примеры (`contracts/`, `examples/`) | `docs/data-contract.md` | `python -m tools.campaign check-schemas`; `python -m unittest discover -s tests` |
 | Структура и документация | `README.md`, `docs/requirements.md`, `docs/acceptance.md` | `python tests/check_seed.py`; `git diff --check` |
 

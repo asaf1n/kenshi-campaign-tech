@@ -147,6 +147,43 @@ def main() -> int:
         ),
     ]
 
+    local_save = Path(os.environ.get("LOCALAPPDATA", "")).resolve() / "kenshi/save/autosave0"
+    if local_save.is_dir() and (local_save / "quick.save").is_file():
+        commands.insert(
+            4,
+            (
+                "save",
+                [
+                    sys.executable,
+                    "-B",
+                    "tests/check_live.py",
+                    "--source-kind",
+                    "save",
+                    "--source",
+                    str(local_save),
+                    "--output",
+                    "data/snapshots",
+                    "--report",
+                    "tests/.evidence/save.json",
+                ],
+                [
+                    "python",
+                    "-B",
+                    "tests/check_live.py",
+                    "--source-kind",
+                    "save",
+                    "--source",
+                    "%LOCALAPPDATA%/kenshi/save/autosave0",
+                    "--output",
+                    "data/snapshots",
+                    "--report",
+                    "tests/.evidence/save.json",
+                ],
+                "save.log",
+                "save-run.json",
+            ),
+        )
+
     for name, exec_args, display_cmd, log_name, run_name in commands:
         run_command(name, exec_args, display_cmd, log_name, run_name)
 

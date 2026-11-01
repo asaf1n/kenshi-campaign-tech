@@ -4,12 +4,12 @@
 
 Цель плана: реализовать единый локальный воспроизводимый конвейер `extract → normalize → resolve_locations → diff → validate → render → publish`, переиспользующий `kenshi-platoon-export`, извлекающий версионированный справочник мира из установленной Kenshi и активных модов, пространственно разрешающий локации персонажей и построек без догадок, сохраняющий исходные сейвы и публикующий подтверждённое состояние кампании для ChatGPT; выполнить P0 из [требований](../../../docs/requirements.md) и подтверждённое географическое расширение (включённое в план отдельной задачей перед P0-задачами веток и e2e по дополнительному заданию пользователя от 2026-11-01 о проверке и интеграции географических данных) с доказательствами по [AC-01..AC-15](../../../docs/acceptance.md), без параллельного pipeline, отдельного проекта или альтернативного manifest.
 
-Открытая задача: [01-vertical-slice](01-vertical-slice.md)
+Открытая задача: [02-world-geography](02-world-geography.md)
 
 | Задача | Состояние очереди |
 |---|---|
-| [01-vertical-slice](01-vertical-slice.md) | открыта |
-| [02-world-geography](02-world-geography.md) | в очереди |
+| [01-vertical-slice](01-vertical-slice.md) | выполнена |
+| [02-world-geography](02-world-geography.md) | открыта |
 | [03-branches-and-timeline](03-branches-and-timeline.md) | в очереди |
 | [04-e2e-verification-and-ops](04-e2e-verification-and-ops.md) | в очереди |
 

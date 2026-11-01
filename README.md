@@ -1,6 +1,6 @@
 # Kenshi Campaign
 
-Локальное извлечение состояния Kenshi для последующей публикации в ChatGPT. Реализованы импорт `kenshi-session/10`, read-only адаптер внешнего конвертера и неизменяемые снимки. Diff, Markdown-рендер и выпуск `published/` относятся к следующим этапам.
+Локальная обработка сохранений Kenshi и публикация подтверждённого состояния для ChatGPT. Реализован полный вертикальный срез Этапа 1.2: извлечение неизменяемых снимков (`kenshi-session/10`), совместимый diff с сохранением устойчивых ID (`kenshi-session-diff/5`), валидация пакета, детерминированный рендеринг русских `brief.md` и `squad.md`, атомарная публикация release bundle (`published/`) на Windows с защитой `.gitkeep` и rollback.
 
 Нужны Python 3.12+ и `jsonschema` с Draft 2020-12 для проверки проектных схем. Для `export` установка игры и конвертер не требуются. Для `save` используется существующий `kenshi-platoon-export/tools/session_export.py`; бинарный парсер здесь не дублируется.
 
@@ -15,15 +15,22 @@ $env:KENSHI_WORKSHOP_DIR = 'C:\Program Files (x86)\Steam\steamapps\workshop\cont
 $env:KENSHI_SAVE_DIRS = (Join-Path $env:LOCALAPPDATA 'kenshi\save') + ';' + (Join-Path $env:KENSHI_DIR 'save')
 $env:KENSHI_FACTION_SID = '204-gamedata.base'
 
+# Сквозной срез конвейера: extract -> diff -> validate -> render -> publish
+python -m tools.campaign pipeline --source-kind export --source "$env:KENSHI_CONVERTER_DIR/kenshi-session.json" --campaign-id hot-lon --branch-id main
+python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --campaign-id hot-lon --branch-id main
+
+# Отдельные операции конвейера:
 python -m tools.campaign extract --source-kind export --source "$env:KENSHI_CONVERTER_DIR/kenshi-session.json" --campaign-id hot-lon --branch-id main
-python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --campaign-id hot-lon --branch-id main
+python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
+python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json --output-dir published
+python -m tools.campaign publish --snapshot-id <snapshot_id> [--parent-snapshot-id <parent_id>]
 ```
 
-Путь к конкретному входу обязателен: CLI не выбирает «последний» сейв и не устанавливает родителя по времени файла. Имена кампании/ветки задаёт пользователь. `--parent-snapshot-id` передаёт явного родителя; проверка реестра веток относится к следующему этапу.
+Путь к конкретному входу обязателен: CLI не выбирает «последний» сейв и не устанавливает родителя по времени файла. Имена кампании/ветки задаёт пользователь. `--parent-snapshot-id` передаёт явного родителя; проверка реестра веток относится к задаче 3.1.
 
 Умолчания конфигурации совпадают с показанными стандартными каталогами: конвертер в домашней папке, два корня сейвов, Steam Kenshi и Workshop `233860`. `KENSHI_SAVE_DIRS` разделяется символом `;` и задаёт защищённые корни. `--faction-sid` имеет приоритет над `KENSHI_FACTION_SID`, затем используется `204-gamedata.base`. Несовпадение фракции готового экспорта с эффективной настройкой вызывает отказ.
 
-Результат: `data/snapshots/<snapshot_id>/{current.json,provenance.json}`. `--output` меняет корень снимков. Повтор не переписывает существующий снимок; другое содержимое при совпадающем ID вызывает ошибку. Снимки исключены из Git. При ошибке код выхода — `1`, снимок не регистрируется; диагностика выводится в stderr. Исправьте причину и повторите команду. Генерируемые файлы вручную не исправляются.
+Результат: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (сравнения) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `brief.md`, `squad.md`). При ошибке код выхода — `1`, пакет не публикуется; диагностика выводится в stderr. Генерируемые файлы вручную не исправляются.
 
 ## Проверки
 
@@ -31,6 +38,7 @@ python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/
 python tests/check_seed.py
 python -m unittest discover -s tests
 python -m tools.campaign check-schemas
+python tests/run_evidence.py
 git diff --check
 ```
 

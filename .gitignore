@@ -25,6 +25,8 @@ dist/
 
 # Локальные снимки регистрирует pipeline; публикация выполняется отдельно
 data/snapshots/*/
+data/diffs/*
+!data/diffs/.gitkeep
 tests/.evidence/
 
 # Этапные локальные сессии AI-Orchestrated-Workflow исключаются
