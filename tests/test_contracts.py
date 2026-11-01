@@ -9,7 +9,7 @@ from tools.validation import ROOT, check_examples, validate
 
 class ContractTests(unittest.TestCase):
     def test_examples_and_legacy_shapes(self) -> None:
-        self.assertEqual(check_examples(), 4)
+        self.assertEqual(check_examples(), 5)
         for name, schema in (("manifest", "manifest"), ("event", "timeline-event")):
             value = read_json((ROOT / "examples" / f"{name}.example.json").read_bytes())
             for key in ("snapshot_id", "parent_snapshot_id", "branch_id", "game_time", "world_ref_id"):

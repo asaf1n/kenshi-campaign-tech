@@ -73,6 +73,16 @@ published/
 
 Проектный формат `kenshi-event/1` описан в `contracts/timeline-event.schema.json`. Минимальные поля: `event_id`, `format`, `session_id`, `recorded_at`, `kind`, `status`, `summary`, `evidence`.
 
+## Справочник мира: `kenshi-world-reference/1`
+
+Проектный контракт `contracts/world-reference.schema.json` (JSON Schema Draft 2020-12) фиксирует статическую географию, радиусы застройки и карту регионов Kenshi, извлечённые read-only из установленной игры и активных модов:
+- Формат: `format: "kenshi-world-reference/1"`.
+- Метаданные: `world_ref_id` (`sha256-...`), `game_version`, `mods` (упорядоченный список активных модулей), `source_hashes` (хеши первичных файлов относительно каталога игры/модов без локальных путей пользователя), `created_at` (UTC ISO-8601), `meta` (счётчики локаций, зданий и отфильтрованных маркеров).
+- Локации (`locations`): 261 подтверждённая географическая точка (`type in {1..7, 9}`). Технические маркеры `TOWN_NEST_MARKER` (`type == 8`) исключены. Каждая локация содержит устойчивый `instance_id`, `template_sid`, `name_en`, `name_ru` (null при отсутствии перевода), `kind` (`outpost`, `town`, `village`, `ruins`, `slave_camp`, `military`, `prison`, `poi`), точные координаты `x, y, z` в `[-147456, 147456)`, `zone` на сетке 64×64 (`"col.row"`), `region` (из `BIOME_GROUP`, null для зон 'NONE'), `coordinate_source` (`game_leveldata`), `radius_source` (`game_buildings` для 48 локаций с подтверждёнными зданиями, `template_parameter` для остальных 213), детерминированный `confirmed_radius` с гарантией попарного непересечения `r_i + r_j <= 0.95 * distance(i, j)`, статическую привязку зданий `static_buildings` (`[{"zone": "...", "building_id": ...}]`).
+- Регионы (`regions`): палитра активных `BIOME_GROUP` (строго `type_id == 95`, `sid`, `name_en`, `name_ru`, RGB `index`).
+- Карта регионов (`regions_map`): детерминированная RLE-сетка индексов 256×256 (сумма длин = 65536) с пикселем 1152 ед., bottom-up ориентацией TGA (`desc=0x00`) и пометкой приграничных пикселей `border`.
+- Неизменяемые артефакты сохраняются в `data/world/<world_ref_id>.json`.
+
 - `observed`: факт непосредственно обнаружен в сейве/выгрузке; он не доказывает причину.
 - `confirmed`: пользователь явно сообщил или подтверждённый скриншот однозначно указывает событие; источник должен быть указан.
 - `inferred`: интерпретация модели, которая не становится фактом и не включается в подтверждённую хронику без подтверждения.

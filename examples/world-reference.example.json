@@ -1,0 +1,99 @@
+{
+  "format": "kenshi-world-reference/1",
+  "world_ref_id": "sha256-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "game_version": "Kenshi 1.0.68 - x64 (Newland)",
+  "mods": [
+    "base",
+    "Newwworld",
+    "Dialogue",
+    "rebirth"
+  ],
+  "source_hashes": {
+    "data/gamedata.base": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "data/newland/land/areasmap.tga": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "created_at": "2026-11-01T12:00:00Z",
+  "meta": {
+    "filtered_nest_markers": 43,
+    "total_locations": 2,
+    "locations_with_buildings": 1,
+    "static_buildings_count": 2,
+    "unresolved_static_buildings_count": 9509
+  },
+  "locations": [
+    {
+      "instance_id": "10-Newwworld-INGAME",
+      "template_sid": "18919-Newwworld.mod",
+      "name_en": "The Hub",
+      "name_ru": "Хаб",
+      "kind": "town",
+      "x": -50978.8,
+      "y": 1533.15,
+      "z": 2932.48,
+      "zone": "20.32",
+      "region": "Border Zone",
+      "coordinate_source": "game_leveldata",
+      "radius_source": "game_buildings",
+      "confirmed_radius": 2267.65,
+      "static_buildings": [
+        {
+          "zone": "20.32",
+          "building_id": 1
+        },
+        {
+          "zone": "20.32",
+          "building_id": 2
+        }
+      ],
+      "defined_in": "Newwworld.mod",
+      "modified_in": [
+        "Dialogue.mod",
+        "rebirth.mod"
+      ],
+      "is_public": true,
+      "is_secret": false,
+      "unexplored_name": ""
+    },
+    {
+      "instance_id": "2-rebirth-INGAME",
+      "template_sid": "44424-rebirth.mod",
+      "name_en": "Rebel Base",
+      "name_ru": "База повстанцев",
+      "kind": "outpost",
+      "x": -50642.35,
+      "y": 1083.05,
+      "z": -1030.39,
+      "zone": "20.31",
+      "region": "Border Zone",
+      "coordinate_source": "game_leveldata",
+      "radius_source": "template_parameter",
+      "confirmed_radius": 100.0,
+      "static_buildings": [],
+      "defined_in": "rebirth.mod",
+      "modified_in": [],
+      "is_public": true,
+      "is_secret": false,
+      "unexplored_name": ""
+    }
+  ],
+  "regions": [
+    {
+      "sid": "18000-gamedata.base",
+      "name_en": "Border Zone",
+      "name_ru": "Пограничье",
+      "index": 16711680
+    }
+  ],
+  "regions_map": {
+    "pixel_size": 1152,
+    "width": 256,
+    "height": 256,
+    "rle": [
+      {
+        "index": 16711680,
+        "border": false,
+        "length": 65536
+      }
+    ]
+  }
+}

@@ -78,6 +78,20 @@ def main() -> int:
             "schemas-run.json",
         ),
         (
+            "build-world",
+            [sys.executable, "-m", "tools.campaign", "build-world"],
+            ["python", "-m", "tools.campaign", "build-world"],
+            "build-world.log",
+            "build-world-run.json",
+        ),
+        (
+            "world_reference",
+            [sys.executable, "-m", "unittest", "tests/test_world_reference.py", "-v"],
+            ["python", "-m", "unittest", "tests/test_world_reference.py", "-v"],
+            "world_reference.log",
+            "world_reference-run.json",
+        ),
+        (
             "converter",
             [
                 sys.executable,

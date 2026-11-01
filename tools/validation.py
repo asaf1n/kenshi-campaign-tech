@@ -1,6 +1,7 @@
 """Проверка проектных схем Draft 2020-12 и валидация пакета публикации."""
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,12 @@ class PublicationValidationError(ValueError):
     """Отказ валидации пакета публикации."""
 
 
+class WorldReferenceValidationError(ValueError):
+    """Отказ валидации справочника мира."""
+
+
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference"}:
         raise ValueError("Неизвестная проектная схема")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -28,11 +33,105 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     validate(manifest, "manifest")
 
 
+def validate_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(world_ref, dict):
+        raise WorldReferenceValidationError("Справочник мира обязан быть объектом")
+    try:
+        validate(world_ref, "world-reference")
+    except (ValidationError, Exception) as error:
+        raise WorldReferenceValidationError(f"Ошибка валидации схемы world-reference: {error}") from error
+
+    # 1. Глобальная уникальность instance_id
+    seen_ids: set[str] = set()
+    locations = world_ref.get("locations", [])
+    for loc in locations:
+        iid = loc.get("instance_id")
+        if iid in seen_ids:
+            raise WorldReferenceValidationError(f"Дублирующийся instance_id локации: {iid}")
+        seen_ids.add(iid)
+
+    # 2. Однозначность статического индекса зданий (zone, building_id) -> instance_id
+    seen_buildings: dict[tuple[str, int], str] = {}
+    for loc in locations:
+        iid = loc["instance_id"]
+        for b in loc.get("static_buildings", []):
+            bkey = (b["zone"], b["building_id"])
+            if bkey in seen_buildings:
+                raise WorldReferenceValidationError(
+                    f"Коллизия статического здания (zone={bkey[0]}, building_id={bkey[1]}): "
+                    f"привязано к {seen_buildings[bkey]} и {iid}"
+                )
+            seen_buildings[bkey] = iid
+
+    # 3. Попарное непересечение r_i + r_j <= 0.95 * distance(i, j) для всех пар локаций
+    n = len(locations)
+    for i in range(n):
+        loc_i = locations[i]
+        ri = loc_i["confirmed_radius"]
+        xi, zi = loc_i["x"], loc_i["z"]
+        for j in range(i + 1, n):
+            loc_j = locations[j]
+            rj = loc_j["confirmed_radius"]
+            xj, zj = loc_j["x"], loc_j["z"]
+            d = math.hypot(xi - xj, zi - zj)
+            if ri + rj > 0.95 * d + 1e-4:
+                raise WorldReferenceValidationError(
+                    f"Нарушение непересечения радиусов: {loc_i['instance_id']} (r={ri}) и "
+                    f"{loc_j['instance_id']} (r={rj}) на расстоянии d={d:.2f} (r_i+r_j={ri+rj:.2f} > {0.95*d:.2f})"
+                )
+
+    # 4. Сумма длин RLE-сегментов строго равна 65536
+    rle = world_ref.get("regions_map", {}).get("rle", [])
+    total_len = sum(seg["length"] for seg in rle)
+    if total_len != 65536:
+        raise WorldReferenceValidationError(
+            f"Сумма длин RLE-сегментов карты регионов {total_len} != 65536"
+        )
+
+    # 5. Целостность ссылок на палитру BIOME_GROUP
+    regions = world_ref.get("regions", [])
+    region_names = {r["name_en"] for r in regions}
+    region_indices = {r["index"] for r in regions}
+
+    for loc in locations:
+        reg = loc.get("region")
+        if reg is not None and reg not in region_names:
+            raise WorldReferenceValidationError(
+                f"Локация {loc['instance_id']} ссылается на неизвестный регион: {reg}"
+            )
+
+    for seg in rle:
+        idx = seg["index"]
+        if idx not in region_indices:
+            raise WorldReferenceValidationError(
+                f"RLE-сегмент ссылается на неизвестный индекс палитры регионов: {idx}"
+            )
+
+    return {
+        "status": "passed",
+        "world_ref_id": world_ref.get("world_ref_id"),
+        "checks": [
+            "schema",
+            "unique_instance_ids",
+            "unique_static_buildings",
+            "non_overlapping_radii",
+            "rle_length_sum",
+            "palette_integrity",
+        ],
+    }
+
+
 def check_examples() -> int:
     count = 0
     for path in sorted((ROOT / "examples").glob("*.json")):
         value = read_json(path.read_bytes())
-        validate(value, "manifest" if value.get("format") == "kenshi-publication/1" else "timeline-event")
+        fmt = value.get("format")
+        if fmt == "kenshi-publication/1":
+            validate(value, "manifest")
+        elif fmt == "kenshi-world-reference/1":
+            validate_world_reference(value)
+        else:
+            validate(value, "timeline-event")
         count += 1
     return count
 

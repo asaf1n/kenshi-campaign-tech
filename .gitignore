@@ -27,6 +27,8 @@ dist/
 data/snapshots/*/
 data/diffs/*
 !data/diffs/.gitkeep
+data/world/*
+!data/world/.gitkeep
 tests/.evidence/
 
 # Этапные локальные сессии AI-Orchestrated-Workflow исключаются

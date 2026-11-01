@@ -82,6 +82,15 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--parent-snapshot-id")
     pipe_parser.add_argument("--dry-run", action="store_true")
 
+    # 7. build-world
+    build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
+    build_world_parser.add_argument("--output", type=Path, help="Каталог или файл для записи")
+    build_world_parser.add_argument("--mods", nargs="*", help="Переопределение списка активных модов")
+
+    # 8. check-world
+    check_world_parser = commands.add_parser("check-world", help="Проверка валидности справочника мира")
+    check_world_parser.add_argument("--world-ref", required=True, help="Путь к файлу или ID справочника мира")
+
     args = parser.parse_args(argv)
     try:
         result: Any = None
@@ -154,6 +163,24 @@ def main(argv: list[str] | None = None) -> int:
                 parent_snapshot_id=args.parent_snapshot_id,
                 dry_run=args.dry_run,
             )
+
+        elif args.command == "build-world":
+            from tools.world_reference import build_world_reference, save_world_reference
+            cfg = Config.from_env()
+            w_ref = build_world_reference(cfg, mods_override=args.mods)
+            saved_path = save_world_reference(w_ref, output=args.output)
+            result = {
+                "world_ref_id": w_ref["world_ref_id"],
+                "path": str(saved_path),
+                "total_locations": w_ref["meta"]["total_locations"],
+                "game_version": w_ref["game_version"],
+            }
+
+        elif args.command == "check-world":
+            from tools.world_reference import load_world_reference
+            w_ref = load_world_reference(args.world_ref)
+            from tools.validation import validate_world_reference
+            result = validate_world_reference(w_ref)
 
         sys.stdout.buffer.write(canonical(result))
         return 0

@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/world-reference.schema.json",
+  "title": "Kenshi world reference contract",
+  "description": "Справочник мира Kenshi: неизменяемые координаты, границы застройки и карта регионов",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "world_ref_id",
+    "game_version",
+    "mods",
+    "source_hashes",
+    "created_at",
+    "meta",
+    "locations",
+    "regions",
+    "regions_map"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-world-reference/1"
+    },
+    "world_ref_id": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "game_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mods": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filtered_nest_markers",
+        "total_locations",
+        "locations_with_buildings",
+        "static_buildings_count",
+        "unresolved_static_buildings_count"
+      ],
+      "properties": {
+        "filtered_nest_markers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_locations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "locations_with_buildings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "static_buildings_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolved_static_buildings_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instance_id",
+          "template_sid",
+          "name_en",
+          "name_ru",
+          "kind",
+          "x",
+          "y",
+          "z",
+          "zone",
+          "region",
+          "coordinate_source",
+          "radius_source",
+          "confirmed_radius",
+          "static_buildings"
+        ],
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "template_sid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name_en": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name_ru": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "enum": [
+              "outpost",
+              "town",
+              "village",
+              "ruins",
+              "slave_camp",
+              "military",
+              "prison",
+              "poi"
+            ]
+          },
+          "x": {
+            "type": "number",
+            "minimum": -147456,
+            "exclusiveMaximum": 147456
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number",
+            "minimum": -147456,
+            "exclusiveMaximum": 147456
+          },
+          "zone": {
+            "type": "string",
+            "pattern": "^[0-9]{1,2}\\.[0-9]{1,2}$"
+          },
+          "region": {
+            "type": ["string", "null"]
+          },
+          "coordinate_source": {
+            "enum": [
+              "game_leveldata",
+              "map_marker_estimate"
+            ]
+          },
+          "radius_source": {
+            "enum": [
+              "game_buildings",
+              "template_parameter"
+            ]
+          },
+          "confirmed_radius": {
+            "type": "number",
+            "minimum": 0
+          },
+          "static_buildings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "zone",
+                "building_id"
+              ],
+              "properties": {
+                "zone": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,2}\\.[0-9]{1,2}$"
+                },
+                "building_id": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "defined_in": {
+            "type": ["string", "null"]
+          },
+          "modified_in": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_public": {
+            "type": ["boolean", "null"]
+          },
+          "is_secret": {
+            "type": ["boolean", "null"]
+          },
+          "unexplored_name": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sid",
+          "name_en",
+          "name_ru",
+          "index"
+        ],
+        "properties": {
+          "sid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name_en": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name_ru": {
+            "type": ["string", "null"]
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777215
+          }
+        }
+      }
+    },
+    "regions_map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pixel_size",
+        "width",
+        "height",
+        "rle"
+      ],
+      "properties": {
+        "pixel_size": {
+          "type": "integer",
+          "const": 1152
+        },
+        "width": {
+          "type": "integer",
+          "const": 256
+        },
+        "height": {
+          "type": "integer",
+          "const": 256
+        },
+        "rle": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "border",
+              "length"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16777215
+              },
+              "border": {
+                "type": "boolean"
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,8 @@ python -m tools.campaign pipeline --source-kind export --source "$env:KENSHI_CON
 python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --campaign-id hot-lon --branch-id main
 
 # Отдельные операции конвейера:
+python -m tools.campaign build-world
+python -m tools.campaign check-world --world-ref <world_ref_id_or_path>
 python -m tools.campaign extract --source-kind export --source "$env:KENSHI_CONVERTER_DIR/kenshi-session.json" --campaign-id hot-lon --branch-id main
 python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json --output-dir published
