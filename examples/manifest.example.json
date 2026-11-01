@@ -1,0 +1,20 @@
+{
+  "format": "kenshi-publication/1",
+  "generated_at": "2026-11-01T00:00:00Z",
+  "snapshot_id": "example-snapshot-a",
+  "source_kind": "export",
+  "source_format": "kenshi-session/10",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "artifacts": {
+    "current": "current.json",
+    "changes": "changes.json",
+    "brief": "brief.md",
+    "squad": "squad.md"
+  },
+  "validation": {
+    "status": "passed",
+    "checks": [
+      "fixture-only"
+    ]
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/manifest.schema.json",
+  "title": "Kenshi publication manifest (draft)",
+  "description": "Предлагаемый контракт публикации; не формат входного сейва и не подмена kenshi-session/10.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "generated_at",
+    "snapshot_id",
+    "source_kind",
+    "source_format",
+    "source_sha256",
+    "artifacts",
+    "validation"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-publication/1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "changes",
+        "brief",
+        "squad"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "changes": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "brief": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "squad": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "timeline": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "source_kind": {
+      "enum": [
+        "save",
+        "export"
+      ]
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\.\\./)[A-Za-z0-9_.\\-/]+$"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/timeline-event.schema.json",
+  "title": "Kenshi timeline event (draft)",
+  "description": "Один JSON-объект на строку в events.jsonl. Схема не определяет сам порядок игровых событий.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "event_id", "session_id", "recorded_at", "kind", "status", "summary", "evidence"],
+  "properties": {
+    "format": {"const": "kenshi-event/1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "game_day": {"type": ["integer", "null"], "minimum": 0},
+    "kind": {"type": "string", "minLength": 1},
+    "status": {"enum": ["observed", "confirmed", "inferred"]},
+    "summary": {"type": "string", "minLength": 1},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": {"enum": ["snapshot", "diff", "screenshot", "user_note", "other"]},
+          "ref": {"type": "string", "minLength": 1},
+          "note": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

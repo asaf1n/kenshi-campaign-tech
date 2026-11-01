@@ -1,0 +1,27 @@
+# Игровые сохранения и исходные скриншоты: только локально
+raw/*
+!raw/.gitkeep
+*.save
+*.quick
+*.autosave
+*.backup
+
+# Секреты и настройки ПК
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Временные результаты
+.cache/
+.tmp/
+.cache-*/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+dist/
+
+# Этапные локальные сессии AI-Orchestrated-Workflow исключаются
+# ТОЛЬКО точными путями через .git/info/exclude при запуске конкретного плана.

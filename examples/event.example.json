@@ -1,0 +1,16 @@
+{
+  "format": "kenshi-event/1",
+  "event_id": "example-event-001",
+  "session_id": "example-session-001",
+  "recorded_at": "2026-11-01T00:00:00Z",
+  "game_day": 116,
+  "kind": "recruitment",
+  "status": "confirmed",
+  "summary": "Пример события: новый участник принят в отряд (синтетические данные)",
+  "evidence": [
+    {
+      "kind": "user_note",
+      "ref": "sessions/example-session-001/notes.md"
+    }
+  ]
+}
