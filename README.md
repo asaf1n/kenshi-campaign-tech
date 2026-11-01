@@ -54,6 +54,126 @@ python -m tools.campaign timeline validate
 
 Для другого журнала у `publish`/`pipeline` есть `--timeline <events.jsonl>` и `--sessions-root <корень_кампании>`. При повторном рендере опубликованного пакета передайте `render --timeline published/timeline.jsonl` вместе с `current`, `changes` и `locations`. Новый факт может изменить выпуск при прежнем `snapshot_id`: сверяйте также `generated_at` и SHA-256 файла из `artifacts.timeline`. Неизменное содержимое сохраняет дату и хеш выпуска.
 
+## Регламент подключения и чтения пакета в ChatGPT (AC-13)
+
+Для работы с ChatGPT используется самодостаточный release bundle из каталога `published/`, формируемый конвейером автоматически.
+
+### Состав release bundle
+
+В каталог `published/` входят ровно 8 согласованных артефактов и защитный `.gitkeep`:
+1. `manifest.json` — корень выпуска: `format`, `snapshot_id`, `parent_snapshot_id`, `branch_id`, `generated_at`, `source_sha256`, `world_ref_id`, контрольный статус валидации `validation.status == "passed"` и реестр артефактов `artifacts`.
+2. `current.json` — нормализованное состояние кампании (`kenshi-session/10`): отряд, базовые характеристики и навыки, экипировка, инвентарь, здоровье, деньги и постройки игрока.
+3. `changes.json` — совместимый детерминированный diff (`kenshi-session-diff/5`) со статусом `valid: true`, устойчивыми ID и фиксацией изменений.
+4. `locations.json` — пространственное разрешение персонажей и построек (`kenshi-locations/1`): 4 статуса достоверности (`in_location`, `near_location`, `in_region`, `unknown`), группы близости (`spatial_groups`) и прямолинейное перемещение (`movement`).
+5. `world_reference.json` — версионированный справочник мира (`kenshi-world-reference/1`), согласованный с `world_ref_id` манифеста.
+6. `timeline.jsonl` — отфильтрованная проекция журнала подтверждённых событий активной ветки (`kenshi-event/1`).
+7. `brief.md` — лаконичная оперативная сводка на русском языке для контекста ChatGPT.
+8. `squad.md` — подробная ролевая сводка по персонажам, экипировке и навыкам.
+
+### Процедура передачи и верификации свежести
+
+1. **Экспорт пакета**: запустить штатную команду обновления конвейера (`pipeline`). Убедиться, что код возврата `0`, а `validation.status` в `manifest.json` равен `"passed"`.
+2. **Передача в ChatGPT**: прикрепить файлы `manifest.json`, `brief.md`, `squad.md` (или полный набор файлов `published/`) к диалогу с ChatGPT либо загрузить их в Project Knowledge.
+3. **Контрольный запрос**: попросить ChatGPT подтвердить прочтение выпуска вопросом:
+   > *«Назови snapshot_id, generated_at, world_ref_id, игровой день/время и краткую сводку отрядов из manifest.json и brief.md»*
+4. **Сверка ответа**: убедиться, что названные моделью `snapshot_id`, `generated_at`, `world_ref_id` и состав отрядов по группам близости посимвольно совпадают с локальным `manifest.json`.
+5. **Контроль свежести (freshness test)**: при добавлении событий в журнал `timeline/events.jsonl` без изменения сохранения Kenshi перевыпуск пакета сохраняет тот же `snapshot_id`, но гарантированно обновляет `generated_at` и хеш проекции `timeline.jsonl`. Ответ ChatGPT по устаревшему пакету мгновенно идентифицируется по несовпадающему `generated_at`.
+6. **Статус критерия AC-13**: отмечен как *partially* (частично проверен), так как ручная передача release bundle пользователем задокументирована и проверена локальным тестом свежести, а автоматический сетевой push в облако отключён в соответствии с регламентом изоляции и безопасности персональных данных.
+
+## Пошаговое руководство по эксплуатации на Windows (AC-15)
+
+### 1. Первичная настройка окружения
+
+Требования:
+- Windows 10/11 x64
+- Python 3.12+ (проверить: `python --version`)
+- Установленный пакет `jsonschema` с поддержкой Draft 2020-12: `pip install jsonschema format-nongraphical`
+- Установленная Kenshi (GOG или Steam) и склонированный конвертер `kenshi-platoon-export`
+
+Задайте переменные окружения в PowerShell (рекомендуется добавить в профиль `$PROFILE`):
+
+```powershell
+$env:KENSHI_CONVERTER_DIR = Join-Path $HOME 'kenshi-platoon-export'
+$env:KENSHI_DIR = 'C:\Program Files (x86)\Steam\steamapps\common\Kenshi'
+$env:KENSHI_WORKSHOP_DIR = 'C:\Program Files (x86)\Steam\steamapps\workshop\content\233860'
+$env:KENSHI_SAVE_DIRS = (Join-Path $env:LOCALAPPDATA 'kenshi\save') + ';' + (Join-Path $env:KENSHI_DIR 'save')
+$env:KENSHI_FACTION_SID = '204-gamedata.base'
+```
+
+### 2. Сборка справочника мира (при установке или смене модов)
+
+Справочник мира собирается непосредственно из файлов игры и активных модов без изменения файлов игры (read-only):
+
+```powershell
+python -m tools.campaign build-world
+```
+
+Справочник сохраняется в `data/world/<world_ref_id>.json` и используется конвейером автоматически.
+
+### 3. Единая команда обновления после игровой сессии
+
+После сохранения в игре (например, в слот `autosave0` или `quicksave`) запустите единую команду конвейера:
+
+```powershell
+python -m tools.campaign pipeline `
+  --source-kind save `
+  --source "$env:LOCALAPPDATA/kenshi/save/autosave0" `
+  --campaign-id default `
+  --branch-id main
+```
+
+Команда автоматически выполняет:
+- Read-only проверку и извлечение данных (`extract`).
+- Регистрацию снимка в `data/index.json` (`index`).
+- Детерминированный расчет диффа с предыдущим снимком ветки (`diff`).
+- Пространственное разрешение персонажей и построек (`locate`).
+- Детерминированный рендеринг `brief.md` и `squad.md` (`render`).
+- Валидацию схем Draft 2020-12, приватности и согласованности (`validate`).
+- Атомарную публикацию release bundle в каталог `published/` (`publish`).
+
+### 4. Работа с ветками и альтернативными сценариями
+
+Просмотр доступных веток и активной ветки:
+```powershell
+python -m tools.campaign branch list
+```
+
+Создание новой ветки (например, перед рискованным походом или откатом):
+```powershell
+python -m tools.campaign branch switch expedition-south --create --name "Экспедиция на юг"
+```
+
+Отображение дерева снимков и веток:
+```powershell
+python -m tools.campaign branch tree
+```
+
+### 5. Добавление авторских событий и заметок
+
+1. Создать сессию, связывающую снимки:
+   ```powershell
+   python -m tools.campaign timeline session --session-id session-001 --snapshot-id <snapshot_id>
+   ```
+2. Добавить подтвержденное событие в журнал:
+   ```powershell
+   python -m tools.campaign timeline append path/to/event.json
+   ```
+3. Проверить целостность журнала:
+   ```powershell
+   python -m tools.campaign timeline validate
+   ```
+
+### 6. Диагностика ошибок и восстановление
+
+- **Ненулевой exit code (`1`)**: конвейер завершился с ошибкой, публикация отклонена, stderr содержит точную причину отказа (нарушение схемы, несовместимый родитель, конфликт веток или попытка записи).
+- **Сохранность предыдущей публикации**: транзакционный механизм публикации гарантирует, что каталог `published/` и `.gitkeep` остаются в последнем заведомо валидном состоянии. Смешанных манифестов не возникает.
+- **Восстановление реестра снимков (`data/index.json`)**: в случае повреждения файла индекса выполните:
+  ```powershell
+  python -m tools.campaign index rebuild
+  ```
+  Индекс будет полностью детерминированно перестроен из неизменяемых `provenance.json` всех ранее сохранённых снимков.
+- **Отказ при автосохранении**: если игра перезаписывает сейв во время чтения, конвейер мгновенно фиксирует несовпадение SHA-256 и завершает работу с кодом `1` без выпуска недостоверных данных. Повторите команду после завершения записи в Kenshi.
+
 ## Проверки
 
 ```powershell
@@ -70,6 +190,7 @@ Unit-проверки используют временные фикстуры; 
 python tests/check_live.py --source-kind export --source "$env:KENSHI_CONVERTER_DIR/kenshi-session.json" --output data/snapshots --report tests/.evidence/export.json
 python tests/check_live.py --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --output data/snapshots --report tests/.evidence/save.json
 python tests/check_converter.py --converter "$env:KENSHI_CONVERTER_DIR" --report tests/.evidence/converter.json
+python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 ```
 
 `check_live.py` сравнивает байты двух запусков с `PYTHONHASHSEED=1/42` и хеши входов. `check_converter.py` проверяет настоящий внешний конвертер на двух синтетических бинарных сейвах и минимальном справочнике игры; это не проверка настоящих игровых сейвов и не сверка с UI.

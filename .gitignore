@@ -24,6 +24,7 @@ __pycache__/
 dist/
 
 # Локальные снимки регистрирует pipeline; публикация выполняется отдельно
+data/index.json
 data/snapshots/*/
 data/diffs/*
 !data/diffs/.gitkeep

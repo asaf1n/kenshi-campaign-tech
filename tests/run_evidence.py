@@ -167,6 +167,25 @@ def main() -> int:
             "export-run.json",
         ),
         (
+            "e2e_real",
+            [
+                sys.executable,
+                "-B",
+                "tests/check_e2e_real.py",
+                "--report",
+                "tests/.evidence/e2e_real.json",
+            ],
+            [
+                "python",
+                "-B",
+                "tests/check_e2e_real.py",
+                "--report",
+                "tests/.evidence/e2e_real.json",
+            ],
+            "e2e_real.log",
+            "e2e_real-run.json",
+        ),
+        (
             "unit",
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
             ["python", "-m", "unittest", "discover", "-s", "tests", "-v"],
