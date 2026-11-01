@@ -1,0 +1,279 @@
+{
+  "format": "kenshi-locations/1",
+  "snapshot_id": "sha256-28bec4ca075ecd1850a8f9c0164983bb19e85d49fee43ea13db75edff4212944",
+  "world_ref_id": "sha256-798a47da89d9ac378677dc5a6e0b23714a68d83ea26e774c8825bdfa8b0f20ec",
+  "created_at": "2026-11-01T21:40:00Z",
+  "meta": {
+    "total_characters": 4,
+    "resolved_characters": 4,
+    "total_buildings": 2,
+    "resolved_buildings": 2,
+    "characters_by_status": {
+      "in_location": 1,
+      "near_location": 1,
+      "in_region": 1,
+      "unknown": 1
+    },
+    "buildings_by_status": {
+      "in_location": 1,
+      "near_location": 1
+    }
+  },
+  "characters": [
+    {
+      "id": "ps:1001",
+      "name": "Рука",
+      "squad_id": "squad_main",
+      "coordinates": [-62717.7, 2.3, 16614.7],
+      "zone": "18.35",
+      "resolution_status": "in_location",
+      "location": {
+        "instance_id": "46-rebirth-INGAME",
+        "template_sid": "46-rebirth",
+        "name_en": "Squin",
+        "name_ru": "Скуин",
+        "kind": "town",
+        "distance": 290.0
+      },
+      "nearby_locations": [
+        {
+          "instance_id": "46-rebirth-INGAME",
+          "template_sid": "46-rebirth",
+          "name_en": "Squin",
+          "name_ru": "Скуин",
+          "kind": "town",
+          "distance": 290.0,
+          "coordinate_source": "game_leveldata"
+        }
+      ],
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": false,
+        "index": 12
+      },
+      "warnings": []
+    },
+    {
+      "id": "ps:1002",
+      "name": "Бип",
+      "squad_id": "squad_main",
+      "coordinates": [-60000.0, 10.0, 12000.0],
+      "zone": "18.34",
+      "resolution_status": "near_location",
+      "location": null,
+      "nearby_locations": [
+        {
+          "instance_id": "10-Newwworld-INGAME",
+          "template_sid": "10-Newwworld",
+          "name_en": "The Hub",
+          "name_ru": "Хаб",
+          "kind": "town",
+          "distance": 3200.0,
+          "coordinate_source": "game_leveldata"
+        }
+      ],
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": true,
+        "index": 12
+      },
+      "warnings": []
+    },
+    {
+      "id": "ps:1003",
+      "name": "Шрайк",
+      "squad_id": "squad_scouts",
+      "coordinates": [10000.0, 50.0, 20000.0],
+      "zone": "34.36",
+      "resolution_status": "in_region",
+      "location": null,
+      "nearby_locations": [],
+      "region": {
+        "name_en": "The Swamp",
+        "name_ru": "Болота",
+        "border": false,
+        "index": 15
+      },
+      "warnings": []
+    },
+    {
+      "id": "ps:1004",
+      "name": "Потерянный",
+      "squad_id": "squad_scouts",
+      "coordinates": null,
+      "zone": null,
+      "resolution_status": "unknown",
+      "location": null,
+      "nearby_locations": [],
+      "region": null,
+      "warnings": [
+        "Координаты отсутствуют или невалидны"
+      ]
+    }
+  ],
+  "buildings": [
+    {
+      "building_key": "18.35:23-rebirth-INGAME",
+      "id": "23-rebirth-INGAME",
+      "zone": "18.35",
+      "save_town_name": "Скуин",
+      "coordinates": [-62717.7, 2.3, 16614.7],
+      "resolution_status": "in_location",
+      "location": {
+        "instance_id": "46-rebirth-INGAME",
+        "template_sid": "46-rebirth",
+        "name_en": "Squin",
+        "name_ru": "Скуин",
+        "kind": "town",
+        "distance": 290.0
+      },
+      "nearby_locations": [
+        {
+          "instance_id": "46-rebirth-INGAME",
+          "template_sid": "46-rebirth",
+          "name_en": "Squin",
+          "name_ru": "Скуин",
+          "kind": "town",
+          "distance": 290.0,
+          "coordinate_source": "game_leveldata"
+        }
+      ],
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": false,
+        "index": 12
+      },
+      "warnings": []
+    },
+    {
+      "building_key": "16.37:29033-zone16.37-INGAME",
+      "id": "29033-zone16.37-INGAME",
+      "zone": "16.37",
+      "save_town_name": null,
+      "coordinates": [-70387.3, -0.3, 24497.2],
+      "resolution_status": "near_location",
+      "location": null,
+      "nearby_locations": [
+        {
+          "instance_id": "46-rebirth-INGAME",
+          "template_sid": "46-rebirth",
+          "name_en": "Squin",
+          "name_ru": "Скуин",
+          "kind": "town",
+          "distance": 3100.0,
+          "coordinate_source": "game_leveldata"
+        }
+      ],
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": false,
+        "index": 12
+      },
+      "warnings": []
+    }
+  ],
+  "spatial_groups": [
+    {
+      "group_id": "group-1",
+      "label": "Скуин",
+      "resolution_status": "in_location",
+      "location": {
+        "instance_id": "46-rebirth-INGAME",
+        "template_sid": "46-rebirth",
+        "name_en": "Squin",
+        "name_ru": "Скуин",
+        "kind": "town",
+        "distance": 290.0
+      },
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": false,
+        "index": 12
+      },
+      "characters": [
+        {
+          "id": "ps:1001",
+          "name": "Рука",
+          "squad_id": "squad_main"
+        }
+      ]
+    },
+    {
+      "group_id": "group-2",
+      "label": "Окрестности Хаб",
+      "resolution_status": "near_location",
+      "location": null,
+      "region": {
+        "name_en": "Border Zone",
+        "name_ru": "Пограничье",
+        "border": true,
+        "index": 12
+      },
+      "characters": [
+        {
+          "id": "ps:1002",
+          "name": "Бип",
+          "squad_id": "squad_main"
+        }
+      ]
+    },
+    {
+      "group_id": "group-3",
+      "label": "Регион Болота",
+      "resolution_status": "in_region",
+      "location": null,
+      "region": {
+        "name_en": "The Swamp",
+        "name_ru": "Болота",
+        "border": false,
+        "index": 15
+      },
+      "characters": [
+        {
+          "id": "ps:1003",
+          "name": "Шрайк",
+          "squad_id": "squad_scouts"
+        }
+      ]
+    },
+    {
+      "group_id": "group-4",
+      "label": "Неизвестное местоположение",
+      "resolution_status": "unknown",
+      "location": null,
+      "region": null,
+      "characters": [
+        {
+          "id": "ps:1004",
+          "name": "Потерянный",
+          "squad_id": "squad_scouts"
+        }
+      ]
+    }
+  ],
+  "movement": {
+    "valid": true,
+    "from_snapshot_id": "sha256-1111111111111111111111111111111111111111111111111111111111111111",
+    "to_snapshot_id": "sha256-28bec4ca075ecd1850a8f9c0164983bb19e85d49fee43ea13db75edff4212944",
+    "reason": null,
+    "characters": [
+      {
+        "character_id": "ps:1002",
+        "name": "Бип",
+        "from_resolution_status": "in_location",
+        "to_resolution_status": "near_location",
+        "from_location": "The Hub",
+        "to_location": null,
+        "from_region": "Border Zone",
+        "to_region": "Border Zone",
+        "distance_2d": 2150.4,
+        "is_straight_line": true
+      }
+    ]
+  }
+}

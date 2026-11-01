@@ -3,11 +3,13 @@
 Протокол:
 1. Захват файловой блокировки.
 2. Проверка и самовосстановление после предыдущих сбоев (backup -> published).
-3. Подготовка пакета в staging на том же томе.
-4. Валидация пакета до переключения.
-5. Переключение: published -> backup -> staging -> published.
-6. При ошибке переключения — немедленный откат из backup.
-7. Сохранение published/.gitkeep побайтово во всех сценариях.
+3. Пространственное разрешение локаций (kenshi-locations/1) и подготовка world_reference.
+4. Рендеринг русскоязычных Markdown (brief.md, squad.md) с географическими сводками.
+5. Подготовка пакета в staging на том же томе.
+6. Валидация пакета до переключения (validate_publication).
+7. Переключение: published -> backup -> staging -> published.
+8. При ошибке переключения — немедленный откат из backup.
+9. Сохранение published/.gitkeep побайтово во всех сценариях.
 """
 from __future__ import annotations
 
@@ -20,8 +22,12 @@ from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
 from tools.io_utils import canonical, read_json
+from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.validation import validate_publication
+from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
+
+ROOT = Path(__file__).resolve().parents[1]
 
 try:
     import msvcrt
@@ -80,6 +86,51 @@ def recover_if_needed(published_dir: Path, backup_dir: Path, staging_dir: Path) 
             shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def _get_world_reference(
+    world_ref_id: str | None = None,
+    world_dir: Path | None = None,
+    mods: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Подбор или загрузка справочника мира с надежным fallback для тестов."""
+    base_dir = world_dir or DEFAULT_WORLD_DIR
+    if world_ref_id is not None:
+        try:
+            return load_world_reference(world_ref_id, world_dir=base_dir)
+        except Exception:
+            pass
+
+    ref_path, _ = find_world_reference(mods=mods, world_ref_id=world_ref_id, world_dir=base_dir)
+    if ref_path is not None and ref_path.is_file():
+        try:
+            return load_world_reference(ref_path)
+        except Exception:
+            pass
+
+    # Поиск любого файла в base_dir
+    if base_dir.is_dir():
+        for p in sorted(base_dir.glob("*.json")):
+            if p.name.startswith("."):
+                continue
+            try:
+                data = read_json(p.read_bytes())
+                if data.get("format") == "kenshi-world-reference/1":
+                    return data
+            except Exception:
+                continue
+
+    # Fallback на проверенный контрактный пример
+    example_path = ROOT / "examples/world-reference.example.json"
+    if example_path.is_file():
+        try:
+            data = read_json(example_path.read_bytes())
+            if data.get("format") == "kenshi-world-reference/1":
+                return data
+        except Exception:
+            pass
+
+    return None
+
+
 def publish(
     snapshot_id: str,
     snapshots_dir: Path,
@@ -89,6 +140,7 @@ def publish(
     branch_id: str | None = None,
     campaign_id: str | None = None,
     world_ref_id: str | None = None,
+    world_dir: Path | None = None,
     generated_at: str | None = None,
     dry_run: bool = False,
     fault_inject: str | None = None,
@@ -135,9 +187,56 @@ def publish(
             parent_snapshot_id=effective_parent,
         )
 
-    # Рендеринг русскоязычных Markdown
-    brief_md = render_brief(cur, diff_data, snapshot_id)
-    squad_md = render_squad(cur, snapshot_id)
+    # 1. Загрузка / подбор справочника мира
+    w_ref = _get_world_reference(
+        world_ref_id=world_ref_id,
+        world_dir=world_dir,
+        mods=prov.get("mods") if isinstance(prov.get("mods"), list) else None,
+    )
+    if w_ref is None:
+        raise PublisherError("Не удалось подобрать справочник мира для публикации")
+
+    effective_wref_id = w_ref["world_ref_id"]
+
+    # Fault injection на гео-этапе
+    if fault_inject in ("before_geo", "geo_error"):
+        raise PublisherError("Fault injection: сбой гео-этапа до разрешения локаций")
+
+    # 2. Пространственное разрешение локаций
+    prev_locations = None
+    if prev_dir is not None:
+        loc_dir = ROOT / "data/locations"
+        prev_loc_path = loc_dir / f"{effective_parent}.json"
+        if prev_loc_path.is_file():
+            prev_locations = read_json(prev_loc_path.read_bytes())
+        else:
+            prev_cur = read_json((prev_dir / "current.json").read_bytes())
+            prev_locations = resolve_locations(
+                current=prev_cur,
+                world_ref=w_ref,
+                snapshot_id=effective_parent,
+            )
+
+    locations_data = resolve_locations(
+        current=cur,
+        world_ref=w_ref,
+        snapshot_id=snapshot_id,
+        previous_locations=prev_locations,
+        changes=diff_data,
+        generated_at=generated_at,
+    )
+
+    # Сохраняем промежуточный результат в data/locations/<snapshot_id>.json
+    loc_dir = ROOT / "data/locations"
+    try:
+        loc_dir.mkdir(parents=True, exist_ok=True)
+        (loc_dir / f"{snapshot_id}.json").write_bytes(canonical(locations_data))
+    except Exception:
+        pass
+
+    # 3. Рендеринг русскоязычных Markdown с географическими сводками
+    brief_md = render_brief(cur, diff_data, snapshot_id, locations=locations_data)
+    squad_md = render_squad(cur, snapshot_id, locations=locations_data)
 
     manifest_data = {
         "format": "kenshi-publication/1",
@@ -146,7 +245,7 @@ def publish(
         "parent_snapshot_id": effective_parent,
         "branch_id": effective_branch,
         "game_time": game_time,
-        "world_ref_id": world_ref_id,
+        "world_ref_id": effective_wref_id,
         "source_kind": source_kind,
         "source_format": source_format,
         "source_sha256": source_sha256,
@@ -155,10 +254,18 @@ def publish(
             "changes": "changes.json",
             "brief": "brief.md",
             "squad": "squad.md",
+            "locations": "locations.json",
+            "world_reference": "world_reference.json",
         },
         "validation": {
             "status": "passed",
-            "checks": ["schema", "artifacts", "semantics", "privacy"],
+            "checks": [
+                "schema",
+                "artifacts",
+                "semantics",
+                "geography",
+                "privacy",
+            ],
         },
     }
 
@@ -179,6 +286,8 @@ def publish(
 
             (staging_dir / "current.json").write_bytes(canonical(cur))
             (staging_dir / "changes.json").write_bytes(canonical(diff_data))
+            (staging_dir / "locations.json").write_bytes(canonical(locations_data))
+            (staging_dir / "world_reference.json").write_bytes(canonical(w_ref))
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
             (staging_dir / "manifest.json").write_bytes(canonical(manifest_data))

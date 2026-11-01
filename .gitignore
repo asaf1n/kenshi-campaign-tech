@@ -29,6 +29,8 @@ data/diffs/*
 !data/diffs/.gitkeep
 data/world/*
 !data/world/.gitkeep
+data/locations/*
+!data/locations/.gitkeep
 tests/.evidence/
 
 # Этапные локальные сессии AI-Orchestrated-Workflow исключаются

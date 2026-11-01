@@ -9,7 +9,12 @@ from collections import Counter, defaultdict
 from typing import Any
 
 
-def render_brief(current: dict[str, Any], changes: dict[str, Any], snapshot_id: str) -> str:
+def render_brief(
+    current: dict[str, Any],
+    changes: dict[str, Any],
+    snapshot_id: str,
+    locations: dict[str, Any] | None = None,
+) -> str:
     world = current.get("world", {})
     day = world.get("day")
     time = world.get("time")
@@ -57,26 +62,93 @@ def render_brief(current: dict[str, Any], changes: dict[str, Any], snapshot_id: 
         "",
         "## Доступные местоположения",
     ])
-    locations: list[str] = []
-    prop = current.get("property")
-    if isinstance(prop, dict):
-        towns = prop.get("towns") or prop.get("player_towns")
-        if isinstance(towns, list) and towns:
-            locations.append(f"Подтверждённые города построек: {', '.join(str(t) for t in sorted(towns))}")
-    # Проверка сырых координат
-    positions: list[str] = []
-    for c in characters:
-        pos = c.get("position")
-        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
-            positions.append(f"{c.get('name')}: ({pos[0]:.1f}, {pos[1]:.1f})")
-    if positions:
-        locations.append(f"Сырые координаты: {'; '.join(sorted(positions)[:5])}")
 
-    if locations:
-        for loc in locations:
-            lines.append(f"- {loc}")
+    if locations is not None:
+        # 1. Пространственные группы
+        spatial_groups = locations.get("spatial_groups", [])
+        if spatial_groups:
+            lines.append("### Расположение групп отряда")
+            for g in spatial_groups:
+                g_chars = g.get("characters", [])
+                c_names = ", ".join(f"{c['name']} (`{c['id']}`)" for c in g_chars)
+                lines.append(f"- **{g['label']}** (`{g['resolution_status']}`): {len(g_chars)} участников [{c_names}]")
+
+        # 2. Постройки и собственность
+        bldgs = locations.get("buildings", [])
+        if bldgs:
+            lines.extend([
+                "",
+                "### Собственность и базы",
+            ])
+            for b in bldgs:
+                b_key = b["building_key"]
+                st = b["resolution_status"]
+                tname = b.get("save_town_name")
+                if st == "in_location" and b.get("location"):
+                    lname = b["location"].get("name_ru") or b["location"].get("name_en")
+                    dist = b["location"].get("distance", 0.0)
+                    lines.append(f"- `{b_key}`: город **{lname}** (`in_location`, d = {dist:.1f} м)")
+                elif st == "near_location" and b.get("nearby_locations"):
+                    nname = b["nearby_locations"][0].get("name_ru") or b["nearby_locations"][0].get("name_en")
+                    dist = b["nearby_locations"][0].get("distance", 0.0)
+                    t_info = f" (город сейва: {tname})" if tname else ""
+                    lines.append(f"- `{b_key}`: окрестности **{nname}**{t_info} (`near_location`, d = {dist:.1f} м)")
+                elif st == "in_region" and b.get("region"):
+                    rname = b["region"].get("name_ru") or b["region"].get("name_en")
+                    t_info = f" (база: {tname})" if tname else ""
+                    lines.append(f"- `{b_key}`: регион **{rname}**{t_info} (`in_region`)")
+                else:
+                    lines.append(f"- `{b_key}`: неизвестно (`unknown`)")
+
+        # 3. Перемещения между снимками
+        mov = locations.get("movement", {})
+        if mov:
+            lines.extend([
+                "",
+                "### Перемещения между снимками",
+            ])
+            if not mov.get("valid"):
+                lines.append(f"- Базовое сравнение перемещений отсутствует (`valid: false`, {mov.get('reason') or 'нет baseline'}).")
+            else:
+                active_moves = [
+                    m for m in mov.get("characters", [])
+                    if (m.get("distance_2d") and m["distance_2d"] > 0)
+                    or m.get("from_location") != m.get("to_location")
+                    or m.get("from_region") != m.get("to_region")
+                ]
+                if active_moves:
+                    for m in active_moves:
+                        from_p = m.get("from_location") or m.get("from_region") or "неизвестно"
+                        to_p = m.get("to_location") or m.get("to_region") or "неизвестно"
+                        d_str = f"{m['distance_2d']:.1f} м" if m.get("distance_2d") is not None else "н/д"
+                        lines.append(f"- **{m['name']}** (`{m['character_id']}`): {from_p} -> {to_p} (прямолинейное смещение: {d_str})")
+                else:
+                    lines.append("- Все участники оставались на прежних позициях.")
+
+        if not spatial_groups and not bldgs:
+            lines.append("- Сведения о местоположениях отсутствуют в locations.json")
+
     else:
-        lines.append("- не получено (географическое разрешение подключается профильным артефактом в задаче 02)")
+        # Fallback без географического разрешения
+        loc_summary: list[str] = []
+        prop = current.get("property")
+        if isinstance(prop, dict):
+            towns = prop.get("towns") or prop.get("player_towns")
+            if isinstance(towns, list) and towns:
+                loc_summary.append(f"Подтверждённые города построек: {', '.join(str(t) for t in sorted(towns))}")
+        positions: list[str] = []
+        for c in characters:
+            pos = c.get("position")
+            if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                positions.append(f"{c.get('name')}: ({pos[0]:.1f}, {pos[1]:.1f})")
+        if positions:
+            loc_summary.append(f"Сырые координаты: {'; '.join(sorted(positions)[:5])}")
+
+        if loc_summary:
+            for loc_str in loc_summary:
+                lines.append(f"- {loc_str}")
+        else:
+            lines.append("- не получено (географическое разрешение подключается профильным артефактом в задаче 02)")
 
     lines.extend([
         "",
@@ -158,15 +230,26 @@ def render_brief(current: dict[str, Any], changes: dict[str, Any], snapshot_id: 
         "- [Детальный снимок состояния (current.json)](current.json)",
         "- [Детальные изменения (changes.json)](changes.json)",
         "- [Полный состав отряда (squad.md)](squad.md)",
-        "",
     ])
+    if locations is not None:
+        lines.extend([
+            "- [Пространственное разрешение локаций (locations.json)](locations.json)",
+            "- [Справочник мира и карты (world_reference.json)](world_reference.json)",
+        ])
+    lines.append("")
 
     return "\n".join(lines)
 
 
-def render_squad(current: dict[str, Any], snapshot_id: str) -> str:
+def render_squad(
+    current: dict[str, Any],
+    snapshot_id: str,
+    locations: dict[str, Any] | None = None,
+) -> str:
     characters = current.get("characters", [])
     squads = current.get("squads", [])
+
+    loc_char_map = {c["id"]: c for c in locations.get("characters", [])} if locations else {}
 
     lines: list[str] = [
         f"# Состав отряда: {snapshot_id}",
@@ -201,6 +284,26 @@ def render_squad(current: dict[str, Any], snapshot_id: str) -> str:
                 f"### {name} (`{cid}`)",
                 f"- **Раса:** {race}",
             ])
+
+            # Добавляем географическую привязку
+            if cid in loc_char_map:
+                linfo = loc_char_map[cid]
+                st = linfo["resolution_status"]
+                if st == "in_location" and linfo.get("location"):
+                    lname = linfo["location"].get("name_ru") or linfo["location"].get("name_en")
+                    dist = linfo["location"].get("distance", 0.0)
+                    lines.append(f"- **Местоположение:** {lname} (`in_location`, {dist:.1f} м от центра)")
+                elif st == "near_location" and linfo.get("nearby_locations"):
+                    top = linfo["nearby_locations"][0]
+                    nname = top.get("name_ru") or top.get("name_en")
+                    dist = top.get("distance", 0.0)
+                    lines.append(f"- **Местоположение:** окрестности {nname} (`near_location`, {dist:.1f} м)")
+                elif st == "in_region" and linfo.get("region"):
+                    rname = linfo["region"].get("name_ru") or linfo["region"].get("name_en")
+                    b_flag = " (граница)" if linfo["region"].get("border") else ""
+                    lines.append(f"- **Местоположение:** регион {rname}{b_flag} (`in_region`)")
+                else:
+                    lines.append("- **Местоположение:** неизвестно (`unknown`)")
 
             cond = c.get("condition", {})
             if cond:

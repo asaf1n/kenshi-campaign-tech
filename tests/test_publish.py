@@ -250,14 +250,16 @@ class PublishTests(unittest.TestCase):
 
         cur = read_json((self.published_dir / "current.json").read_bytes())
         ch = read_json((self.published_dir / "changes.json").read_bytes())
+        loc_path = self.published_dir / "locations.json"
+        loc = read_json(loc_path.read_bytes()) if loc_path.is_file() else None
 
         # 1. Повторный рендер даёт побайтово идентичные файлы (детерминизм)
-        brief1 = render_brief(cur, ch, snap_id)
-        brief2 = render_brief(cur, ch, snap_id)
+        brief1 = render_brief(cur, ch, snap_id, locations=loc)
+        brief2 = render_brief(cur, ch, snap_id, locations=loc)
         self.assertEqual(brief1, brief2)
 
-        squad1 = render_squad(cur, snap_id)
-        squad2 = render_squad(cur, snap_id)
+        squad1 = render_squad(cur, snap_id, locations=loc)
+        squad2 = render_squad(cur, snap_id, locations=loc)
         self.assertEqual(squad1, squad2)
 
         self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8"), brief1)
@@ -281,8 +283,11 @@ class PublishTests(unittest.TestCase):
         self.assertIn("[Детальный снимок состояния (current.json)](current.json)", brief1)
         self.assertIn("[Детальные изменения (changes.json)](changes.json)", brief1)
         self.assertIn("[Полный состав отряда (squad.md)](squad.md)", brief1)
-        # Сведения о местоположении: «не получено» (географическое разрешение в задаче 02)
-        self.assertIn("не получено (географическое разрешение подключается профильным артефактом в задаче 02)", brief1)
+        # Сведения о местоположении: «не получено» в fallback-режиме без locations
+        brief_fallback = render_brief(cur, ch, snap_id)
+        self.assertIn("не получено (географическое разрешение подключается профильным артефактом в задаче 02)", brief_fallback)
+        if loc is not None:
+            self.assertIn("[Пространственное разрешение локаций (locations.json)](locations.json)", brief1)
 
         # 3. Проверка squad.md
         self.assertIn("### Хот Лон (`ps:1`)", squad1)

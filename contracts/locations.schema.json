@@ -1,0 +1,532 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/locations.schema.json",
+  "title": "Kenshi locations resolution contract",
+  "description": "Пространственное разрешение персонажей и построек Kenshi, группы близости и перемещения",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "snapshot_id",
+    "world_ref_id",
+    "created_at",
+    "meta",
+    "characters",
+    "buildings",
+    "spatial_groups",
+    "movement"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-locations/1"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "world_ref_id": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_characters",
+        "resolved_characters",
+        "total_buildings",
+        "resolved_buildings"
+      ],
+      "properties": {
+        "total_characters": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resolved_characters": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_buildings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resolved_buildings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "characters_by_status": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "buildings_by_status": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/characterResolution"
+      }
+    },
+    "buildings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/buildingResolution"
+      }
+    },
+    "spatial_groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/spatialGroup"
+      }
+    },
+    "movement": {
+      "$ref": "#/$defs/movementReport"
+    }
+  },
+  "$defs": {
+    "coordinateTuple": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -147456,
+        "exclusiveMaximum": 147456
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "locationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "template_sid",
+        "name_en",
+        "name_ru",
+        "kind",
+        "distance"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "nearbyLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "template_sid",
+        "name_en",
+        "name_ru",
+        "kind",
+        "distance",
+        "coordinate_source"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "distance": {
+          "type": "number",
+          "minimum": 0
+        },
+        "coordinate_source": {
+          "type": "string"
+        }
+      }
+    },
+    "regionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name_en",
+        "name_ru",
+        "border",
+        "index"
+      ],
+      "properties": {
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "type": ["string", "null"]
+        },
+        "border": {
+          "type": "boolean"
+        },
+        "index": {
+          "type": "integer"
+        }
+      }
+    },
+    "characterResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "squad_id",
+        "coordinates",
+        "zone",
+        "resolution_status",
+        "location",
+        "nearby_locations",
+        "region",
+        "warnings"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "squad_id": {
+          "type": "string"
+        },
+        "coordinates": {
+          "oneOf": [
+            { "$ref": "#/$defs/coordinateTuple" },
+            { "type": "null" }
+          ]
+        },
+        "zone": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{1,2}\\.\\d{1,2}$"
+        },
+        "resolution_status": {
+          "enum": [
+            "in_location",
+            "near_location",
+            "in_region",
+            "unknown"
+          ]
+        },
+        "location": {
+          "oneOf": [
+            { "$ref": "#/$defs/locationSummary" },
+            { "type": "null" }
+          ]
+        },
+        "nearby_locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nearbyLocation"
+          }
+        },
+        "region": {
+          "oneOf": [
+            { "$ref": "#/$defs/regionSummary" },
+            { "type": "null" }
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "resolution_status": { "const": "in_location" } }
+          },
+          "then": {
+            "properties": { "location": { "type": "object" } }
+          },
+          "else": {
+            "properties": { "location": { "type": "null" } }
+          }
+        }
+      ]
+    },
+    "buildingResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "building_key",
+        "id",
+        "zone",
+        "save_town_name",
+        "coordinates",
+        "resolution_status",
+        "location",
+        "nearby_locations",
+        "region",
+        "warnings"
+      ],
+      "properties": {
+        "building_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "zone": {
+          "type": ["string", "null"]
+        },
+        "save_town_name": {
+          "type": ["string", "null"]
+        },
+        "coordinates": {
+          "oneOf": [
+            { "$ref": "#/$defs/coordinateTuple" },
+            { "type": "null" }
+          ]
+        },
+        "resolution_status": {
+          "enum": [
+            "in_location",
+            "near_location",
+            "in_region",
+            "unknown"
+          ]
+        },
+        "location": {
+          "oneOf": [
+            { "$ref": "#/$defs/locationSummary" },
+            { "type": "null" }
+          ]
+        },
+        "nearby_locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nearbyLocation"
+          }
+        },
+        "region": {
+          "oneOf": [
+            { "$ref": "#/$defs/regionSummary" },
+            { "type": "null" }
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "resolution_status": { "const": "in_location" } }
+          },
+          "then": {
+            "properties": { "location": { "type": "object" } }
+          },
+          "else": {
+            "properties": { "location": { "type": "null" } }
+          }
+        }
+      ]
+    },
+    "spatialGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "label",
+        "resolution_status",
+        "location",
+        "region",
+        "characters"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolution_status": {
+          "enum": [
+            "in_location",
+            "near_location",
+            "in_region",
+            "unknown"
+          ]
+        },
+        "location": {
+          "oneOf": [
+            { "$ref": "#/$defs/locationSummary" },
+            { "type": "null" }
+          ]
+        },
+        "region": {
+          "oneOf": [
+            { "$ref": "#/$defs/regionSummary" },
+            { "type": "null" }
+          ]
+        },
+        "characters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "squad_id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string" },
+              "squad_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "movementCharacter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "character_id",
+        "name",
+        "from_resolution_status",
+        "to_resolution_status",
+        "from_location",
+        "to_location",
+        "from_region",
+        "to_region",
+        "distance_2d",
+        "is_straight_line"
+      ],
+      "properties": {
+        "character_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "from_resolution_status": {
+          "enum": [
+            "in_location",
+            "near_location",
+            "in_region",
+            "unknown"
+          ]
+        },
+        "to_resolution_status": {
+          "enum": [
+            "in_location",
+            "near_location",
+            "in_region",
+            "unknown"
+          ]
+        },
+        "from_location": {
+          "type": ["string", "null"]
+        },
+        "to_location": {
+          "type": ["string", "null"]
+        },
+        "from_region": {
+          "type": ["string", "null"]
+        },
+        "to_region": {
+          "type": ["string", "null"]
+        },
+        "distance_2d": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "is_straight_line": {
+          "const": true
+        }
+      }
+    },
+    "movementReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "from_snapshot_id",
+        "to_snapshot_id",
+        "reason",
+        "characters"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "from_snapshot_id": {
+          "type": ["string", "null"]
+        },
+        "to_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "characters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/movementCharacter"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "valid": { "const": false } }
+          },
+          "then": {
+            "properties": {
+              "characters": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

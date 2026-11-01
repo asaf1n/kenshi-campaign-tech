@@ -21,9 +21,13 @@ class WorldReferenceValidationError(ValueError):
     """Отказ валидации справочника мира."""
 
 
+class LocationsValidationError(ValueError):
+    """Отказ валидации пространственного разрешения локаций."""
+
+
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference"}:
-        raise ValueError("Неизвестная проектная схема")
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations"}:
+        raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
@@ -121,6 +125,104 @@ def validate_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def validate_locations(
+    locations: dict[str, Any],
+    world_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Семантическая валидация артефакта kenshi-locations/1."""
+    if not isinstance(locations, dict):
+        raise LocationsValidationError("Артефакт locations обязан быть объектом")
+    try:
+        validate(locations, "locations")
+    except (ValidationError, Exception) as error:
+        raise LocationsValidationError(f"Ошибка валидации схемы locations: {error}") from error
+
+    # 1. Уникальность characters[].id и согласованность статусов
+    seen_char_ids: set[str] = set()
+    for char in locations.get("characters", []):
+        cid = char.get("id")
+        if not cid or not str(cid).strip():
+            raise LocationsValidationError("Пустой или отсутствующий id персонажа")
+        if cid in seen_char_ids:
+            raise LocationsValidationError(f"Дубликат id персонажа в locations: '{cid}'")
+        seen_char_ids.add(cid)
+
+        res_stat = char.get("resolution_status")
+        loc = char.get("location")
+        if res_stat == "in_location" and not loc:
+            raise LocationsValidationError(f"Персонаж {cid} имеет статус 'in_location', но location равен null")
+        if res_stat in ("near_location", "in_region", "unknown") and loc is not None:
+            raise LocationsValidationError(f"Персонаж {cid} имеет статус '{res_stat}', но location не равен null")
+
+    # 2. Уникальность составного ключа построек (zone, id) и согласованность статусов
+    seen_bldg_keys: set[str] = set()
+    for bldg in locations.get("buildings", []):
+        bkey = bldg.get("building_key")
+        bid = bldg.get("id")
+        if not bid or not str(bid).strip():
+            raise LocationsValidationError("Пустой или отсутствующий id постройки")
+        if not bkey or not str(bkey).strip():
+            raise LocationsValidationError("Пустой или отсутствующий building_key постройки")
+        if bkey in seen_bldg_keys:
+            raise LocationsValidationError(f"Дубликат составного ключа постройки: '{bkey}'")
+        seen_bldg_keys.add(bkey)
+
+        res_stat = bldg.get("resolution_status")
+        loc = bldg.get("location")
+        if res_stat == "in_location" and not loc:
+            raise LocationsValidationError(f"Постройка {bkey} имеет статус 'in_location', но location равен null")
+        if res_stat in ("near_location", "in_region", "unknown") and loc is not None:
+            raise LocationsValidationError(f"Постройка {bkey} имеет статус '{res_stat}', но location не равен null")
+
+    # 3. Согласованность spatial_groups
+    group_char_count = sum(len(g.get("characters", [])) for g in locations.get("spatial_groups", []))
+    if group_char_count != len(seen_char_ids):
+        raise LocationsValidationError(
+            f"Несовпадение числа участников в spatial_groups ({group_char_count}) и characters ({len(seen_char_ids)})"
+        )
+
+    # 4. Проверка ссылок на world_ref
+    if world_ref is not None:
+        if locations.get("world_ref_id") != world_ref.get("world_ref_id"):
+            raise LocationsValidationError(
+                f"Несовпадение world_ref_id: в locations '{locations.get('world_ref_id')}', "
+                f"а в world_ref '{world_ref.get('world_ref_id')}'"
+            )
+        known_instances = {l["instance_id"] for l in world_ref.get("locations", [])}
+        for char in locations.get("characters", []):
+            if char.get("location"):
+                iid = char["location"]["instance_id"]
+                if iid not in known_instances:
+                    raise LocationsValidationError(f"Персонаж {char['id']} ссылается на неизвестную локацию: '{iid}'")
+            for near in char.get("nearby_locations", []):
+                niid = near["instance_id"]
+                if niid not in known_instances:
+                    raise LocationsValidationError(f"Персонаж {char['id']} ссылается на неизвестную окрестность: '{niid}'")
+
+        for bldg in locations.get("buildings", []):
+            if bldg.get("location"):
+                iid = bldg["location"]["instance_id"]
+                if iid not in known_instances:
+                    raise LocationsValidationError(f"Постройка {bldg['building_key']} ссылается на неизвестную локацию: '{iid}'")
+            for near in bldg.get("nearby_locations", []):
+                niid = near["instance_id"]
+                if niid not in known_instances:
+                    raise LocationsValidationError(f"Постройка {bldg['building_key']} ссылается на неизвестную окрестность: '{niid}'")
+
+    return {
+        "status": "passed",
+        "snapshot_id": locations.get("snapshot_id"),
+        "world_ref_id": locations.get("world_ref_id"),
+        "checks": [
+            "schema",
+            "unique_characters",
+            "unique_building_keys",
+            "resolution_consistency",
+            "spatial_groups_coverage",
+        ],
+    }
+
+
 def check_examples() -> int:
     count = 0
     for path in sorted((ROOT / "examples").glob("*.json")):
@@ -130,6 +232,8 @@ def check_examples() -> int:
             validate(value, "manifest")
         elif fmt == "kenshi-world-reference/1":
             validate_world_reference(value)
+        elif fmt == "kenshi-locations/1":
+            validate_locations(value)
         else:
             validate(value, "timeline-event")
         count += 1
@@ -201,7 +305,7 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
 
         checked_files.add(target_path)
 
-    # 2. Семантические проверки
+    # 2. Семантические проверки current и changes
     current_path = package_dir / artifacts["current"]
     changes_path = package_dir / artifacts["changes"]
     current = read_json(current_path.read_bytes())
@@ -239,7 +343,82 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
                 "При отсутствии baseline (parent: null) diff.valid обязан быть false"
             )
 
-    # 3. Проверка timeline при наличии
+    # 3. Географические проверки (locations.json и world_reference.json)
+    has_locations = "locations" in artifacts
+    has_world_ref = "world_reference" in artifacts
+    manifest_wref_id = manifest.get("world_ref_id")
+
+    if has_locations or has_world_ref or manifest_wref_id is not None:
+        if not has_locations:
+            raise PublicationValidationError("При наличии географической привязки в artifacts обязан присутствовать locations")
+        if not has_world_ref:
+            raise PublicationValidationError("При наличии географической привязки в artifacts обязан присутствовать world_reference")
+        if not manifest_wref_id:
+            raise PublicationValidationError("В manifest обязан быть указан непустой world_ref_id")
+
+        locations_path = package_dir / artifacts["locations"]
+        world_ref_path = package_dir / artifacts["world_reference"]
+        loc_data = read_json(locations_path.read_bytes())
+        wref_data = read_json(world_ref_path.read_bytes())
+
+        validate_world_reference(wref_data)
+        validate_locations(loc_data, world_ref=wref_data)
+
+        # Перекрёстные ссылки
+        if loc_data.get("snapshot_id") != manifest.get("snapshot_id"):
+            raise PublicationValidationError(
+                f"Несовпадение snapshot_id между manifest '{manifest.get('snapshot_id')}' "
+                f"и locations.json '{loc_data.get('snapshot_id')}'"
+            )
+        if loc_data.get("world_ref_id") != manifest_wref_id:
+            raise PublicationValidationError(
+                f"Несовпадение world_ref_id между manifest '{manifest_wref_id}' "
+                f"и locations.json '{loc_data.get('world_ref_id')}'"
+            )
+        if wref_data.get("world_ref_id") != manifest_wref_id:
+            raise PublicationValidationError(
+                f"Несовпадение world_ref_id между manifest '{manifest_wref_id}' "
+                f"и world_reference.json '{wref_data.get('world_ref_id')}'"
+            )
+
+        # Покрытие всех персонажей current.json
+        curr_char_ids = {c["id"] for c in current.get("characters", [])}
+        loc_char_ids = {c["id"] for c in loc_data.get("characters", [])}
+        if curr_char_ids != loc_char_ids:
+            raise PublicationValidationError(
+                f"Неполное покрытие персонажей в locations.json: расхождение {curr_char_ids ^ loc_char_ids}"
+            )
+
+        # Покрытие всех построек property.buildings
+        curr_bldg_keys = set()
+        for b in (current.get("property") or {}).get("buildings", []):
+            bid = b.get("id")
+            z = b.get("zone")
+            curr_bldg_keys.add(f"{z}:{bid}" if z else f"unknown:{bid}")
+        loc_bldg_keys = {b["building_key"] for b in loc_data.get("buildings", [])}
+        if curr_bldg_keys != loc_bldg_keys:
+            raise PublicationValidationError(
+                f"Неполное покрытие построек в locations.json: расхождение {curr_bldg_keys ^ loc_bldg_keys}"
+            )
+
+        # Согласованность movement и changes
+        mov = loc_data.get("movement", {})
+        if mov.get("valid") != changes.get("valid"):
+            raise PublicationValidationError(
+                f"Несогласованность movement.valid ({mov.get('valid')}) и changes.valid ({changes.get('valid')})"
+            )
+        if changes.get("valid") is True:
+            expected_from = changes.get("from", {}).get("snapshot_id")
+            if mov.get("from_snapshot_id") != expected_from:
+                raise PublicationValidationError(
+                    f"Несовпадение from_snapshot_id в movement '{mov.get('from_snapshot_id')}' и changes '{expected_from}'"
+                )
+            if mov.get("to_snapshot_id") != manifest.get("snapshot_id"):
+                raise PublicationValidationError(
+                    f"Несовпадение to_snapshot_id в movement '{mov.get('to_snapshot_id')}' и manifest '{manifest.get('snapshot_id')}'"
+                )
+
+    # 4. Проверка timeline при наличии
     if "timeline" in artifacts:
         timeline_path = package_dir / artifacts["timeline"]
         for line in timeline_path.read_text(encoding="utf-8").splitlines():
@@ -249,7 +428,7 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
             event = read_json(line.encode("utf-8"))
             validate(event, "timeline-event")
 
-    # 4. Проверка приватности во всех файлах пакета
+    # 5. Проверка приватности во всех файлах пакета
     for root_dir, dirs, files in os.walk(package_dir):
         for name in files:
             file_p = Path(root_dir) / name
@@ -261,5 +440,11 @@ def validate_publication(package_dir: Path) -> dict[str, Any]:
     return {
         "status": "passed",
         "manifest": manifest,
-        "checks": ["schema", "artifacts", "semantics", "privacy"],
+        "checks": [
+            "schema",
+            "artifacts",
+            "semantics",
+            "geography" if (has_locations and has_world_ref) else "no_geography",
+            "privacy",
+        ],
     }

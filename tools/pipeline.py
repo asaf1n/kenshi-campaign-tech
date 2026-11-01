@@ -1,4 +1,4 @@
-"""Сквозной вертикальный срез конвейера: extract -> diff -> validate -> render -> publish."""
+"""Сквозной вертикальный срез конвейера: extract -> diff -> resolve_locations -> render -> validate -> publish."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +19,8 @@ def run_pipeline(
     campaign_id: str | None = None,
     branch_id: str | None = None,
     parent_snapshot_id: str | None = None,
+    world_ref_id: str | None = None,
+    world_dir: Path | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     snapshots_dir = output_snapshots or ROOT / "data/snapshots"
@@ -45,6 +47,8 @@ def run_pipeline(
         parent_snapshot_id=parent_snapshot_id,
         branch_id=branch_id,
         campaign_id=campaign_id,
+        world_ref_id=world_ref_id,
+        world_dir=world_dir,
         dry_run=dry_run,
     )
 

@@ -92,6 +92,13 @@ def main() -> int:
             "world_reference-run.json",
         ),
         (
+            "locations",
+            [sys.executable, "-m", "unittest", "tests/test_locations.py", "-v"],
+            ["python", "-m", "unittest", "tests/test_locations.py", "-v"],
+            "locations.log",
+            "locations-run.json",
+        ),
+        (
             "converter",
             [
                 sys.executable,
