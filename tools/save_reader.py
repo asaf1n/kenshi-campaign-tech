@@ -509,13 +509,18 @@ def collect_items(
             "material_sid": s.get("material sid", ""),
             "color_sid": s.get("color sid", ""),
             "company_sid": s.get("company sid", ""),
-            "quality": f.get("quality"),
-            "charges": f.get("charges"),
+            "quality": _r(f.get("quality")),
+            "charges": _r(f.get("charges")),
+            "wear": _r(f.get("wear")) if "wear" in f else None,
+            "dam": _r(f.get("dam")) if "dam" in f else None,
+            "stun": _r(f.get("stun")) if "stun" in f else None,
             "level": i.get("level"),
             "quantity": i.get("quantity"),
             "inventory_xy": [i.get("inventory x"), i.get("inventory y")],
             "item_function": i.get("item function"),
-            "raw": {"bool": b, "float": f, "int": i, "string": s},
+            "unique": b.get("unique") if "unique" in b else None,
+            "owned_by": clean_handle(town_handle(i, "ownedby")),
+            "raw": {"bool": dict(b), "float": dict(f), "int": dict(i), "string": dict(s)},
         }
         out.append(item_entry)
         # Если предмет является рюкзаком с вложенным контейнером 41
@@ -1040,16 +1045,76 @@ def read_player_property(
 
             pos = [round(v, 1) for v in inst.get("pos", [])] if inst and inst.get("pos") else None
 
+            template_sid = inst.get("target") if inst else None
+            raw_name = b_str.get("name")
+            if not raw_name or raw_name == "0":
+                r_name = r.get("name")
+                raw_name = r_name if r_name and r_name != "0" else None
+
+            template_name = None
+            if template_sid and gamedb_inst:
+                entry = gamedb_inst.get(template_sid) if isinstance(gamedb_inst, dict) else None
+                if entry and isinstance(entry, (list, tuple)):
+                    template_name = entry[1] or entry[0]
+                elif entry and isinstance(entry, dict):
+                    template_name = entry.get("name_ru") or entry.get("name")
+
+            resolved_name = raw_name or template_name
+
+            power_on = b_bool.get("power on")
+            gets_battery = b_bool.get("gets battery")
+            battery_charge = _r(b_float.get("batterycharge"))
+
+            is_paused = b_bool.get("pause")
+            is_repeat = b_bool.get("repeat")
+            production_progress = _r(b_float.get("production amount"))
+            consumption_data = {
+                k: _r(v)
+                for k, v in b_float.items()
+                if k.startswith("consumption amount")
+            }
+            consumption = consumption_data if consumption_data else None
+            resource_mult = _r(b_float.get("resource mult"))
+            mining_resource_level = _r(b_float.get("mining resource level"))
+
+            is_complete = b_bool.get("is complete")
+            destroyed = b_bool.get("destroyed")
+            construction_progress_raw = _r(b_float.get("construction progress"))
+
+            current_shots = b_int.get("current shots")
+            is_locked = b_bool.get("locked")
+            lock_level = b_int.get("lock lvl")
+            hardness = _r(b_float.get("hardness"))
+
+            usage_nodes = [
+                v for v in indexed(b_str, "usagenode_") if v
+            ]
+
             objs[sid] = {
                 "id": inst.get("id") if inst else sid,
                 "sid": sid,
-                "name": r.get("name") or b_str.get("name"),
+                "name": resolved_name,
+                "template_name": template_name,
                 "zone": zone_stem,
-                "template_sid": inst.get("target") if inst else None,
+                "template_sid": template_sid,
                 "position": pos,
-                "complete": b_bool.get("is complete"),
-                "destroyed": b_bool.get("destroyed"),
-                "construction_progress_raw": _r(b_float.get("construction progress")),
+                "complete": is_complete,
+                "destroyed": destroyed,
+                "construction_progress_raw": construction_progress_raw,
+                "power_on": power_on,
+                "gets_battery": gets_battery,
+                "battery_charge": battery_charge,
+                "is_paused": is_paused,
+                "is_repeat": is_repeat,
+                "production_progress": production_progress,
+                "consumption": consumption,
+                "resource_mult": resource_mult,
+                "mining_resource_level": mining_resource_level,
+                "current_shots": current_shots,
+                "is_locked": is_locked,
+                "lock_level": lock_level,
+                "hardness": hardness,
+                "usage_nodes": usage_nodes,
                 "handle": town_handle(b_int, "handle"),
                 "town": town_map.get(town_handle(b_int, "town")),
                 "storage_items": storage_items,
