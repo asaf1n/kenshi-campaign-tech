@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from tools.kenshi_gd import read_file
+from tools.task_types import get_task_name
 
 PathLike = str | os.PathLike[str]
 DEFAULT_PLAYER_FACTION = "204-gamedata.base"
@@ -564,6 +565,99 @@ def parse_limbs(
     return installed, lost
 
 
+def clean_handle(h: tuple[int | None, ...] | None) -> tuple[int | None, ...] | None:
+    """Очищает безадресные (TYPE=11) или нулевые handle (TYPE, C, S, I, CS)."""
+    if not h:
+        return None
+    # TYPE 11 означает безадресную глобальную задачу (JOB_MEDIC, JOB_REPAIR_ROBOT)
+    if h[0] == 11:
+        return None
+    # Если все C, S, I, CS нулевые или отсутствуют
+    if all(v in (0, None) for v in h[1:]):
+        return None
+    return h
+
+
+clean_job_handle = clean_handle
+
+
+def parse_bounties(st_str: dict[str, Any], st_int: dict[str, Any]) -> dict[str, Any]:
+    """Извлекает награды за голову персонажа (bountyfac<idx>, bountyexp<idx>, crimes<idx>)."""
+    bounty_nums = sorted({
+        int(k[len("bountyexp"):])
+        for k in st_int
+        if k.startswith("bountyexp") and k[len("bountyexp"):].isdigit()
+    } | {
+        int(k[len("bountyfac"):])
+        for k in st_str
+        if k.startswith("bountyfac") and k[len("bountyfac"):].isdigit()
+    })
+
+    entries: list[dict[str, Any]] = []
+    for num in bounty_nums:
+        fac = st_str.get(f"bountyfac{num}")
+        amount = st_int.get(f"bountyexp{num}")
+        crimes = st_int.get(f"crimes{num}")
+        entries.append({
+            "index": num,
+            "faction_sid": fac,
+            "amount": amount,
+            "crimes": crimes,
+        })
+
+    has_bounty = any(b["amount"] is not None and b["amount"] > 0 for b in entries)
+    total_amount = sum(b["amount"] for b in entries if b["amount"])
+    return {
+        "has_bounty": has_bounty,
+        "total_amount": total_amount,
+        "entries": entries,
+    }
+
+
+def decode_jobs(jobs_rec: dict[str, Any] | None) -> dict[str, Any]:
+    """Декодирует очередь постоянных (pjob) и временных (tjob) работ персонажа."""
+    if not jobs_rec:
+        return {"enabled": None, "primary": [], "temporary": [], "raw": {}}
+    j_int, j_str, j_bool = jobs_rec.get("int", {}), jobs_rec.get("string", {}), jobs_rec.get("bool", {})
+
+    primary: list[dict[str, Any]] = []
+    p_nums = sorted({
+        int(k[len("pjob"):])
+        for k in j_int
+        if k.startswith("pjob") and k[len("pjob"):].isdigit()
+    })
+    for num in p_nums:
+        code = j_int.get(f"pjob{num}")
+        primary.append({
+            "index": num,
+            "task_code": code,
+            "task_name": get_task_name(code),
+            "target_handle": clean_job_handle(town_handle(j_int, f"pjobT{num}")),
+        })
+
+    temporary: list[dict[str, Any]] = []
+    t_nums = sorted({
+        int(k[len("tjob"):])
+        for k in j_int
+        if k.startswith("tjob") and k[len("tjob"):].isdigit()
+    })
+    for num in t_nums:
+        code = j_int.get(f"tjob{num}")
+        temporary.append({
+            "index": num,
+            "task_code": code,
+            "task_name": get_task_name(code),
+            "target_handle": clean_job_handle(town_handle(j_int, f"tjobT{num}")),
+        })
+
+    return {
+        "enabled": j_bool.get("jobs"),
+        "primary": primary,
+        "temporary": temporary,
+        "raw": {"int": dict(j_int), "string": dict(j_str), "bool": dict(j_bool)},
+    }
+
+
 def parse_character(
     inst: dict[str, Any],
     by_sid: dict[str, dict[str, Any]],
@@ -717,15 +811,13 @@ def parse_character(
             inventory_items.append(it)
 
     # Очередь работ (тип 67)
-    jobs_info: dict[str, Any] = {}
-    if jobs_rec:
-        jobs_info = {
-            "int": dict(jobs_rec.get("int", {})),
-            "string": dict(jobs_rec.get("string", {})),
-        }
+    jobs_info = decode_jobs(jobs_rec)
 
-    # Переноска и награды из записи 36
+    # Переноска, награды и боевые режимы из записи 36
     st_int = st.get("int", {})
+    st_str = st.get("string", {})
+    st_bool = st.get("bool", {})
+
     carrying_handle = {
         "carryingS": st_int.get("carryingS"),
         "carryingI": st_int.get("carryingI"),
@@ -733,10 +825,25 @@ def parse_character(
         "carryingCS": st_int.get("carryingCS"),
         "carryingTYPE": st_int.get("carryingTYPE"),
     }
-    bounties: dict[str, Any] = {
-        "bountyfac": st.get("string", {}).get("bountyfac"),
-        "bountyexp": st_int.get("bountyexp"),
-        "crimes": st.get("string", {}).get("crimes"),
+    is_carrying = bool(st_bool.get("carrying", False))
+    valid_handle = clean_handle(town_handle(st_int, "carrying"))
+    carrying_info = {
+        "is_carrying": is_carrying,
+        "target_handle": valid_handle if is_carrying else None,
+        "carried_by": valid_handle if (not is_carrying and valid_handle and valid_handle[0] == 1) else None,
+        "raw": carrying_handle,
+    }
+
+    bounties_info = parse_bounties(st_str, st_int)
+
+    combat_modes = {
+        "taunt": st_bool.get("taunt mode"),
+        "passive": st_bool.get("passive mode"),
+        "ranged": st_bool.get("ranged mode"),
+        "defensive": st_bool.get("defensive mode"),
+        "chase": st_bool.get("chase mode"),
+        "stealth": st_bool.get("stealth"),
+        "non_combat": st_bool.get("non combat mode"),
     }
 
     return {
@@ -764,9 +871,10 @@ def parse_character(
         "inventory": inventory_items,
         "items": items,
         "jobs": jobs_info,
-        "carrying": carrying_handle,
-        "bounties": bounties,
-        "state_flags": st.get("bool", {}),
+        "carrying": carrying_info,
+        "bounties": bounties_info,
+        "combat_modes": combat_modes,
+        "state_flags": st_bool,
     }
 
 

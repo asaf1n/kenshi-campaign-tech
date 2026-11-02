@@ -29,6 +29,7 @@ ENGINE_FILES: list[str] = [
     "tools/saves.py",
     "tools/session_diff.py",
     "tools/session_export.py",
+    "tools/task_types.py",
     "tools/zipnames.py",
 ]
 
