@@ -4,12 +4,14 @@ from __future__ import annotations
 import copy
 import os
 from pathlib import Path
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.check_converter import record
 from tools.config import Config
 from tools.extraction import ROOT, convert_save, extract
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, read_json, tree_hashes
@@ -28,77 +30,32 @@ def session() -> dict:
                                      "timings_ms": {"total": 12}, "game_data": {"cache": "hit"}}}
 
 
-def write_fake_converter(root: Path) -> None:
-    tools = root / "tools"
-    tools.mkdir(parents=True)
-    (tools / "gamedb.py").write_text('''import os
-from pathlib import Path
-PO_RU = str(Path(os.environ["KENSHI_DIR"]) / "locale.po")
-def load_index(cache_dir, files=None):
-    Path(cache_dir).mkdir()
-    (Path(cache_dir) / "index.json").write_text("{}")
-    return {}, {}
-''', encoding="utf-8")
-    (tools / "session_export.py").write_text('''import json, os, sys
-from pathlib import Path
-import gamedb
-class saves:
-    @staticmethod
-    def read_quick_save(save):
-        return json.loads((Path(save) / "quick.save").read_bytes())
-def read_file(raw):
-    obj = json.loads(raw)
-    return {"header": {"count": 1}, "records": [{"type": obj.get("record_type", 56)}], "consumed": len(raw), "size": len(raw)}
-class Timer:
-    pass
-def collect(*args):
-    pass
-def build_snapshot(save, faction_sid, timer):
-    assert sys.flags.isolated and sys.dont_write_bytecode
-    data = saves.read_quick_save(save)
-    attempt = data.get("attempt")
-    if attempt:
-        target = Path(attempt[1])
-        try:
-            if attempt[0] == "unlink": target.unlink()
-            elif attempt[0] == "rename": target.rename(target.with_suffix(".moved"))
-            elif attempt[0] == "os_open": os.close(os.open(target, os.O_WRONLY | os.O_TRUNC))
-            else:
-                with target.open(attempt[0]) as stream: stream.write("forbidden")
-        except PermissionError:
-            pass
-    gamedb.load_index(CACHE_DIR, [str(Path(os.environ["KENSHI_DIR"]) / "base.mod")])
-    result = data["snapshot"]
-    result["meta"]["player_faction"]["sid"] = faction_sid
-    result["meta"]["exported_at"] = str(os.getpid())
-    result["meta"]["game_data"] = {"cache": str(os.getpid()), "mods": ["base"], "missing": []}
-    result["save"]["path"] = save
-    return result
-''', encoding="utf-8")
-
-
 class ExtractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="kenshi-tests-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.config = Config(self.root / "converter", (self.root / "saves",),
+        self.config = Config((self.root / "saves",),
                              self.root / "game", self.root / "workshop", FACTION)
         self.output = self.root / "snapshots"
         self.source = self.root / "export.json"
         self.source.write_bytes(canonical(session()))
 
     def make_save(self, name: str = "one") -> Path:
-        if not self.config.converter.exists():
-            write_fake_converter(self.config.converter)
-            self.config.game.mkdir()
-            (self.config.game / "base.mod").write_bytes(b"mod-v1")
-            (self.config.game / "locale.po").write_bytes(b"locale-v1")
+        data_dir = self.config.game / "data"
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True)
+            (self.config.game / "locale/ru_RU").mkdir(parents=True)
+            (self.config.game / "locale/ru_RU/gamedata.po").write_bytes(b"")
+            for filename in ("gamedata.base", "Newwworld.mod", "Dialogue.mod", "rebirth.mod"):
+                (data_dir / filename).write_bytes(struct.pack("<iiii", 17, 0, 0, 0))
         save = self.config.save_dirs[0] / name
         (save / "platoon").mkdir(parents=True)
-        quick = {"registry": {"a": {"faction_sid": FACTION}}, "snapshot": session()}
-        (save / "quick.save").write_bytes(canonical(quick))
-        (save / "platoon/a.platoon").write_bytes(b"{}")
+        state = record(56, "world", {"time day": 12, "time hour": 3, "time minute": 15,
+                                      "player money": 1234, "members": 0, "squads": 1}, {})
+        squad = record(34, "a", {"squad index": 0}, {"platoon stringID": "a", "faction stringID": self.config.faction_sid})
+        (save / "quick.save").write_bytes(struct.pack("<iii", 15, 2, 2) + state + squad)
+        (save / "platoon/a.platoon").write_bytes(struct.pack("<iii", 15, 0, 0))
         return save
 
     def test_config_and_faction_identity(self) -> None:
@@ -110,7 +67,11 @@ class ExtractTests(unittest.TestCase):
         save = self.make_save()
         ids = []
         for faction in (FACTION, "env-faction", "cli-faction"):
-            config = Config(self.config.converter, self.config.save_dirs, self.config.game, self.config.workshop, faction)
+            config = Config(self.config.save_dirs, self.config.game, self.config.workshop, faction)
+            state = record(56, "world", {"time day": 12, "time hour": 3, "time minute": 15,
+                                          "player money": 1234, "members": 0, "squads": 1}, {})
+            squad = record(34, "a", {"squad index": 0}, {"platoon stringID": "a", "faction stringID": faction})
+            (save / "quick.save").write_bytes(struct.pack("<iii", 15, 2, 2) + state + squad)
             result = extract(save, "save", config, self.output)
             provenance = read_json((self.output / result["snapshot_id"] / "provenance.json").read_bytes())
             current = read_json((self.output / result["snapshot_id"] / "current.json").read_bytes())
@@ -193,10 +154,10 @@ class ExtractTests(unittest.TestCase):
     def test_save_hashes_repeat_converter_and_mod_fingerprints(self) -> None:
         save = self.make_save()
         before = tree_hashes(save)
-        protected = tree_hashes(self.config.converter), tree_hashes(self.config.game)
+        protected = tree_hashes(self.config.game)
         first = extract(save, "save", self.config, self.output, "campaign", "main")
         self.assertEqual(before, tree_hashes(save))
-        self.assertEqual(protected, (tree_hashes(self.config.converter), tree_hashes(self.config.game)))
+        self.assertEqual(protected, tree_hashes(self.config.game))
         files = tree_hashes(self.output)
         self.assertEqual(first, extract(save, "save", self.config, self.output, "campaign", "main"))
         self.assertEqual(files, tree_hashes(self.output))
@@ -204,15 +165,16 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(meta["source_files"], before)
         self.assertEqual(meta["source_sha256"], digest(canonical(before)))
         self.assertEqual(meta["converter"]["sha256"], digest(canonical(meta["converter"]["files"])))
-        self.assertEqual([p[0] for p in meta["converter"]["files"]], ["tools/gamedb.py", "tools/session_export.py"])
-        (self.config.game / "base.mod").write_bytes(b"mod-v2")
+        from tools.converter_worker import ENGINE_FILES
+        self.assertEqual([p[0] for p in meta["converter"]["files"]], ENGINE_FILES)
+        (self.config.game / "data/Newwworld.mod").write_bytes(struct.pack("<iiii", 17, 0, 0, 0) + b"mod-v2")
         mod_changed = extract(save, "save", self.config, self.output, "campaign", "main")
         self.assertNotEqual(first["snapshot_id"], mod_changed["snapshot_id"])
-        with (self.config.converter / "tools/session_export.py").open("a", encoding="utf-8") as stream:
-            stream.write("\n# новая версия\n")
-        converter_changed = extract(save, "save", self.config, self.output, "campaign", "main")
-        self.assertNotEqual(mod_changed["snapshot_id"], converter_changed["snapshot_id"])
-        self.assertNotEqual(converter_changed["snapshot_id"], extract(save, "save", self.config, self.output, "campaign", "branch")["snapshot_id"])
+        mock_hashes = {k: "changed" for k in ENGINE_FILES}
+        with patch("tools.extraction.engine_hashes", return_value=mock_hashes):
+            engine_changed = extract(save, "save", self.config, self.output, "campaign", "main")
+        self.assertNotEqual(mod_changed["snapshot_id"], engine_changed["snapshot_id"])
+        self.assertNotEqual(engine_changed["snapshot_id"], extract(save, "save", self.config, self.output, "campaign", "branch")["snapshot_id"])
 
     def test_save_missing_corrupt_and_source_changes(self) -> None:
         save = self.make_save()
@@ -229,8 +191,8 @@ class ExtractTests(unittest.TestCase):
             path.write_bytes(quick if filename == "quick.save" else platoon)
             self.assertFalse(list(self.output.glob("sha256-*")))
         for mutation in ("add", "remove", "bytes"):
-            def changed(*args: object) -> dict:
-                result = convert_save(*args)
+            def changed(*args: object, **kwargs: object) -> dict:
+                result = convert_save(*args, **kwargs)
                 if mutation == "add":
                     (save / "extra").write_bytes(b"new")
                 elif mutation == "remove":
@@ -245,19 +207,43 @@ class ExtractTests(unittest.TestCase):
 
     def test_write_guard_and_output_boundaries(self) -> None:
         save = self.make_save()
-        quick_path = save / "quick.save"
-        quick = read_json(quick_path.read_bytes())
         targets = [(save / "platoon/a.platoon", mode) for mode in ("w", "a", "os_open", "unlink", "rename")]
-        targets += [(self.config.converter / "tools/gamedb.py", "w"), (self.config.game / "base.mod", "w")]
+        targets += [(self.config.game / "data/gamedata.base", "w")]
         for target, mode in targets:
-            quick["attempt"] = [mode, str(target)]
-            quick_path.write_bytes(canonical(quick))
-            before = tree_hashes(save), tree_hashes(self.config.converter), tree_hashes(self.config.game)
-            with self.subTest(mode=mode, target=target), self.assertRaisesRegex(ExtractionError, "пытался записать"):
-                extract(save, "save", self.config, self.output)
-            self.assertEqual(before, (tree_hashes(save), tree_hashes(self.config.converter), tree_hashes(self.config.game)))
+            before = tree_hashes(save), tree_hashes(self.config.game)
+            script = (
+                "import sys, os\n"
+                "from pathlib import Path\n"
+                "sys.path.insert(0, sys.argv[4])\n"
+                "from tools.io_utils import install_write_guard\n"
+                "workspace = Path(sys.argv[1])\n"
+                "target = Path(sys.argv[2])\n"
+                "mode = sys.argv[3]\n"
+                "denied = install_write_guard(workspace)\n"
+                "try:\n"
+                "    if mode == 'unlink': target.unlink()\n"
+                "    elif mode == 'rename': target.rename(target.with_suffix('.moved'))\n"
+                "    elif mode == 'os_open': os.close(os.open(target, os.O_WRONLY | os.O_TRUNC))\n"
+                "    else:\n"
+                "        with target.open(mode) as f: f.write('forbidden')\n"
+                "except PermissionError:\n"
+                "    pass\n"
+                "if denied:\n"
+                "    print('DENIED_CAUGHT')\n"
+                "    sys.exit(0)\n"
+                "sys.exit(1)\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-I", "-B", "-c", script, str(self.output), str(target), mode, str(ROOT)],
+                capture_output=True,
+                cwd=ROOT,
+            )
+            with self.subTest(mode=mode, target=target):
+                self.assertEqual(completed.returncode, 0, completed.stderr.decode("utf-8", errors="replace"))
+                self.assertIn("DENIED_CAUGHT", completed.stdout.decode("utf-8", errors="replace"))
+            self.assertEqual(before, (tree_hashes(save), tree_hashes(self.config.game)))
             self.assertFalse(list(self.output.glob("sha256-*")))
-        for output in (save / "out", self.config.converter / "out", self.config.game / "out", self.root):
+        for output in (save / "out", self.config.game / "out", self.root):
             with self.subTest(output=output), self.assertRaisesRegex(ExtractionError, "пересекается"):
                 extract(self.source, "export", self.config, output)
         if os.name == "nt":
@@ -273,8 +259,7 @@ class ExtractTests(unittest.TestCase):
 
     def test_cli_hashseed_save_and_export(self) -> None:
         save = self.make_save()
-        env = os.environ | {"KENSHI_CONVERTER_DIR": str(self.config.converter),
-                            "KENSHI_SAVE_DIRS": str(self.config.save_dirs[0]), "KENSHI_DIR": str(self.config.game),
+        env = os.environ | {"KENSHI_SAVE_DIRS": str(self.config.save_dirs[0]), "KENSHI_DIR": str(self.config.game),
                             "KENSHI_WORKSHOP_DIR": str(self.config.workshop), "KENSHI_FACTION_SID": FACTION}
         for kind, source in (("save", save), ("export", self.source)):
             results = []

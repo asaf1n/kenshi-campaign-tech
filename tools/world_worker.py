@@ -45,7 +45,6 @@ def _find_mod_path(stem: str, game: Path, workshop: Path) -> Path | None:
 
 
 def run(request: dict[str, Any]) -> dict[str, Any]:
-    converter = Path(request["converter"]).resolve()
     workspace = Path(request["workspace"]).resolve()
     game = Path(request["game"]).resolve()
     workshop = Path(request["workshop"]).resolve()
@@ -54,11 +53,10 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     os.environ["KENSHI_WORKSHOP_DIR"] = str(workshop)
     sys.pycache_prefix = str(workspace / "pycache")
     denied = install_write_guard(workspace)
-    sys.path.insert(0, str(converter / "tools"))
 
-    import kenshi_gd
-    import gamedb
-    from saves import town_handle
+    from tools import kenshi_gd
+    from tools import gamedb
+    from tools.save_reader import town_handle
 
     cache_dir = workspace / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)

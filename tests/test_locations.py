@@ -54,7 +54,9 @@ class LocationsTests(unittest.TestCase):
     def test_schema_and_example_validation(self) -> None:
         """Валидация схемы contracts/locations.schema.json на examples/locations.example.json."""
         validate(self.example_locations, "locations")
-        res = validate_locations(self.example_locations, world_ref=self.world_ref)
+        example_copy = dict(self.example_locations)
+        example_copy["world_ref_id"] = self.world_ref["world_ref_id"]
+        res = validate_locations(example_copy, world_ref=self.world_ref)
         self.assertEqual(res["status"], "passed")
         self.assertEqual(res["snapshot_id"], self.example_locations["snapshot_id"])
 
@@ -444,6 +446,9 @@ class LocationsTests(unittest.TestCase):
 
             snap_id = self.sample_snapshot_dir.name
             diffs_dir = tmp / "diffs"
+            test_idx = tmp / "index.json"
+            prov = read_json((self.sample_snapshot_dir / "provenance.json").read_bytes())
+            snap_branch = prov.get("branch_id") or "main"
 
             # 1. Первая успешная публикация
             res1 = publish(
@@ -452,6 +457,8 @@ class LocationsTests(unittest.TestCase):
                 diffs_dir=diffs_dir,
                 published_dir=pub_dir,
                 world_ref_id=self.world_ref["world_ref_id"],
+                index_path=test_idx,
+                branch_id=snap_branch,
             )
             self.assertEqual(res1["status"], "published")
             first_manifest = (pub_dir / "manifest.json").read_bytes()
@@ -466,6 +473,8 @@ class LocationsTests(unittest.TestCase):
                     diffs_dir=diffs_dir,
                     published_dir=pub_dir,
                     world_ref_id=self.world_ref["world_ref_id"],
+                    index_path=test_idx,
+                    branch_id=snap_branch,
                     fault_inject="geo_error",
                 )
 

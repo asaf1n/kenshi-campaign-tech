@@ -1,4 +1,4 @@
-"""Единственная точка запуска внешнего конвертера, только через python -I -B."""
+"""Точка запуска нативного конвертера Kenshi (строго через python -I -B)."""
 from __future__ import annotations
 
 import contextlib
@@ -8,16 +8,39 @@ from pathlib import Path
 import sys
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools"))
+
+from tools import gamedb, kenshi_gd, saves, session_export
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, install_write_guard, read_json
 from tools.normalization import scrub
 
 
-def strict_inputs(exporter: Any, save: Path, faction: str) -> None:
-    quick = exporter.read_file((save / "quick.save").read_bytes())
+ENGINE_FILES: list[str] = [
+    "tools/converter_worker.py",
+    "tools/export_platoons.py",
+    "tools/gamedb.py",
+    "tools/itemstats.py",
+    "tools/kenshi_gd.py",
+    "tools/player_assets.py",
+    "tools/prosthetics.py",
+    "tools/save_reader.py",
+    "tools/saves.py",
+    "tools/session_diff.py",
+    "tools/session_export.py",
+    "tools/zipnames.py",
+]
+
+
+def strict_inputs(save: Path, faction: str) -> None:
+    quick_path = save / "quick.save"
+    if not quick_path.is_file():
+        raise ExtractionError("Отсутствует обязательный quick.save")
+    quick = kenshi_gd.read_file(quick_path.read_bytes())
     if quick["consumed"] <= 0 or not any(r["type"] == 56 for r in quick["records"]):
         raise ExtractionError("Повреждена обязательная структура quick.save")
-    registry = exporter.saves.read_quick_save(str(save))["registry"]
+    registry = saves.read_quick_save(str(save))["registry"]
     platoon = save / "platoon"
     if not platoon.is_dir():
         raise ExtractionError("Отсутствует обязательный каталог platoon")
@@ -27,65 +50,85 @@ def strict_inputs(exporter: Any, save: Path, faction: str) -> None:
         path = platoon / (stem + ".platoon")
         if item.get("faction_sid") == faction and not path.is_file():
             raise ExtractionError("Отсутствует обязательный .platoon игрока")
-        # Проверяем активные файлы, в том числе без строки faction_sid:
-        # бинарный prefilter legacy-конвертера иначе скрывает повреждения.
+        # Проверяем активные файлы, в том числе без строки faction_sid
         if path.is_file():
-            parsed = exporter.read_file(path.read_bytes())
+            parsed = kenshi_gd.read_file(path.read_bytes())
             if parsed["consumed"] != parsed["size"] or parsed["header"]["count"] < 0:
                 raise ExtractionError("Повреждена обязательная структура .platoon")
 
 
 def run(request: dict[str, Any]) -> dict[str, Any]:
-    converter = Path(request["converter"]).resolve()
+    if not (sys.flags.isolated and sys.dont_write_bytecode):
+        raise ExtractionError("Воркер должен запускаться в изолированном режиме (-I -B)")
+
     workspace = Path(request["workspace"]).resolve()
     save = Path(request["source"]).resolve()
-    os.environ["KENSHI_DIR"] = request["game"]
-    os.environ["KENSHI_WORKSHOP_DIR"] = request["workshop"]
+    game = Path(request["game"]).resolve()
+    workshop = Path(request["workshop"]).resolve()
+    faction_sid = request["faction_sid"]
+
+    os.environ["KENSHI_DIR"] = str(game)
+    os.environ["KENSHI_WORKSHOP_DIR"] = str(workshop)
+    gamedb.KENSHI = str(game)
+    gamedb.WORKSHOP = str(workshop)
+    gamedb.PO_RU = f"{game}/locale/ru_RU/gamedata.po"
+    session_export.gamedb.KENSHI = str(game)
+    session_export.gamedb.WORKSHOP = str(workshop)
+    session_export.gamedb.PO_RU = f"{game}/locale/ru_RU/gamedata.po"
     sys.pycache_prefix = str(workspace / "pycache")
     denied = install_write_guard(workspace)
-    sys.path.insert(0, str(converter / "tools"))
-    import session_export as exporter
 
-    exporter.CACHE_DIR = str(workspace / "cache")
-    strict_inputs(exporter, save, request["faction_sid"])
-    original_load = exporter.gamedb.load_index
+    cache_dir = workspace / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    session_export.CACHE_DIR = str(cache_dir)
+
+    strict_inputs(save, faction_sid)
+
+    original_load = session_export.gamedb.load_index
     inputs: list[tuple[Path, str]] = []
     mod_files: list[list[str]] = []
 
-    def load_index(cache_dir: str, files: list[str] | None = None) -> Any:
+    def load_index(cache_dir_arg: Any, files: Any = None, po_path: Any = None) -> Any:
         if files is None:
             raise ExtractionError("Конвертер не передал активные моды")
-        for filename in [*files, exporter.gamedb.PO_RU]:
+        target_po = Path(po_path) if po_path else Path(session_export.gamedb.PO_RU)
+        for filename in [*files, target_po]:
             path = Path(filename).resolve()
-            checksum = file_hash(path)
-            inputs.append((path, checksum))
-            mod_files.append([path.name, checksum])
-        return original_load(cache_dir, files)
+            if path.is_file():
+                checksum = file_hash(path)
+                inputs.append((path, checksum))
+                mod_files.append([path.name, checksum])
+        return original_load(cache_dir_arg, files, po_path=po_path)
 
-    exporter.gamedb.load_index = load_index
-    # Legacy collect_stable повторяет чтение изменяющегося источника;
-    # проект проверяет хеши и отказывает при первом изменении.
-    exporter.collect_stable = exporter.collect
-    snapshot = exporter.build_snapshot(str(save), request["faction_sid"], exporter.Timer())
+    session_export.gamedb.load_index = load_index
+    session_export.collect_stable = session_export.collect
+
+    snapshot = session_export.build_snapshot(str(save), faction_sid, session_export.Timer())
+
     if denied:
         raise ExtractionError("Конвертер пытался записать защищённые данные")
     if any(file_hash(path) != checksum for path, checksum in inputs):
         raise ExtractionError("Данные игры изменились во время извлечения")
-    used = sorted({Path(m.__file__).resolve().relative_to(converter).as_posix()
-                   for m in list(sys.modules.values()) if getattr(m, "__file__", None)
-                   and Path(m.__file__).suffix == ".py"
-                   and Path(m.__file__).resolve().is_relative_to(converter / "tools")})
+
     gd = snapshot.get("meta", {}).get("game_data", {})
-    mods = {"files": mod_files, "mods": gd.get("mods"), "missing": gd.get("missing"),
-            "mods_source": gd.get("mods_source")}
-    return {"snapshot": snapshot, "converter_files": used,
-            "mods": mods, "mods_sha256": digest(canonical(mods))}
+    mods = {
+        "files": mod_files,
+        "mods": gd.get("mods"),
+        "missing": gd.get("missing"),
+        "mods_source": gd.get("mods_source"),
+    }
+
+    return {
+        "snapshot": snapshot,
+        "converter_files": ENGINE_FILES,
+        "mods": mods,
+        "mods_sha256": digest(canonical(mods)),
+    }
 
 
 def main() -> int:
     try:
         request = read_json(sys.stdin.buffer.read())
-        # Произвольный stdout legacy-кода не смешивается с протоколом.
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             result = run(request)
         sys.stdout.buffer.write(canonical(result))

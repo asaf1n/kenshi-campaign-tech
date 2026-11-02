@@ -68,8 +68,8 @@ def find_mod(
     name: str, kenshi_dir: PathLike | None = None, workshop_dir: PathLike | None = None,
 ) -> str | None:
     """Файл мода по имени из списка модов сохранения/mods.cfg ('<имя>' или '<имя>.mod')."""
-    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else KENSHI
-    workshop = os.fspath(workshop_dir) if workshop_dir is not None else WORKSHOP
+    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else os.environ.get("KENSHI_DIR", KENSHI)
+    workshop = os.fspath(workshop_dir) if workshop_dir is not None else os.environ.get("KENSHI_WORKSHOP_DIR", WORKSHOP)
     stem = name[:-4] if name.endswith(".mod") else name
     if stem in BASE_FILES:
         p = f"{kenshi}/data/{BASE_FILES[stem]}"
@@ -85,7 +85,7 @@ def find_mod(
 
 def mods_cfg(kenshi_dir: PathLike | None = None) -> list[str]:
     """Активные моды из data/mods.cfg (пишет лаунчер игры) — запасной источник, если нет списка из сохранения."""
-    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else KENSHI
+    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else os.environ.get("KENSHI_DIR", KENSHI)
     try:
         with open(f"{kenshi}/data/mods.cfg", encoding="utf-8-sig") as fh:
             return [line.strip() for line in fh if line.strip()]
@@ -120,8 +120,8 @@ def game_files(
     kenshi_dir: PathLike | None = None, workshop_dir: PathLike | None = None,
 ) -> list[str]:
     """Все установленные данные (без контекста сохранения): базовые файлы в порядке игры + все моды."""
-    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else KENSHI
-    workshop = os.fspath(workshop_dir) if workshop_dir is not None else WORKSHOP
+    kenshi = os.fspath(kenshi_dir) if kenshi_dir is not None else os.environ.get("KENSHI_DIR", KENSHI)
+    workshop = os.fspath(workshop_dir) if workshop_dir is not None else os.environ.get("KENSHI_WORKSHOP_DIR", WORKSHOP)
     base = [f"{kenshi}/data/{n}" for n in BASE_FILES.values()]
     mods = sorted(glob.glob(f"{glob.escape(kenshi)}/mods/*/*.mod")
                   + glob.glob(f"{glob.escape(workshop)}/*/*.mod"))

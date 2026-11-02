@@ -26,7 +26,6 @@ def build_world_reference(
 
     def _execute(work_dir: Path) -> dict[str, Any]:
         request = {
-            "converter": str(cfg.converter.resolve()),
             "workspace": str(work_dir.resolve()),
             "game": str(cfg.game.resolve()),
             "workshop": str(cfg.workshop.resolve()),

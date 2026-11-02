@@ -175,11 +175,11 @@ def _read_records(r: Reader, header: GameDataHeader) -> GameDataFile:
 
 
 def read_file(data: bytes) -> GameDataFile:
-    """Разобрать записи сейва типа 15, оставив неизвестный хвост за consumed."""
+    """Разобрать записи сейва/зоны типа 15 или 16, оставив неизвестный хвост за consumed."""
     r = Reader(data)
     file_type = r.i32()
-    if file_type != 15:
-        raise ValueError(f"Неизвестный fileType сейва: {file_type}")
+    if file_type not in (15, 16):
+        raise ValueError(f"Неизвестный fileType сейва/зоны: {file_type}")
     header: GameDataHeader = {
         "fileType": file_type,
         "lastId": r.i32(),

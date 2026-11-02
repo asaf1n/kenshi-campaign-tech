@@ -105,7 +105,8 @@ def _identity(label: Any) -> Any:
 def _weapons_by_slot(c: dict[str, Any]) -> dict[str, Any]:
     slots: dict[str, list] = defaultdict(list)
     for w in c.get("weapons", []):
-        slots[w["slot"]].append(_weapon_label(w))
+        slot = w.get("slot") or w.get("section") or "unslotted"
+        slots[slot].append(_weapon_label(w))
     return {
         s: (v[0] if len(v) == 1 else sorted(v, key=lambda d: json.dumps(d, ensure_ascii=False)))
         for s, v in slots.items()

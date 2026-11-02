@@ -478,21 +478,28 @@ def parse_character(
     weapons: list[dict[str, Any]] = []
     armour: dict[str, Any] = {s: None for s in ("head", "shirt", "body", "legs", "boots")}
     backpack_item: dict[str, Any] | None = None
+    backpack_items: list[dict[str, Any]] = []
     belt_item: dict[str, Any] | None = None
     inventory_items: list[dict[str, Any]] = []
 
     for it in items:
+        cont = it.get("container", "")
         sec = it.get("section", "")
-        if it.get("container") != "inventory":
+        if cont.startswith("inventory>"):
+            backpack_items.append(it)
+            continue
+        if cont != "inventory":
             continue
         if sec in ("weapon_back", "weapon_hip", "back", "hip"):
-            weapons.append(it)
+            w_item = dict(it)
+            w_item["slot"] = "weapon_back" if sec in ("weapon_back", "back") else "weapon_hip"
+            weapons.append(w_item)
         elif sec in ("head", "shirt", "body", "legs", "boots", "armour"):
             slot_name = "body" if sec == "armour" else sec
             armour[slot_name] = it
         elif sec == "belt":
             belt_item = it
-        elif sec == "backpack_attach":
+        elif sec in ("backpack_attach", "backpack"):
             backpack_item = it
         elif sec == "main":
             inventory_items.append(it)
@@ -541,6 +548,7 @@ def parse_character(
         "armour": armour,
         "belt": belt_item,
         "backpack": backpack_item,
+        "backpack_items": backpack_items,
         "inventory": inventory_items,
         "items": items,
         "jobs": jobs_info,

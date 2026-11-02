@@ -11,7 +11,6 @@ from tools.io_utils import ExtractionError
 
 @dataclass(frozen=True)
 class Config:
-    converter: Path
     save_dirs: tuple[Path, ...]
     game: Path
     workshop: Path
@@ -28,8 +27,8 @@ class Config:
         faction = faction_sid if faction_sid is not None else env.get("KENSHI_FACTION_SID", "204-gamedata.base")
         if not faction.strip():
             raise ExtractionError("faction_sid не может быть пустым")
-        return cls(Path(env.get("KENSHI_CONVERTER_DIR") or Path.home() / "kenshi-platoon-export"),
-                   saves, game, Path(env.get("KENSHI_WORKSHOP_DIR") or game.parent.parent / "workshop/content/233860"), faction)
+        workshop = Path(env.get("KENSHI_WORKSHOP_DIR") or game.parent.parent / "workshop/content/233860")
+        return cls(saves, game, workshop, faction)
 
     def protected(self) -> list[Path]:
-        return [self.converter, self.game, self.workshop, *self.save_dirs]
+        return [self.game, self.workshop, *self.save_dirs]

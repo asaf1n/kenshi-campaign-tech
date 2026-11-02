@@ -5,6 +5,7 @@ import copy
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from typing import Any
 
@@ -104,8 +105,11 @@ class PublishTests(unittest.TestCase):
         # Исходный отслеживаемый .gitkeep
         self.gitkeep_file = self.published_dir / ".gitkeep"
         self.gitkeep_file.write_bytes(b"")
+        self.index_patcher = patch("tools.publisher.DEFAULT_INDEX_PATH", self.root / "index.json")
+        self.index_patcher.start()
 
     def tearDown(self) -> None:
+        self.index_patcher.stop()
         self.temp_dir.cleanup()
 
     def test_ac08_fault_injection_and_gitkeep_preservation(self) -> None:

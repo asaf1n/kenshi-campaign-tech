@@ -15,11 +15,11 @@ from tools.normalization import normalize, scrub
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def converter_hashes(converter: Path) -> dict[str, str]:
-    paths = sorted((converter / "tools").glob("*.py"))
-    if not paths or not (converter / "tools/session_export.py").is_file():
-        raise ExtractionError("Не найден внешний tools/session_export.py")
-    return {p.relative_to(converter).as_posix(): file_hash(p) for p in paths}
+from tools.converter_worker import ENGINE_FILES
+
+
+def engine_hashes() -> dict[str, str]:
+    return {p: file_hash(ROOT / p) for p in ENGINE_FILES}
 
 
 def transform_hash() -> str:
@@ -27,15 +27,15 @@ def transform_hash() -> str:
 
 
 def convert_save(source: Path, config: Config, workspace: Path) -> dict[str, Any]:
-    before = converter_hashes(config.converter)
-    request = {"converter": str(config.converter.resolve()), "source": str(source),
-               "workspace": str(workspace), "game": str(config.game.resolve()),
-               "workshop": str(config.workshop.resolve()), "faction_sid": config.faction_sid}
+    before = engine_hashes()
+    request: dict[str, Any] = {"source": str(source), "workspace": str(workspace),
+                               "game": str(config.game.resolve()), "workshop": str(config.workshop.resolve()),
+                               "faction_sid": config.faction_sid}
     completed = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "tools/converter_worker.py")],
                                input=canonical(request), capture_output=True, cwd=workspace, timeout=600)
-    after = converter_hashes(config.converter)
+    after = engine_hashes()
     if before != after:
-        raise ExtractionError("Исходники конвертера изменились во время извлечения")
+        raise ExtractionError("Исходники нативного движка изменились во время извлечения")
     if completed.returncode:
         raise ExtractionError("Конвертер отказал: " + str(scrub(completed.stderr.decode("utf-8", errors="replace"))).strip())
     response = read_json(completed.stdout)
