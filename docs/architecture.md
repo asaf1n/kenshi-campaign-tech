@@ -3,21 +3,22 @@
 ## Цепочка
 
 ```text
-Kenshi saves / screenshots  [read-only; local]
+Kenshi saves [read-only] / imported JSON exports
         |
-existing converter / extractor (inspect before replacing)
+native reader (tools/) / JSON importer
         |
-legacy exports (kenshi-session/10 + kenshi-session-diff/5)
+normalizer + validator + diff (supported contracts)
         |
-normalizer + validator + compatible diff (deterministic)
+immutable snapshots / branches / events ledger
         |
-immutable snapshots / comparable branches + events ledger
+locator + renderer + atomic publisher
         |
-atomic publisher -> published/{manifest.json,current.json,changes.json,brief.md,squad.md}
+published/{manifest.json,current.json,changes.json,locations.json,
+           world_reference.json,timeline.jsonl,brief.md,squad.md}
         |
-Git (only approved files; push on explicit permission) / manual transport fallback
+verified GitHub delivery / manual transport fallback
         |
-LLM (чат-ИИ): load version -> render analysis -> propose plans and event additions
+LLM (чат-ИИ): verify manifest -> read release -> propose plans and events
 ```
 
 Никакой сервисный процесс на постоянном сервере не требуется. Среда Antigravity/Codex/Claude управляет разработкой и запуском локального кода, **не становится** runtime-зависимостью чтения сейва.
@@ -26,8 +27,8 @@ LLM (чат-ИИ): load version -> render analysis -> propose plans and event ad
 
 | Область | Автор изменений | Потребитель | Политика |
 |---|---|---|---|
-| `raw/` и рабочие сейвы | Kenshi, пользователь | конвертер | read-only, не в Git |
-| исходные exports | существующий конвертер | normalizer | неизменяемые входы, фиксировать хеш |
+| Исходные сейвы и файлы игры | Kenshi, пользователь | нативный парсер | read-only, не в Git |
+| Импортированные JSON-выгрузки | внешний источник | нормализатор | неизменяемые входы, фиксировать хеш |
 | `data/snapshots/` и `data/diffs/` | детерминированный pipeline | publisher | менять только инструментами, иммутабельность исторических снимков |
 | `timeline/events.jsonl` | подтверждённые записи пользователя/импорт | publisher и чат-ИИ | append-only по event ID; изменение — отдельное корректирующее событие |
 | `sessions/` | пользователь/чат-ИИ через подтверждённый импорт | planner/summary | планы и результаты без подмены игровых фактов |
@@ -50,7 +51,7 @@ LLM (чат-ИИ): load version -> render analysis -> propose plans and event ad
 
 ## Выбор инструментов
 
-Для вычислений использовать простые Python-скрипты и файлы; переиспользовать существующую реализацию прежде чем добавлять зависимости. Стек (venv, pytest, packaging) определить после аудита реального конвертера. Параллельные агенты работают с независимыми задачами или worktree; один автор на раздел данных и контракта.
+Для вычислений использовать существующие модули `tools/` и файловые контракты; новые зависимости вводить только при необходимости. Параллельные агенты работают с независимыми задачами или worktree; один автор на раздел данных и контракта.
 
 ## Реализованная граница extract
 
@@ -67,7 +68,7 @@ LLM (чат-ИИ): load version -> render analysis -> propose plans and event ad
 ## Реализованная граница pipeline и атомарной публикации
 
 Сквозной срез: `python -m tools.campaign pipeline` связывает `extract` -> `diff` -> `validate` -> `render` -> `publish`.
-- `tools.diff`: вычисление детерминированного diff по формату `kenshi-session-diff/5` с сохранением устойчивого ID во всех категориях изменений, агрегацией transfers по ID и sid, запретом склеивания разных `ps:*` по имени, поддержкой baseline / non-baseline режимов и сохранением в `data/diffs/<diff_id>.json`.
+- `tools.diff`: вычисление детерминированного diff по действующему контракту с сохранением устойчивого ID во всех категориях изменений, агрегацией transfers по ID и sid, запретом склеивания разных `ps:*` по имени, поддержкой baseline / non-baseline режимов и сохранением в `data/diffs/<diff_id>.json`.
 - `tools.rendering`: генерация русскоязычных `brief.md` и `squad.md` строго из валидированных JSON без внешних зависимостей и wall-clock времени, обеспечивая 100% детерминизм побайтового совпадения при повторном рендере.
 - `tools.validation`: валидация пакета по схемам `Draft202012Validator`, проверка доступности и локальности артефактов внутри `published/`, семантическая проверка связи `snapshot_id`/`parent_snapshot_id`, проверка отсутствия персональных путей пользователя (`C:\Users\...`) и токенов/секретов во всех артефактах.
 - `tools.publisher`: атомарная публикация release bundle на Windows с использованием протокола `staging -> backup -> switch -> cleanup`. Предыдущая успешная публикация сохраняется в `published.backup` до подтверждения валидности новой версии. При возникновении исключения или занятом файле выполняется автоматический откат к backup. Отслеживаемый файл `published/.gitkeep` переносится в staging и сохраняется побайтово. При аварийном завершении процесса самовосстановление выполняется при следующем запуске.
