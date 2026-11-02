@@ -20,10 +20,11 @@ DIFF_FORMAT = "kenshi-session-diff/5"
 COMPATIBLE = {
     "kenshi-session/2", "kenshi-session/3", "kenshi-session/4", "kenshi-session/5",
     "kenshi-session/6", "kenshi-session/7", "kenshi-session/8", "kenshi-session/9",
-    "kenshi-session/10",
+    "kenshi-session/10", "kenshi-session/11",
 }
 LIMBS_SINCE = 7
 NUTRITION_SINCE = 10
+V11_SINCE = 11
 LIMBS = ["left_arm", "right_arm", "left_leg", "right_leg"]
 EPS = 0.01
 
@@ -64,8 +65,24 @@ TRACKED: dict[str, dict[str, Any]] = {
         "fields": "world.day, world.time, world.money",
         "threshold": "точное совпадение",
     },
+    "diplomacy": {
+        "fields": "отношения с фракциями: relation (|Δ| ≥ 1.0) и смена standing по faction_sid (только если оба снимка v11+)",
+        "threshold": "|Δ| ≥ 1.0 или сменился standing",
+    },
+    "world_state": {
+        "fields": "состояние уникальных NPC по sid (state_code/state), переопределения городов town_overrides (только если оба снимка v11+)",
+        "threshold": "точное совпадение",
+    },
+    "jobs": {
+        "fields": "постоянные работы персонажей по устойчивому id: enabled, primary (только если оба снимка v11+)",
+        "threshold": "точное совпадение",
+    },
+    "base_storage": {
+        "fields": "складские запасы на базах игрока по (building_id, sid) (только если оба снимка v11+)",
+        "threshold": "≠ 0",
+    },
     "not_tracked": {
-        "fields": "research, property, position (координаты подключаются гео-профилем), meta, warnings",
+        "fields": "research, position (координаты подключаются гео-профилем), meta, warnings",
         "threshold": "—",
     },
 }
@@ -174,6 +191,194 @@ def _health(a: dict[str, Any], b: dict[str, Any], counter: Counter) -> dict[str,
         out["parts"] = parts
     return out
 
+
+
+
+def _diff_diplomacy(prev: dict[str, Any], cur: dict[str, Any], counter: Counter) -> list[dict[str, Any]]:
+    da = {
+        r["faction_sid"]: r
+        for r in prev.get("diplomacy", {}).get("relations", [])
+        if isinstance(r, dict) and r.get("faction_sid")
+    }
+    db = {
+        r["faction_sid"]: r
+        for r in cur.get("diplomacy", {}).get("relations", [])
+        if isinstance(r, dict) and r.get("faction_sid")
+    }
+    out: list[dict[str, Any]] = []
+    for sid in sorted(da.keys() | db.keys()):
+        counter["diplomacy"] += 1
+        ra, rb = da.get(sid), db.get(sid)
+        rel_a = ra.get("relation") if ra else None
+        rel_b = rb.get("relation") if rb else None
+        std_a = ra.get("standing") if ra else None
+        std_b = rb.get("standing") if rb else None
+
+        rel_changed = False
+        if rel_a is not None and rel_b is not None:
+            if abs(rel_b - rel_a) >= 1.0 - 1e-9:
+                rel_changed = True
+        elif rel_a != rel_b:
+            rel_changed = True
+
+        std_changed = (std_a != std_b)
+
+        if rel_changed or std_changed:
+            name = (rb or ra).get("faction_name") or sid
+            entry: dict[str, Any] = {"faction_sid": sid, "faction_name": name}
+            if rel_changed:
+                entry["relation"] = {"from": rel_a, "to": rel_b}
+                if isinstance(rel_a, (int, float)) and isinstance(rel_b, (int, float)):
+                    entry["relation"]["delta"] = round(rel_b - rel_a, 2)
+            if std_changed:
+                entry["standing"] = {"from": std_a, "to": std_b}
+            out.append(entry)
+    return out
+
+
+def _diff_world_state(prev: dict[str, Any], cur: dict[str, Any], counter: Counter) -> dict[str, Any]:
+    wsa = prev.get("world_state", {}) or {}
+    wsb = cur.get("world_state", {}) or {}
+
+    # 1. unique_npcs
+    ua = {u["sid"]: u for u in wsa.get("unique_npcs", []) if isinstance(u, dict) and u.get("sid")}
+    ub = {u["sid"]: u for u in wsb.get("unique_npcs", []) if isinstance(u, dict) and u.get("sid")}
+    npc_changes: list[dict[str, Any]] = []
+    for sid in sorted(ua.keys() | ub.keys()):
+        counter["world_state"] += 1
+        x, y = ua.get(sid), ub.get(sid)
+        st_code_a = x.get("state_code") if x else None
+        st_code_b = y.get("state_code") if y else None
+        st_a = x.get("state") if x else None
+        st_b = y.get("state") if y else None
+
+        if st_code_a != st_code_b or st_a != st_b:
+            entry: dict[str, Any] = {
+                "sid": sid,
+                "name": (y or x).get("name") or sid,
+                "name_ru": (y or x).get("name_ru"),
+                "state_code": {"from": st_code_a, "to": st_code_b},
+            }
+            if st_a != st_b:
+                entry["state"] = {"from": st_a, "to": st_b}
+            npc_changes.append(entry)
+
+    # 2. town_overrides
+    ta = {t["replacement_sid"]: t for t in wsa.get("town_overrides", []) if isinstance(t, dict) and t.get("replacement_sid")}
+    tb = {t["replacement_sid"]: t for t in wsb.get("town_overrides", []) if isinstance(t, dict) and t.get("replacement_sid")}
+    town_changes: list[dict[str, Any]] = []
+    for sid in sorted(ta.keys() | tb.keys()):
+        counter["world_state"] += 1
+        x, y = ta.get(sid), tb.get(sid)
+        if x is None and y is not None:
+            town_changes.append({
+                "replacement_sid": sid,
+                "town_name": y.get("name"),
+                "status": "overridden",
+                "faction": y.get("faction"),
+            })
+        elif x is not None and y is None:
+            town_changes.append({
+                "replacement_sid": sid,
+                "town_name": x.get("name"),
+                "status": "restored",
+            })
+        elif x is not None and y is not None:
+            if x.get("faction") != y.get("faction") or x.get("factions_here") != y.get("factions_here"):
+                town_changes.append({
+                    "replacement_sid": sid,
+                    "town_name": y.get("name"),
+                    "status": "changed",
+                    "faction": {"from": x.get("faction"), "to": y.get("faction")},
+                })
+
+    out: dict[str, Any] = {}
+    if npc_changes:
+        out["unique_npcs"] = npc_changes
+    if town_changes:
+        out["town_overrides"] = town_changes
+    return out
+
+
+def _diff_jobs(a: dict[str, Any], b: dict[str, Any], counter: Counter) -> dict[str, Any] | None:
+    ja = a.get("jobs", {}) or {}
+    jb = b.get("jobs", {}) or {}
+    counter["jobs"] += 1
+
+    en_a, en_b = ja.get("enabled"), jb.get("enabled")
+    p_a = ja.get("primary", [])
+    p_b = jb.get("primary", [])
+
+    en_changed = (en_a != en_b)
+    tasks_a = [
+        {"task_code": t.get("task_code"), "task_name": t.get("task_name"), "target_handle": t.get("target_handle")}
+        for t in p_a if isinstance(t, dict)
+    ]
+    tasks_b = [
+        {"task_code": t.get("task_code"), "task_name": t.get("task_name"), "target_handle": t.get("target_handle")}
+        for t in p_b if isinstance(t, dict)
+    ]
+    tasks_changed = (tasks_a != tasks_b)
+
+    if en_changed or tasks_changed:
+        res: dict[str, Any] = {}
+        if en_changed:
+            res["enabled"] = {"from": en_a, "to": en_b}
+        if tasks_changed:
+            res["primary"] = {"from": p_a, "to": p_b}
+        return res
+    return None
+
+
+def _diff_base_storage(prev: dict[str, Any], cur: dict[str, Any], counter: Counter) -> list[dict[str, Any]]:
+    bld_a = {str(b.get("id")): b for b in prev.get("property", {}).get("buildings", []) if isinstance(b, dict) and "id" in b}
+    bld_b = {str(b.get("id")): b for b in cur.get("property", {}).get("buildings", []) if isinstance(b, dict) and "id" in b}
+
+    storage_a: dict[tuple[str, str], int] = Counter()
+    storage_b: dict[tuple[str, str], int] = Counter()
+    item_names: dict[str, str] = {}
+    building_names: dict[str, str] = {}
+    building_zones: dict[str, str] = {}
+
+    for bid, b in bld_a.items():
+        building_names[bid] = b.get("name") or b.get("template_name") or bid
+        building_zones[bid] = b.get("zone") or ""
+        for it in b.get("storage", []):
+            if isinstance(it, dict) and it.get("sid"):
+                sid = it["sid"]
+                storage_a[(bid, sid)] += it.get("quantity", 1)
+                if it.get("name"):
+                    item_names[sid] = it["name"]
+
+    for bid, b in bld_b.items():
+        building_names[bid] = b.get("name") or b.get("template_name") or bid
+        building_zones[bid] = b.get("zone") or ""
+        for it in b.get("storage", []):
+            if isinstance(it, dict) and it.get("sid"):
+                sid = it["sid"]
+                storage_b[(bid, sid)] += it.get("quantity", 1)
+                if it.get("name"):
+                    item_names[sid] = it["name"]
+
+    all_keys = sorted(storage_a.keys() | storage_b.keys())
+    out: list[dict[str, Any]] = []
+    for bid, sid in all_keys:
+        counter["base_storage"] += 1
+        qa = storage_a.get((bid, sid), 0)
+        qb = storage_b.get((bid, sid), 0)
+        d = qb - qa
+        if d != 0:
+            out.append({
+                "building_id": bid,
+                "building_name": building_names.get(bid),
+                "zone": building_zones.get(bid),
+                "sid": sid,
+                "item_name": item_names.get(sid, sid),
+                "from": qa,
+                "to": qb,
+                "delta": d,
+            })
+    return out
 
 def _ref(s: dict[str, Any], file: str | None, snapshot_id: str | None = None) -> dict[str, Any]:
     save = s.get("save", {})
@@ -468,9 +673,45 @@ def diff(
                 {"delta": y - x} if isinstance(x, int) and isinstance(y, int) else {}
             )
 
+    v11_tracked = _version(prev) >= V11_SINCE and _version(cur) >= V11_SINCE
     not_compared = list(base_not_compared)
     if not limbs_tracked:
         not_compared.append(f"протезы, потерянные конечности и пояс: в одном из снимков формат старше v{LIMBS_SINCE}")
+
+    diplomacy: list[dict[str, Any]] = []
+    world_state: dict[str, Any] = {}
+    jobs: list[dict[str, Any]] = []
+    base_storage: list[dict[str, Any]] = []
+
+    if v11_tracked:
+        if prev.get("diplomacy") is not None and cur.get("diplomacy") is not None:
+            diplomacy = _diff_diplomacy(prev, cur, n)
+        else:
+            not_compared.append("дипломатия: в одном из снимков отсутствует секция diplomacy")
+
+        if prev.get("world_state") is not None and cur.get("world_state") is not None:
+            world_state = _diff_world_state(prev, cur, n)
+        else:
+            not_compared.append("состояние мира: в одном из снимков отсутствует секция world_state")
+
+        if prev.get("property") is not None and cur.get("property") is not None:
+            base_storage = _diff_base_storage(prev, cur, n)
+        else:
+            not_compared.append("запасы базы: в одном из снимков отсутствует секция property")
+
+        # Для персонажей проверяем jobs
+        has_any_jobs = any("jobs" in c for c in prev.get("characters", [])) or any("jobs" in c for c in cur.get("characters", []))
+        if has_any_jobs:
+            for k in common_keys:
+                a, b = pa[k], ca[k]
+                who = b.get("name") or ""
+                jc = _diff_jobs(a, b, n)
+                if jc:
+                    jobs.append({"id": k, "name": who, "changes": jc})
+        else:
+            not_compared.append("работы персонажей: в снимках отсутствуют данные jobs")
+    else:
+        not_compared.append(f"дипломатия, состояние мира, работы персонажей и запасы баз: в одном из снимков формат старше v{V11_SINCE}")
 
     # Запрет ложных нулей изменений: если не было сравниваемых данных
     total_compared = sum(n.values())
@@ -510,6 +751,12 @@ def diff(
             "health_changes": len(health),
             "supply_changes": len(supplies),
             "world_changes": len(world),
+            **({
+                "diplomacy_changes": len(diplomacy),
+                "world_state_changes": len(world_state.get("unique_npcs", [])) + len(world_state.get("town_overrides", [])),
+                "job_changes": len(jobs),
+                "base_storage_changes": len(base_storage),
+            } if v11_tracked else {}),
         },
         "compared": dict(sorted(n.items())),
         "not_compared": not_compared,
@@ -522,6 +769,12 @@ def diff(
         "supplies": supplies,
         "health": health,
         "world": world,
+        **({
+            "diplomacy": diplomacy,
+            "world_state": world_state,
+            "jobs": jobs,
+            "base_storage": base_storage,
+        } if v11_tracked else {}),
     }
     if explain:
         out["tracked"] = TRACKED

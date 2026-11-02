@@ -216,3 +216,149 @@ class DiffTests(unittest.TestCase):
             self.assertTrue(out_file.is_file())
             reloaded = read_json(out_file.read_bytes())
             self.assertEqual(canonical(d), canonical(reloaded))
+
+    def test_v11_diff_diplomacy_and_world_state(self) -> None:
+        """Сравнение дипломатии и мирового состояния для kenshi-session/11."""
+        c = {"id": "ps:1", "name": "Хоббс", "squad_id": "sq_1", "jobs": {"enabled": True, "primary": []}}
+        snap1 = _make_snapshot([c], fmt="kenshi-session/11")
+        snap1["diplomacy"] = {
+            "player_faction_sid": "204-base",
+            "relations": [
+                {"faction_sid": "Flotsam", "faction_name": "Ниндзя", "relation": 50.0, "standing": "neutral"},
+                {"faction_sid": "HolyNation", "faction_name": "Святая Нация", "relation": -50.0, "standing": "unfriendly"},
+            ],
+            "summary": {},
+        }
+        snap1["world_state"] = {
+            "unique_npcs": [
+                {"sid": "phoenix", "name": "Lord Phoenix", "name_ru": "Лорд Феникс", "state_code": 1, "state": None},
+                {"sid": "esata", "name": "Esata", "name_ru": "Эсата", "state_code": 1, "state": None},
+            ],
+            "town_overrides": [],
+            "summary": {},
+        }
+
+        snap2 = copy.deepcopy(snap1)
+        snap2["world"]["day"] = 11
+        # Flotsam: relation 50 -> 80 (+30), standing neutral -> ally
+        snap2["diplomacy"]["relations"][0]["relation"] = 80.0
+        snap2["diplomacy"]["relations"][0]["standing"] = "ally"
+        # Phoenix: state_code 1 -> 2, state None -> "dead"
+        snap2["world_state"]["unique_npcs"][0]["state_code"] = 2
+        snap2["world_state"]["unique_npcs"][0]["state"] = "dead"
+        # Bad Teeth: town override by Shek Kingdom
+        snap2["world_state"]["town_overrides"].append({
+            "replacement_sid": "rep_bad_teeth",
+            "name": "Плохие Зубы",
+            "faction": "Shek Kingdom",
+        })
+
+        d = diff(snap1, snap2, prev_id="s1", cur_id="s2")
+        self.assertTrue(d["valid"])
+        self.assertIn("diplomacy", d)
+        self.assertEqual(len(d["diplomacy"]), 1)
+        self.assertEqual(d["diplomacy"][0]["faction_sid"], "Flotsam")
+        self.assertEqual(d["diplomacy"][0]["relation"]["delta"], 30.0)
+        self.assertEqual(d["diplomacy"][0]["standing"]["to"], "ally")
+
+        self.assertIn("world_state", d)
+        self.assertEqual(len(d["world_state"]["unique_npcs"]), 1)
+        self.assertEqual(d["world_state"]["unique_npcs"][0]["sid"], "phoenix")
+        self.assertEqual(d["world_state"]["unique_npcs"][0]["state_code"]["to"], 2)
+        self.assertEqual(d["world_state"]["unique_npcs"][0]["state"]["to"], "dead")
+
+        self.assertEqual(len(d["world_state"]["town_overrides"]), 1)
+        self.assertEqual(d["world_state"]["town_overrides"][0]["status"], "overridden")
+        self.assertEqual(d["world_state"]["town_overrides"][0]["town_name"], "Плохие Зубы")
+
+        self.assertEqual(d["summary"]["diplomacy_changes"], 1)
+        self.assertEqual(d["summary"]["world_state_changes"], 2)
+
+    def test_v11_diff_character_jobs_and_base_storage(self) -> None:
+        """Сравнение очереди работ персонажей и складских запасов баз."""
+        c1_prev = {
+            "id": "ps:1",
+            "name": "Хоббс",
+            "squad_id": "sq_1",
+            "jobs": {
+                "enabled": False,
+                "primary": [{"index": 0, "task_code": 14, "task_name": "Лечить"}],
+            },
+        }
+        snap1 = _make_snapshot([c1_prev], fmt="kenshi-session/11")
+        snap1["property"] = {
+            "buildings": [
+                {
+                    "id": "bld_1",
+                    "name": "Сундук",
+                    "zone": "zone_1",
+                    "storage": [{"sid": "iron_ore", "name": "Железная руда", "quantity": 10}],
+                }
+            ]
+        }
+
+        snap2 = copy.deepcopy(snap1)
+        snap2["world"]["day"] = 11
+        # c1 jobs: enabled False -> True, add bodyguard task
+        snap2["characters"][0]["jobs"]["enabled"] = True
+        snap2["characters"][0]["jobs"]["primary"].append({"index": 1, "task_code": 11, "task_name": "Телохранитель"})
+        # base storage: iron_ore 10 -> 50 (+40)
+        snap2["property"]["buildings"][0]["storage"][0]["quantity"] = 50
+
+        d = diff(snap1, snap2, prev_id="s1", cur_id="s2")
+        self.assertTrue(d["valid"])
+        self.assertIn("jobs", d)
+        self.assertEqual(len(d["jobs"]), 1)
+        self.assertEqual(d["jobs"][0]["id"], "ps:1")
+        self.assertEqual(d["jobs"][0]["changes"]["enabled"]["to"], True)
+        self.assertEqual(len(d["jobs"][0]["changes"]["primary"]["to"]), 2)
+
+        self.assertIn("base_storage", d)
+        self.assertEqual(len(d["base_storage"]), 1)
+        self.assertEqual(d["base_storage"][0]["building_id"], "bld_1")
+        self.assertEqual(d["base_storage"][0]["sid"], "iron_ore")
+        self.assertEqual(d["base_storage"][0]["delta"], 40)
+
+        self.assertEqual(d["summary"]["job_changes"], 1)
+        self.assertEqual(d["summary"]["base_storage_changes"], 1)
+
+    def test_v10_to_v11_cross_version_compatibility(self) -> None:
+        """Сравнение v10 с v11: новые категории не вызывают ошибок и уходят в not_compared."""
+        c = {"id": "ps:1", "name": "Хоббс", "squad_id": "sq_1"}
+        snap_v10 = _make_snapshot([c], fmt="kenshi-session/10")
+        snap_v11 = _make_snapshot([c], fmt="kenshi-session/11")
+        snap_v11["world"]["day"] = 11
+
+        d = diff(snap_v10, snap_v11, prev_id="s_v10", cur_id="s_v11")
+        self.assertTrue(d["valid"])
+        # Новые ключи не должны присутствовать в верхнем уровне diff
+        self.assertNotIn("diplomacy", d)
+        self.assertNotIn("world_state", d)
+        self.assertNotIn("jobs", d)
+        self.assertNotIn("base_storage", d)
+        # В not_compared должно быть явное указание на версию
+        self.assertTrue(any("дипломатия, состояние мира" in nc for nc in d["not_compared"]))
+
+    def test_v11_diff_determinism(self) -> None:
+        """Детерминированность: повторный запуск diff на v11 дает побайтово идентичный результат."""
+        c = {
+            "id": "ps:1",
+            "name": "Хоббс",
+            "squad_id": "sq_1",
+            "jobs": {"enabled": True, "primary": [{"index": 0, "task_code": 14, "task_name": "Лечить"}]},
+        }
+        snap1 = _make_snapshot([c], fmt="kenshi-session/11")
+        snap1["diplomacy"] = {"relations": [{"faction_sid": "f1", "relation": 10.0, "standing": "neutral"}], "summary": {}}
+        snap1["world_state"] = {"unique_npcs": [{"sid": "u1", "state_code": 1}], "town_overrides": [], "summary": {}}
+        snap1["property"] = {"buildings": [{"id": "b1", "storage": [{"sid": "s1", "quantity": 5}]}]}
+
+        snap2 = copy.deepcopy(snap1)
+        snap2["world"]["day"] = 12
+        snap2["diplomacy"]["relations"][0]["relation"] = 50.0
+        snap2["diplomacy"]["relations"][0]["standing"] = "friendly"
+        snap2["world_state"]["unique_npcs"][0]["state_code"] = 2
+        snap2["property"]["buildings"][0]["storage"][0]["quantity"] = 20
+
+        d1 = diff(snap1, snap2, prev_id="s1", cur_id="s2")
+        d2 = diff(snap1, snap2, prev_id="s1", cur_id="s2")
+        self.assertEqual(canonical(d1), canonical(d2))
