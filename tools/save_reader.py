@@ -69,12 +69,12 @@ def indexed(d: dict[str, Any], prefix: str) -> list[Any]:
     return [d[k] for _, k in sorted(keys)]
 
 
-def town_handle(i: dict[str, int] | None, prefix: str = "hand") -> tuple[int | None, ...] | None:
+def town_handle(i: dict[str, int] | None, prefix: str = "hand") -> list[int | None] | None:
     """Извлекает 5-компонентный handle объекта/города (TYPE, C, S, I, CS)."""
     if not i:
         return None
     keys = ("TYPE", "C", "S", "I", "CS")
-    vals = tuple(i.get(prefix + k) for k in keys)
+    vals = [i.get(prefix + k) for k in keys]
     if all(v is None for v in vals):
         return None
     return vals
@@ -570,7 +570,7 @@ def parse_limbs(
     return installed, lost
 
 
-def clean_handle(h: tuple[int | None, ...] | None) -> tuple[int | None, ...] | None:
+def clean_handle(h: Sequence[int | None] | None) -> list[int | None] | None:
     """Очищает безадресные (TYPE=11) или нулевые handle (TYPE, C, S, I, CS)."""
     if not h:
         return None
@@ -580,7 +580,7 @@ def clean_handle(h: tuple[int | None, ...] | None) -> tuple[int | None, ...] | N
     # Если все C, S, I, CS нулевые или отсутствуют
     if all(v in (0, None) for v in h[1:]):
         return None
-    return h
+    return list(h)
 
 
 clean_job_handle = clean_handle
@@ -982,7 +982,7 @@ def read_player_property(
     zone_files_with_prop: list[str] = []
     all_zone_files = sorted(zdir.glob("*.zone"))
 
-    town_map = {t["handle"]: t["name"] for t in (towns or []) if t.get("handle")}
+    town_map = {tuple(t["handle"]): t["name"] for t in (towns or []) if t.get("handle")}
 
     for zf in all_zone_files:
         try:
@@ -1017,7 +1017,7 @@ def read_player_property(
         for r in states_35:
             h = town_handle(r.get("int"), "handle")
             if h is not None:
-                by_handle[h] = r
+                by_handle[tuple(h)] = r
 
         # Фильтруем здания игрока
         own_35 = [r for r in states_35 if r.get("string", {}).get("owner faction ID") == faction_sid]
@@ -1090,6 +1090,7 @@ def read_player_property(
                 v for v in indexed(b_str, "usagenode_") if v
             ]
 
+            building_town_handle = town_handle(b_int, "town")
             objs[sid] = {
                 "id": inst.get("id") if inst else sid,
                 "sid": sid,
@@ -1116,7 +1117,7 @@ def read_player_property(
                 "hardness": hardness,
                 "usage_nodes": usage_nodes,
                 "handle": town_handle(b_int, "handle"),
-                "town": town_map.get(town_handle(b_int, "town")),
+                "town": town_map.get(tuple(building_town_handle)) if building_town_handle else None,
                 "storage_items": storage_items,
                 "interior": [],
             }
@@ -1128,7 +1129,7 @@ def read_player_property(
             o = objs[sid]
             is_inside = r.get("bool", {}).get("is inside building", False)
             parent_handle = town_handle(r.get("int"), "isInsideBuilding") if is_inside else None
-            parent_rec = by_handle.get(parent_handle) if parent_handle else None
+            parent_rec = by_handle.get(tuple(parent_handle)) if parent_handle else None
 
             if parent_rec and parent_rec.get("sid") in objs:
                 # Вкладываем в родительское здание

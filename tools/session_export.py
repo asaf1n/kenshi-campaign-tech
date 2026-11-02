@@ -28,10 +28,10 @@ FORMAT = "kenshi-session/10"
 COMPATIBLE_FORMATS = {"kenshi-session/2", "kenshi-session/3", "kenshi-session/4", "kenshi-session/5",
                       "kenshi-session/6", "kenshi-session/7", "kenshi-session/8", "kenshi-session/9", FORMAT}
 # changes.history: смены экипировки, протезов и состава между более ранними выгрузками за столько игровых дней.
-# Выгрузок бывает несколько между передачами файла в ChatGPT, а changes сравнивает только с последней.
+# Выгрузок бывает несколько между передачами файла в чат-ИИ модели, а changes сравнивает только с последней.
 HISTORY_DAYS = 7
 HISTORY_MAX_SNAPSHOTS = 40  # ограничение времени чтения sessions/
-# Итоговый файл для передачи в ChatGPT: последний снимок + изменения; кладётся рядом с kenshi-session.bat.
+# Итоговый файл для передачи в чат-ИИ модели: последний снимок + изменения; кладётся рядом с kenshi-session.bat.
 LATEST_FILE = "kenshi-session.json"
 # Фракция игрока Kenshi (Nameless). Принадлежность персонажа берётся из его записи
 # состояния ('owner faction ID'), имя файла отряда не используется.
@@ -723,7 +723,7 @@ def run(save_dir: str | None, out_dir: str | None, faction_sid: str | None, expl
         chain = earlier_sessions(out_dir, prev_file, day - HISTORY_DAYS) + [(prev_file, prev)]
         diff["history"] = {"days": HISTORY_DAYS} | session_diff.history(chain)
         t0 = timer.add("history", t0)
-    # Сессия без отступов: файл передаётся в ChatGPT, лишние пробелы — лишние токены.
+    # Сессия без отступов: файл передаётся в чат-ИИ модели, лишние пробелы — лишние токены.
     # timings_ms фиксируются до сериализации; её время и размер файла выводятся в консоль.
     snap["meta"]["timings_ms"] = {k: round(v, 1) for k, v in timer.ms.items()}
     body = _dumps(snap)
@@ -739,7 +739,7 @@ def run(save_dir: str | None, out_dir: str | None, faction_sid: str | None, expl
           f"{snap['world']['time']}")
     print(f"Персонажей: {len(snap['characters'])} в {len(snap['squads'])} отрядах; "
           f"справочник: {snap['meta']['game_data']['cache']} ({snap['meta']['game_data']['mods_source']})")
-    print(f"Файл для ChatGPT: {latest_path} ({size / 1024:.0f} КБ); снимок: {os.path.join(out_dir, session_file)}")
+    print(f"Файл для чат-ИИ моделей: {latest_path} ({size / 1024:.0f} КБ); снимок: {os.path.join(out_dir, session_file)}")
     print("Сравнение: " + session_diff.summary_line(diff))
     if "history" in diff:
         print(f"История за {HISTORY_DAYS} игровых дней: " + session_diff.history_line(diff["history"]))

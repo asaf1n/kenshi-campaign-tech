@@ -1,17 +1,17 @@
 # native-pipeline
 
-Статус плана: утверждён 2026-11-02
+Статус плана: завершён 2026-11-02
 
 Цель плана: полный отказ от внешнего конвертера `kenshi-platoon-export`, переход на прямое нативное чтение бинарных файлов игры Kenshi и сохранений (FCS: `quick.save`, `platoon/`, `zone/`) через встроенные в `tools/` модули, оптимизация получения характеристик напрямую из шаблонов игры без приближённых формул, расширение аналитической базы кампании (дипломатия, состояние уникальных NPC-лидеров, динамика городов и World States, работы персонажей, переноска, награды, производственная инфраструктура баз) с формированием аддитивного контракта `kenshi-session/11`, детерминированного diff и обновлённого пакета публикации для чат-ИИ моделей (LLM ассистентов) при соблюдении всех инвариантов `AGENTS.md`.
 
-Открытая задача: [02-expanded-data-extraction](02-expanded-data-extraction.md)
+Все задачи плана успешно завершены:
 
 | Задача | Состояние очереди |
 |---|---|
 | [01-native-reader-and-gamedb](01-native-reader-and-gamedb.md) | закрыта |
-| [02-expanded-data-extraction](02-expanded-data-extraction.md) | открыта |
-| [03-contracts-and-diff-upgrade](03-contracts-and-diff-upgrade.md) | не начата |
-| [04-publisher-and-e2e-ops](04-publisher-and-e2e-ops.md) | не начата |
+| [02-expanded-data-extraction](02-expanded-data-extraction.md) | закрыта |
+| [03-contracts-and-diff-upgrade](03-contracts-and-diff-upgrade.md) | закрыта |
+| [04-publisher-and-e2e-ops](04-publisher-and-e2e-ops.md) | закрыта |
 
 Исходная версия: ветка `main`, вершина `b2f0cfb`. План `mvp-pipeline` завершён 2026-11-01 и остаётся фундаментом принятых контрактов (`kenshi-publication/1`, `kenshi-world-reference/1`, `kenshi-locations/1`, `kenshi-event/1`) и конвейера.
 

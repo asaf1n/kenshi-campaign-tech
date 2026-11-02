@@ -2,9 +2,29 @@
 
 ## Обязательное исходное обследование
 
-Внешний `session_export.py` формирует `kenshi-session/10`; нативный движок поддерживает `kenshi-session/10` и расширенный `kenshi-session/11`. `session_diff.py` — `kenshi-session-diff/5`. Известные поля см. `references/observed-export.md`. Контракт снимка сессии формализован в `contracts/session.schema.json` (JSON Schema Draft 2020-12).
+Нативный конвейер `extract --source-kind save` формирует `kenshi-session/11`. Импорт готовых выгрузок `extract --source-kind export` сохраняет исходный формат: `kenshi-session/10` или `kenshi-session/11`. Внутренний `session_export.build_snapshot` предоставляет совместимое представление v10; `converter_worker` дополняет его полями `save_reader` до v11. Внешний конвертер не запускается. Формат diff остаётся `kenshi-session-diff/5`. Известные исходные поля см. `references/observed-export.md`. Контракт снимка сессии формализован в `contracts/session.schema.json` (JSON Schema Draft 2020-12).
 
 `current.json` сохраняет `format` (`kenshi-session/10` либо `kenshi-session/11`), игровые поля и доступную точность без дополнительного округления. Нормализатор проверяет обязательные объекты `save`, `world`, `meta`, списки `characters`, `squads`, `warnings`; неизвестные игровые поля сохраняет. Схема `contracts/session.schema.json` валидирует как сырые (до нормализации, с метаданными пути и файла), так и нормализованные снимки (где `save` очищен до `{}`).
+
+## Расширения `kenshi-session/11`
+
+v11 сохраняет структуры характеристик, здоровья, экипировки, инвентаря, исследований и снабжения v10. Новые данные добавляются к тем же записям персонажей, без сопоставления по имени и без замены запасного ID `h:*`. При чтении отрядов принадлежность игроку определяется состоянием персонажа, включая участников в активном отряде другой фракции.
+
+| Поле | Содержимое и ограничения |
+|---|---|
+| `diplomacy` | `player_faction_sid`, `player_faction_name`, `relations`, `summary`. Отношения идентифицируются по `faction_sid`; сохраняются `relation`, `trust`, `trust_neg`, `standing`. Отсутствующая связь даёт `relation=null`, `standing="unknown"`, а не нейтральное отношение. |
+| `world_state` | `unique_npcs`, `town_overrides`, `summary`. Для NPC сохраняются `sid`, индекс записи, имена, `state_code`, `state`, признак игрока и handle. Код `2` обозначается `dead_or_captured`: смерть и пленение не различаются. Для других кодов строковая интерпретация не задаётся. Города сохраняют `replacement_sid`, текущие сведения о фракциях и handle; причина смены состояния не выводится. |
+| `characters[].jobs` | `enabled`, постоянная очередь `primary`, временная `temporary` и `raw`. Запись работы содержит исходный индекс, `task_code`, `task_name`, `target_handle`. Порядок соответствует числовым индексам сохранения; отсутствие записи работ даёт `enabled=null` и пустые очереди. |
+| `characters[].carrying` | `is_carrying`, `target_handle`, `carried_by`, `raw`. При переноске handle относится к переносимому объекту; для переносимого персонажа он может указывать носителя. Handle не подменяется именем или предположенным ID. |
+| `characters[].bounties` | `has_bounty`, `total_amount`, `entries`. Записи сохраняют индекс, `faction_sid`, `amount`, `crimes`; сумма строится из извлечённых сумм наград. |
+| `characters[].combat_modes` | `taunt`, `passive`, `ranged`, `defensive`, `chase`, `stealth`, `non_combat`: `true`, `false` либо `null`, если флаг не получен. |
+| `property.buildings[]` и вложенный `interior[]` | Производственные поля: `power_on`, `gets_battery`, `battery_charge`, `is_paused`, `is_repeat`, `production_progress`, `consumption`, `resource_mult`, `mining_resource_level`, `usage_nodes`; также сведения о замках, боезапасе и исходных предметах `storage_items`. Сохраняются прежние `storage`, имена, шаблоны и иерархия. Сопоставление выполняется по паре `(zone, id)` с наследованием зоны для интерьера; расхождение состава вызывает отказ. |
+
+Handle — JSON-массив `[TYPE, C, S, I, CS]` с возможными `null` в отдельных компонентах либо `null` целиком. Для ключей внутренних словарей используется tuple; в выходных данных остаётся list. Безадресные handles работ и переноски (`TYPE=11` либо нулевые компоненты адреса) нормализуются в `null`.
+
+В `provenance.source_format` и `manifest.source_format` записывается фактический `current.format`. Поддержка v10 не означает наличия новых категорий: отсутствующие или `null` разделы не трактуются как пустые подтверждённые данные. Diff новых категорий выполняется для пары v11 с доступными разделами; ограничения записываются в `not_compared`. Изменение отношения с неизвестным исходным значением не имеет числового `delta`.
+
+`brief.md` отображает доступную дипломатию, состояние мира и расширенные категории diff; `squad.md` — работы, боевые режимы и награды. Эти данные предназначены для чат-ИИ моделей (LLM ассистентов). Состав `kenshi-publication/1` остаётся указанным ниже; отдельный артефакт `diplomacy.md` в текущий bundle не входит.
 
 ## Неизменяемый снимок: `kenshi-snapshot/1`
 

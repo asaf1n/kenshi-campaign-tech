@@ -5,6 +5,8 @@ import os
 import unittest
 from pathlib import Path
 
+from tools.converter_worker import extend_buildings
+from tools.io_utils import ExtractionError
 from tools.save_reader import (
     DEFAULT_PLAYER_FACTION,
     collect_items,
@@ -14,6 +16,20 @@ from tools.save_reader import (
 
 class TestBaseProductionSynthetic(unittest.TestCase):
     """Синтетические проверки извлечения состояния зданий, энергии, крафта и хранилищ."""
+
+    def test_production_overlay_preserves_storage_and_zone_identity(self) -> None:
+        buildings = [{"id": "house", "zone": zone, "name": "Дом", "interior": [
+            {"id": "bench", "storage": [{"sid": "iron", "quantity": 3}]}]} for zone in ("1.1", "2.2")]
+        native = [{"id": "house", "zone": zone, "name": "Другое имя", "interior": [
+            {"id": "bench", "zone": zone, "power_on": enabled, "storage_items": []}]} for zone, enabled in (
+                ("1.1", True), ("2.2", False))]
+        extend_buildings(buildings, native)
+        self.assertEqual([b["interior"][0]["power_on"] for b in buildings], [True, False])
+        for building in buildings:
+            self.assertEqual(building["name"], "Дом")
+            self.assertEqual(building["interior"][0]["storage"], [{"sid": "iron", "quantity": 3}])
+        with self.assertRaises(ExtractionError):
+            extend_buildings(buildings, native[:1])
 
     def test_collect_items_synthetic_rich_attributes(self) -> None:
         by_sid = {
@@ -80,7 +96,7 @@ class TestBaseProductionSynthetic(unittest.TestCase):
         self.assertEqual(weap["dam"], 12.3)
         self.assertEqual(weap["stun"], 2.1)
         self.assertTrue(weap["unique"])
-        self.assertEqual(weap["owned_by"], (1, 5, 500, 1, 600))
+        self.assertEqual(weap["owned_by"], [1, 5, 500, 1, 600])
         self.assertIn("bool", weap["raw"])
 
         # Аптечка с зарядами (wear/dam/stun отсутствуют)

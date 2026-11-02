@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools import gamedb, kenshi_gd, saves, session_export
+from tools import gamedb, kenshi_gd, save_reader, saves, session_export
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, install_write_guard, read_json
 from tools.normalization import scrub
 
@@ -32,6 +32,67 @@ ENGINE_FILES: list[str] = [
     "tools/task_types.py",
     "tools/zipnames.py",
 ]
+
+
+def extend_buildings(buildings: list[dict[str, Any]], native: list[dict[str, Any]]) -> None:
+    """Добавляет производственные поля, сохраняя прежние storage и иерархию."""
+    def indexed(rows: list[dict[str, Any]], zone: str | None = None) -> dict[tuple[Any, Any], dict[str, Any]]:
+        result: dict[tuple[Any, Any], dict[str, Any]] = {}
+        for row in rows:
+            row_zone = row.get("zone", zone)
+            key = (row_zone, row["id"])
+            descendants = indexed(row.get("interior", []), row_zone)
+            if key in result or key in descendants or result.keys() & descendants.keys():
+                raise ExtractionError("Повтор идентификатора здания в зоне")
+            result[key] = row
+            result.update(descendants)
+        return result
+
+    previous, additions = indexed(buildings), indexed(native)
+    if previous.keys() != additions.keys():
+        raise ExtractionError("Состав зданий различается между чтением основных и расширенных полей")
+    for key, building in previous.items():
+        building.update({field: value for field, value in additions[key].items()
+                         if field not in building and field != "interior"})
+
+
+def build_native_snapshot(save: Path, faction_sid: str, game_index: dict[str, list[Any]]) -> dict[str, Any]:
+    """Сохраняет представление v10 и дополняет его нативными полями v11."""
+    original_character = session_export.character
+    original_compact = session_export.compact_character
+    fields = ("jobs", "carrying", "bounties", "combat_modes")
+
+    def character(inst: dict[str, Any], by: dict[str, Any], names: Any) -> dict[str, Any]:
+        result = original_character(inst, by, names)
+        if result.get("faction", {}).get("sid") == faction_sid:
+            native = save_reader.parse_character(inst, by, {}, gamedb_inst=game_index)
+            if native is None:
+                raise ExtractionError("Не получены расширенные поля персонажа игрока")
+            result["session11"] = {field: native[field] for field in fields}
+        return result
+
+    def compact_character(ch: dict[str, Any], squad: dict[str, Any], names: Any,
+                          const: dict[str, Any], warnings: list[str],
+                          limbs: tuple[dict[str, dict[str, Any]], list[str]]) -> dict[str, Any]:
+        return original_compact(ch, squad, names, const, warnings, limbs) | ch["session11"]
+
+    # Адаптация действует только внутри изолированного воркера. Поля относятся к
+    # одному inst/by: различия запасных ID и одноимённые персонажи не требуют join.
+    session_export.character = character
+    session_export.compact_character = compact_character
+    try:
+        snapshot = session_export.build_snapshot(str(save), faction_sid, session_export.Timer())
+    finally:
+        session_export.character = original_character
+        session_export.compact_character = original_compact
+
+    quick = save_reader.read_quick_save(save, faction_sid, game_index)
+    native_property = save_reader.read_player_property(
+        save, faction_sid, quick.get("towns"), game_index, snapshot["warnings"],
+    )
+    extend_buildings(snapshot["property"]["buildings"], native_property["buildings"])
+    snapshot.update(format="kenshi-session/11", diplomacy=quick["diplomacy"], world_state=quick["world_state"])
+    return snapshot
 
 
 def strict_inputs(save: Path, faction: str) -> None:
@@ -88,6 +149,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
     original_load = session_export.gamedb.load_index
     inputs: list[tuple[Path, str]] = []
     mod_files: list[list[str]] = []
+    game_index: dict[str, list[Any]] = {}
 
     def load_index(cache_dir_arg: Any, files: Any = None, po_path: Any = None) -> Any:
         if files is None:
@@ -99,12 +161,19 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                 checksum = file_hash(path)
                 inputs.append((path, checksum))
                 mod_files.append([path.name, checksum])
-        return original_load(cache_dir_arg, files, po_path=po_path)
+        index, cache = original_load(cache_dir_arg, files, po_path=po_path)
+        game_index.update(index)
+        return index, cache
 
     session_export.gamedb.load_index = load_index
+    original_collect_stable = session_export.collect_stable
     session_export.collect_stable = session_export.collect
 
-    snapshot = session_export.build_snapshot(str(save), faction_sid, session_export.Timer())
+    try:
+        snapshot = build_native_snapshot(save, faction_sid, game_index)
+    finally:
+        session_export.gamedb.load_index = original_load
+        session_export.collect_stable = original_collect_stable
 
     if denied:
         raise ExtractionError("Конвертер пытался записать защищённые данные")

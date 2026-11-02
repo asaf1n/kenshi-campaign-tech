@@ -114,7 +114,7 @@ def extract(source: Path, source_kind: str, config: Config, output: Path | None 
         snapshot_id = "sha256-" + digest(canonical(identity))
         current_bytes = canonical(current)
         provenance = {"format": "kenshi-snapshot/1", "snapshot_id": snapshot_id, **identity,
-                      "source_format": "kenshi-session/10", "converter": converter, "mods": scrub(mods),
+                      "source_format": current["format"], "converter": converter, "mods": scrub(mods),
                       "source_files": before if source_kind == "save" else None,
                       "game_time": {k: current["world"].get(k) for k in ("day", "time")},
                       "current_sha256": digest(current_bytes), "diagnostics": diagnostics,

@@ -176,7 +176,7 @@ def test_chatgpt_channel_and_freshness(
     index_path: Path,
     snapshot_id: str,
 ) -> dict[str, Any]:
-    """Проверка канала ChatGPT (AC-13): полный release bundle, приватность, тест свежести."""
+    """Проверка канала чат-ИИ моделей (AC-13): полный release bundle, приватность, тест свежести."""
     required_bundle = [
         "manifest.json",
         "current.json",

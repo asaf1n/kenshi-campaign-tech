@@ -189,8 +189,8 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
             elif r["type"] == 94:
                 h = town_handle(r["int"], "hand")
                 inst_id = r["string"].get("instance")
-                if inst_id:
-                    hand_to_instance[h] = inst_id
+                if inst_id and h:
+                    hand_to_instance[tuple(h)] = inst_id
 
     filtered_nest_markers = 0
     real_locations: dict[str, dict[str, Any]] = {}
@@ -231,7 +231,7 @@ def run(request: dict[str, Any]) -> dict[str, Any]:
                         zone_b35[r["sid"]] = r
         for sid, r in zone_b35.items():
             h = town_handle(r["int"], "town")
-            target_iid = hand_to_instance.get(h)
+            target_iid = hand_to_instance.get(tuple(h)) if h else None
             b_id = r["id"]
             pos = zone_inst[sid]["pos"] if sid in zone_inst else None
             if target_iid and target_iid in real_locations:

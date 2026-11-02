@@ -61,6 +61,38 @@ def render_brief(
         race = c.get("race") or "—"
         lines.append(f"| `{cid}` | {name} | `{sq}` | {race} |")
 
+    diplomacy_data = current.get("diplomacy")
+    if isinstance(diplomacy_data, dict) and diplomacy_data.get("relations"):
+        lines.extend([
+            "",
+            "## Геополитика и фракции",
+        ])
+        allies = [r.get("faction_name") or r["faction_sid"] for r in diplomacy_data["relations"] if r.get("standing") == "ally"]
+        hostiles = [r.get("faction_name") or r["faction_sid"] for r in diplomacy_data["relations"] if r.get("standing") == "hostile"]
+        if allies:
+            lines.append(f"- **Союзники:** {', '.join(allies)}")
+        if hostiles:
+            lines.append(f"- **Враги ({len(hostiles)}):** {', '.join(hostiles[:5])}" + ("..." if len(hostiles) > 5 else ""))
+        summ = diplomacy_data.get("summary", {})
+        if summ:
+            lines.append(f"- **Сводка:** {summ.get('allies_count', 0)} союзников, {summ.get('friendly_count', 0)} дружественных, {summ.get('neutral_count', 0)} нейтральных, {summ.get('hostile_count', 0)} враждебных")
+
+    ws_data = current.get("world_state")
+    if isinstance(ws_data, dict):
+        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("state")]
+        town_reps = ws_data.get("town_overrides", [])
+        if uniques or town_reps:
+            lines.extend([
+                "",
+                "## Состояние мира (World States)",
+            ])
+            if uniques:
+                u_str = ", ".join(f"{u.get('name_ru') or u.get('name') or u.get('sid')} ({u.get('state') or 'код 2'})" for u in uniques)
+                lines.append(f"- **Уникальные NPC:** {u_str}")
+            if town_reps:
+                t_str = ", ".join(f"{t.get('name')} ({t.get('faction')})" for t in town_reps)
+                lines.append(f"- **Переопределённые города:** {t_str}")
+
     lines.extend([
         "",
         "## Доступные местоположения",
@@ -206,7 +238,51 @@ def render_brief(
         if health:
             lines.append(f"- **Изменения здоровья:** у {len(health)} участников")
 
-        if not any([joined, left, squad_changed, status_changed, transfers, skills, equipment, health]):
+        dip_ch = changes.get("diplomacy", [])
+        if dip_ch:
+            lines.append(f"- **Изменения отношений с фракциями ({len(dip_ch)}):**")
+            for d in dip_ch:
+                d_name = d.get("faction_name") or d.get("faction_sid")
+                relation = d.get("relation")
+                rel_info = ""
+                if relation:
+                    rel_info = f"отношение: {relation.get('from')} -> {relation.get('to')}"
+                    if isinstance(relation.get("delta"), (int, float)):
+                        rel_info += f" ({relation['delta']:+})"
+                std_info = f"статус: {d['standing'].get('from')} -> {d['standing'].get('to')}" if d.get("standing") else ""
+                parts_d = [p for p in (rel_info, std_info) if p]
+                lines.append(f"  - `{d_name}`: {', '.join(parts_d)}")
+
+        ws_ch = changes.get("world_state", {})
+        if ws_ch:
+            u_ch = ws_ch.get("unique_npcs", [])
+            t_ch = ws_ch.get("town_overrides", [])
+            if u_ch or t_ch:
+                lines.append(f"- **События мира (World States):**")
+                for u in u_ch:
+                    u_nm = u.get("name_ru") or u.get("name") or u.get("sid")
+                    lines.append(f"  - Лидер `{u_nm}`: статус сменился на {u.get('state', {}).get('to') or u.get('state_code', {}).get('to')}")
+                for t in t_ch:
+                    t_nm = t.get("town_name") or t.get("replacement_sid")
+                    lines.append(f"  - Город `{t_nm}`: {t.get('status')} ({t.get('faction') or 'смена контроля'})")
+
+        jobs_ch = changes.get("jobs", [])
+        if jobs_ch:
+            lines.append(f"- **Изменения очереди работ:** у {len(jobs_ch)} участников")
+            for j in jobs_ch:
+                j_nm = j.get("name") or j.get("id")
+                lines.append(f"  - `{j_nm}`: обновлены назначенные работы")
+
+        bld_ch = changes.get("base_storage", [])
+        if bld_ch:
+            lines.append(f"- **Изменения складских запасов на базах:** {len(bld_ch)} позиций")
+            for b in bld_ch[:5]:
+                lines.append(f"  - `{b.get('building_name')}`: {b.get('item_name')} {b.get('delta'):+}")
+            if len(bld_ch) > 5:
+                lines.append(f"  - ... и ещё {len(bld_ch) - 5} складских изменений")
+
+        if not any([joined, left, squad_changed, status_changed, transfers, skills, equipment, health,
+                    dip_ch, ws_ch, jobs_ch, bld_ch]):
             lines.append("- Изменений в отслеживаемых категориях не зафиксировано.")
 
     not_compared = changes.get("not_compared", [])
@@ -349,6 +425,24 @@ def render_squad(
                 st_active = [k for k, v in sorted(status.items()) if v]
                 if st_active:
                     lines.append(f"- **Статусы:** {', '.join(st_active)}")
+
+            combat = c.get("combat_modes", {})
+            if combat:
+                c_active = [k for k, v in sorted(combat.items()) if v]
+                if c_active:
+                    lines.append(f"- **Боевые режимы:** {', '.join(c_active)}")
+
+            jobs = c.get("jobs", {})
+            if isinstance(jobs, dict) and jobs.get("primary"):
+                p_tasks = [t.get("task_name") or str(t.get("task_code")) for t in jobs["primary"] if isinstance(t, dict)]
+                if p_tasks:
+                    en_str = "" if jobs.get("enabled", True) else " (отключены)"
+                    lines.append(f"- **Работы{en_str}:** {', '.join(p_tasks)}")
+
+            bounties = c.get("bounties", {})
+            if isinstance(bounties, dict) and bounties.get("has_bounty"):
+                total_b = bounties.get("total_amount", 0)
+                lines.append(f"- **Награда за голову:** {total_b:,} кат.".replace(",", " "))
 
             skills = c.get("skills_base", {})
             attrs = c.get("attributes_base", {})
