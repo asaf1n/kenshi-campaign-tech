@@ -69,7 +69,7 @@ def _validate_evidence_ref(ref: str) -> None:
 
 
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -435,6 +435,8 @@ def check_examples() -> int:
             validate_locations(value)
         elif fmt == "kenshi-index/1":
             validate_index(value)
+        elif fmt in {"kenshi-session/10", "kenshi-session/11"}:
+            validate(value, "session")
         else:
             validate_event(value)
         count += 1
@@ -517,7 +519,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     current = read_json(current_path.read_bytes())
     changes = read_json(changes_path.read_bytes())
 
-    if current.get("format") != "kenshi-session/10":
+    if current.get("format") not in {"kenshi-session/10", "kenshi-session/11"}:
         raise PublicationValidationError(f"Некорректный формат current.json: {current.get('format')}")
     if changes.get("format") != "kenshi-session-diff/5":
         raise PublicationValidationError(f"Некорректный формат changes.json: {changes.get('format')}")

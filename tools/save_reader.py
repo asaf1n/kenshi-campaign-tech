@@ -1205,7 +1205,7 @@ def read_save_snapshot(
     sdir = Path(save_dir).resolve()
     check_save_inputs(sdir, faction_sid)
 
-    qs_data = read_quick_save(sdir)
+    qs_data = read_quick_save(sdir, faction_sid, gamedb_inst)
     squads, characters, warnings = read_all_platoons(sdir, faction_sid, qs_data, gamedb_inst)
     prop_data = read_player_property(sdir, faction_sid, qs_data.get("towns"), gamedb_inst, warnings)
 
@@ -1238,5 +1238,7 @@ def read_save_snapshot(
         "property": prop_data,
         "diplomacy_raw": qs_data.get("diplomacy_raw", []),
         "uniques_raw": qs_data.get("uniques_raw", []),
+        "diplomacy": qs_data.get("diplomacy"),
+        "world_state": qs_data.get("world_state"),
         "warnings": warnings,
     }

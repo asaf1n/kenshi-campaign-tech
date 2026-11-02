@@ -1,0 +1,245 @@
+{
+  "format": "kenshi-session/11",
+  "save": {
+    "name": "quicksave",
+    "kind": "quicksave",
+    "saved_at": "2026-11-02T12:00:00+00:00",
+    "path": "quicksave"
+  },
+  "world": {
+    "day": 42,
+    "hour": 14,
+    "minute": 30,
+    "time": "14:30",
+    "money": 125000,
+    "raw": {
+      "player money": 125000,
+      "time day": 42,
+      "time hour": 14,
+      "time minute": 30
+    }
+  },
+  "characters": [
+    {
+      "id": "ps:1001",
+      "name": "Хоббс",
+      "squad_id": "squad_main",
+      "squad_name": "Безымянные",
+      "is_animal": false,
+      "is_leader": true,
+      "position": [-62871.2, 342.0, 16552.9],
+      "jobs": {
+        "enabled": true,
+        "primary": [
+          {
+            "index": 0,
+            "task_code": 14,
+            "task_name": "Лечить союзников",
+            "target_handle": [1, 54, 1001, 0, 0]
+          },
+          {
+            "index": 1,
+            "task_code": 11,
+            "task_name": "Телохранитель",
+            "target_handle": [1, 54, 1002, 0, 0]
+          }
+        ],
+        "temporary": []
+      },
+      "carrying": {
+        "is_carrying": true,
+        "target_handle": [1, 54, 2005, 0, 0],
+        "carried_by": null
+      },
+      "bounties": {
+        "has_bounty": true,
+        "total_amount": 10000,
+        "entries": [
+          {
+            "index": 0,
+            "faction_sid": "Holy Nation",
+            "amount": 10000,
+            "crimes": 4
+          }
+        ]
+      },
+      "combat_modes": {
+        "taunt": false,
+        "passive": false,
+        "ranged": true,
+        "defensive": false,
+        "chase": true,
+        "stealth": false,
+        "non_combat": false
+      }
+    },
+    {
+      "id": "ps:1002",
+      "name": "Бип",
+      "squad_id": "squad_main",
+      "squad_name": "Безымянные",
+      "is_animal": false,
+      "is_leader": false,
+      "position": [-62738.4, 322.9, 16464.6],
+      "jobs": {
+        "enabled": true,
+        "primary": [
+          {
+            "index": 0,
+            "task_code": 17,
+            "task_name": "Добывать руду",
+            "target_handle": [13, 186, 501, 0, 0]
+          }
+        ],
+        "temporary": []
+      },
+      "carrying": {
+        "is_carrying": false,
+        "target_handle": null,
+        "carried_by": null
+      },
+      "bounties": {
+        "has_bounty": false,
+        "total_amount": 0,
+        "entries": []
+      },
+      "combat_modes": {
+        "taunt": true,
+        "passive": false,
+        "ranged": false,
+        "defensive": false,
+        "chase": true,
+        "stealth": false,
+        "non_combat": false
+      }
+    }
+  ],
+  "squads": [
+    {
+      "squad_id": "squad_main",
+      "squad_name": "Безымянные",
+      "members": ["ps:1001", "ps:1002"]
+    }
+  ],
+  "diplomacy": {
+    "player_faction_sid": "204-gamedata.base",
+    "player_faction_name": "Безымянные",
+    "relations": [
+      {
+        "faction_sid": "Flotsam Ninjas",
+        "faction_name": "Ниндзя-отщепенцы",
+        "relation": 75.0,
+        "trust": 10.0,
+        "trust_neg": 0.0,
+        "standing": "friendly"
+      },
+      {
+        "faction_sid": "Holy Nation",
+        "faction_name": "Святая Нация",
+        "relation": -100.0,
+        "trust": 0.0,
+        "trust_neg": 50.0,
+        "standing": "hostile"
+      },
+      {
+        "faction_sid": "Shek Kingdom",
+        "faction_name": "Королевство Шек",
+        "relation": 5.0,
+        "trust": 0.0,
+        "trust_neg": 0.0,
+        "standing": "neutral"
+      }
+    ],
+    "summary": {
+      "allies_count": 0,
+      "friendly_count": 1,
+      "neutral_count": 1,
+      "unfriendly_count": 0,
+      "hostile_count": 1,
+      "unknown_count": 0,
+      "total_factions": 3
+    }
+  },
+  "world_state": {
+    "unique_npcs": [
+      {
+        "index": 0,
+        "sid": "2733-gamedata.base",
+        "name": "Lord Phoenix",
+        "name_ru": "Лорд Феникс",
+        "state_code": 2,
+        "state": "dead",
+        "player": false,
+        "handle": [1, 54, 958496064, 9, 992309568]
+      },
+      {
+        "index": 1,
+        "sid": "2734-gamedata.base",
+        "name": "High Krane",
+        "name_ru": "Инквизитор Крейн",
+        "state_code": 1,
+        "state": null,
+        "player": false,
+        "handle": [1, 54, 958496065, 9, 992309568]
+      }
+    ],
+    "town_overrides": [
+      {
+        "name": "Плохие Зубы",
+        "raw_name": "Town state Bad Teeth",
+        "replacement_sid": "1533719-world_react.mod",
+        "replacement_name": "Bad Teeth (Shek)",
+        "replacement_name_ru": "Плохие Зубы (Шек)",
+        "faction": "Shek Kingdom",
+        "factions_here": ["Shek Kingdom"],
+        "handle": [13, 186, 0, 0, 1654785152]
+      }
+    ],
+    "summary": {
+      "total_uniques": 2,
+      "state_0_count": 0,
+      "state_1_count": 1,
+      "state_2_count": 1,
+      "total_towns": 150,
+      "overridden_towns_count": 1
+    }
+  },
+  "property": {
+    "player_towns": ["Хот Лон"],
+    "buildings": [
+      {
+        "id": "bld_101",
+        "name": "Хранилище: Железо",
+        "template_name": "Iron Storage",
+        "zone": "zone_22_15",
+        "complete": true,
+        "is_paused": false,
+        "is_repeat": false,
+        "power_on": true,
+        "gets_battery": false,
+        "battery_charge": null,
+        "storage": [
+          {
+            "sid": "1965-gamedata.base",
+            "name": "Железная руда",
+            "quantity": 100
+          }
+        ]
+      }
+    ]
+  },
+  "research": {
+    "completed": ["Smithing Basics"],
+    "available": ["Heavy Armour"],
+    "current": null
+  },
+  "supplies": {
+    "food": 50,
+    "medkits": 5
+  },
+  "warnings": [],
+  "meta": {
+    "exported_at": "2026-11-02T12:00:00+00:00",
+    "version": "1.0"
+  }
+}

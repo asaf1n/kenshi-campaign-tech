@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/session.schema.json",
+  "title": "Kenshi session snapshot",
+  "description": "Контракт снимка состояния сессии Kenshi (kenshi-session/10 и kenshi-session/11). Валидирует как сырые, так и нормализованные снимки.",
+  "type": "object",
+  "required": [
+    "format",
+    "save",
+    "world",
+    "characters",
+    "squads",
+    "warnings",
+    "meta"
+  ],
+  "properties": {
+    "format": {
+      "type": "string",
+      "enum": ["kenshi-session/10", "kenshi-session/11"]
+    },
+    "save": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "kind": {"type": "string", "enum": ["autosave", "quicksave", "manual"]},
+        "saved_at": {"type": "string"},
+        "path": {"type": "string"}
+      }
+    },
+    "world": {
+      "type": "object",
+      "properties": {
+        "day": {"type": ["integer", "null"]},
+        "time": {"type": ["string", "null"]},
+        "hour": {"type": ["integer", "null"]},
+        "minute": {"type": ["integer", "null"]},
+        "money": {"type": ["integer", "null"]},
+        "raw": {"type": "object"}
+      }
+    },
+    "squads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["squad_id", "members"],
+        "properties": {
+          "squad_id": {"type": "string", "minLength": 1},
+          "squad_name": {"type": ["string", "null"]},
+          "members": {
+            "type": "array",
+            "items": {"type": ["string", "null"]}
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "meta": {
+      "type": "object"
+    },
+    "supplies": {
+      "type": "object"
+    },
+    "research": {
+      "type": "object"
+    },
+    "property": {
+      "type": "object",
+      "properties": {
+        "player_towns": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "buildings": {
+          "type": "array"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"format": {"const": "kenshi-session/10"}}
+      },
+      "then": {
+        "properties": {
+          "characters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "name": {"type": ["string", "null"]},
+                "squad_id": {"type": ["string", "null"]},
+                "carrying": {"type": ["object", "null"]},
+                "bounties": {"type": ["object", "null"]}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"format": {"const": "kenshi-session/11"}}
+      },
+      "then": {
+        "properties": {
+          "characters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "name": {"type": ["string", "null"]},
+                "squad_id": {"type": ["string", "null"]},
+                "jobs": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "enabled": {"type": ["boolean", "null"]},
+                    "primary": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["index", "task_code", "task_name"],
+                        "properties": {
+                          "index": {"type": "integer"},
+                          "task_code": {"type": "integer"},
+                          "task_name": {"type": "string"},
+                          "target_handle": {"type": ["array", "null"]}
+                        }
+                      }
+                    },
+                    "temporary": {"type": "array"}
+                  }
+                },
+                "carrying": {
+                  "type": ["object", "null"],
+                  "required": ["is_carrying"],
+                  "properties": {
+                    "is_carrying": {"type": "boolean"},
+                    "target_handle": {"type": ["array", "null"]},
+                    "carried_by": {"type": ["array", "null"]}
+                  }
+                },
+                "bounties": {
+                  "type": ["object", "null"],
+                  "required": ["has_bounty", "total_amount", "entries"],
+                  "properties": {
+                    "has_bounty": {"type": "boolean"},
+                    "total_amount": {"type": "integer"},
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["index"],
+                        "properties": {
+                          "index": {"type": "integer"},
+                          "faction_sid": {"type": ["string", "null"]},
+                          "amount": {"type": ["integer", "null"]},
+                          "crimes": {"type": ["integer", "string", "null"]}
+                        }
+                      }
+                    }
+                  }
+                },
+                "combat_modes": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "taunt": {"type": ["boolean", "null"]},
+                    "passive": {"type": ["boolean", "null"]},
+                    "ranged": {"type": ["boolean", "null"]},
+                    "defensive": {"type": ["boolean", "null"]},
+                    "chase": {"type": ["boolean", "null"]},
+                    "stealth": {"type": ["boolean", "null"]},
+                    "non_combat": {"type": ["boolean", "null"]}
+                  }
+                }
+              }
+            }
+          },
+          "diplomacy": {
+            "type": ["object", "null"],
+            "required": ["player_faction_sid", "relations", "summary"],
+            "properties": {
+              "player_faction_sid": {"type": "string", "minLength": 1},
+              "player_faction_name": {"type": ["string", "null"]},
+              "relations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["faction_sid", "standing"],
+                  "properties": {
+                    "faction_sid": {"type": "string", "minLength": 1},
+                    "faction_name": {"type": ["string", "null"]},
+                    "relation": {"type": ["number", "null"], "minimum": -100.0, "maximum": 100.0},
+                    "trust": {"type": ["number", "null"]},
+                    "trust_neg": {"type": ["number", "null"]},
+                    "standing": {
+                      "type": "string",
+                      "enum": ["ally", "friendly", "neutral", "unfriendly", "hostile", "unknown"]
+                    }
+                  }
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "allies_count": {"type": "integer"},
+                  "friendly_count": {"type": "integer"},
+                  "neutral_count": {"type": "integer"},
+                  "unfriendly_count": {"type": "integer"},
+                  "hostile_count": {"type": "integer"},
+                  "unknown_count": {"type": "integer"},
+                  "total_factions": {"type": "integer"}
+                }
+              }
+            }
+          },
+          "world_state": {
+            "type": ["object", "null"],
+            "required": ["unique_npcs", "town_overrides", "summary"],
+            "properties": {
+              "unique_npcs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["sid", "state_code"],
+                  "properties": {
+                    "index": {"type": ["integer", "null"]},
+                    "sid": {"type": "string", "minLength": 1},
+                    "name": {"type": ["string", "null"]},
+                    "name_ru": {"type": ["string", "null"]},
+                    "state_code": {"type": ["integer", "null"]},
+                    "state": {"type": ["string", "null"]},
+                    "player": {"type": ["boolean", "null"]},
+                    "handle": {"type": ["array", "null"]}
+                  }
+                }
+              },
+              "town_overrides": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["replacement_sid"],
+                  "properties": {
+                    "name": {"type": ["string", "null"]},
+                    "raw_name": {"type": ["string", "null"]},
+                    "replacement_sid": {"type": "string", "minLength": 1},
+                    "replacement_name": {"type": ["string", "null"]},
+                    "replacement_name_ru": {"type": ["string", "null"]},
+                    "faction": {"type": ["string", "null"]},
+                    "factions_here": {"type": "array"},
+                    "handle": {"type": ["array", "null"]}
+                  }
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "total_uniques": {"type": "integer"},
+                  "state_0_count": {"type": "integer"},
+                  "state_1_count": {"type": "integer"},
+                  "state_2_count": {"type": "integer"},
+                  "total_towns": {"type": "integer"},
+                  "overridden_towns_count": {"type": "integer"}
+                }
+              }
+            }
+          },
+          "property": {
+            "type": ["object", "null"],
+            "properties": {
+              "player_towns": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "buildings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id"],
+                  "properties": {
+                    "id": {"type": ["string", "integer"]},
+                    "name": {"type": ["string", "null"]},
+                    "template_name": {"type": ["string", "null"]},
+                    "zone": {"type": ["string", "null"]},
+                    "complete": {"type": ["boolean", "null"]},
+                    "is_paused": {"type": ["boolean", "null"]},
+                    "is_repeat": {"type": ["boolean", "null"]},
+                    "power_on": {"type": ["boolean", "null"]},
+                    "gets_battery": {"type": ["boolean", "null"]},
+                    "battery_charge": {"type": ["number", "null"]},
+                    "storage": {"type": "array"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -34,8 +34,8 @@ def scrub(value: Any, metadata: bool = False) -> Any:
 
 
 def validate_session(data: Any) -> None:
-    if not isinstance(data, dict) or data.get("format") != "kenshi-session/10":
-        raise ExtractionError("Поддерживается только kenshi-session/10")
+    if not isinstance(data, dict) or data.get("format") not in {"kenshi-session/10", "kenshi-session/11"}:
+        raise ExtractionError("Поддерживаются только kenshi-session/10 и kenshi-session/11")
     for key, kind in {"save": dict, "world": dict, "meta": dict, "characters": list, "squads": list, "warnings": list}.items():
         if not isinstance(data.get(key), kind):
             raise ExtractionError(f"Повреждена обязательная структура: {key}")
