@@ -122,7 +122,8 @@ class TestSaveReader(unittest.TestCase):
                 "player money": 25000, "members": 1, "squads": 1,
                 "usedUniquesState0": 2,
             },
-            strings={"usedUniques0": "leader-holy-phoenix", "usedUniquesPlayer0": "Nameless"},
+            strings={"usedUniques0": "leader-holy-phoenix"},
+            bools={"usedUniquesPlayer0": True},
             refs={"mods": [("gamedata.base", [0, 0, 0]), ("test_mod.mod", [0, 0, 0])]},
         )
         r34 = _make_record(
@@ -282,7 +283,7 @@ class TestSaveReader(unittest.TestCase):
         self.assertEqual(len(data["uniques_raw"]), 1)
         self.assertEqual(data["uniques_raw"][0]["sid"], "leader-holy-phoenix")
         self.assertEqual(data["uniques_raw"][0]["state_code"], 2)
-        self.assertEqual(data["uniques_raw"][0]["player"], "Nameless")
+        self.assertIs(data["uniques_raw"][0]["player"], True)
 
         # Города
         self.assertEqual(len(data["towns"]), 1)

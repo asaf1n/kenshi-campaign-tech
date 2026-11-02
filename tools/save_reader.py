@@ -194,7 +194,7 @@ def parse_uniques(state_rec: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Запись 56: сырой трекинг состояния уникальных NPC мира без домысливания."""
     if not state_rec:
         return []
-    s, i = state_rec.get("string", {}), state_rec.get("int", {})
+    s, i, b = state_rec.get("string", {}), state_rec.get("int", {}), state_rec.get("bool", {})
     uniques: list[dict[str, Any]] = []
 
     # Сопоставляем по числовому суффиксу ключа (устранение Н4)
@@ -207,7 +207,7 @@ def parse_uniques(state_rec: dict[str, Any] | None) -> list[dict[str, Any]]:
     for num in key_nums:
         sid_val = s.get(f"usedUniques{num}")
         st_code = i.get(f"usedUniquesState{num}")
-        pl_val = s.get(f"usedUniquesPlayer{num}")
+        pl_val = b.get(f"usedUniquesPlayer{num}")
         handle = town_handle(i, f"usedUniques{num}handle")
         uniques.append({
             "index": num,
@@ -219,14 +219,220 @@ def parse_uniques(state_rec: dict[str, Any] | None) -> list[dict[str, Any]]:
     return uniques
 
 
-def parse_quick_save(data: bytes) -> dict[str, Any]:
+# Только подтвержденный код 2 имеет однозначную семантику в реакциях мира FCS.
+# Коды 0 и 1 не имеют однозначного документального подтверждения и сохраняются как сырой код.
+CONFIRMED_UNIQUE_STATES: dict[int, str] = {
+    2: "dead_or_captured",
+}
+
+
+def classify_standing(relation: float | None) -> str:
+    """Классификация статуса отношений по проектным порогам Kenshi.
+
+    Пороги соответствуют боевой механике Kenshi:
+    >= 50.0: ally (союзник)
+    > 0.0: friendly (положительные отношения)
+    == 0.0: neutral (нейтральные отношения)
+    > -30.0: unfriendly (напряженные отношения)
+    <= -30.0: hostile (враждебные отношения, атака при встрече)
+    None: unknown (связь не определена / не извлечена)
+    """
+    if relation is None:
+        return "unknown"
+    if relation >= 50.0:
+        return "ally"
+    elif relation > 0.0:
+        return "friendly"
+    elif relation == 0.0:
+        return "neutral"
+    elif relation > -30.0:
+        return "unfriendly"
+    else:
+        return "hostile"
+
+
+def extract_diplomacy(
+    records: Sequence[dict[str, Any]],
+    player_faction_sid: str = DEFAULT_PLAYER_FACTION,
+    gamedb_inst: Any = None,
+) -> dict[str, Any]:
+    """Извлекает полную дипломатическую карту отношений игрока со всеми фракциями мира.
+
+    Канонические sid берутся из 'gamedata stringID' (записи типа 37).
+    Если связь между фракцией и игроком отсутствует в записи, relation устанавливается в None,
+    а standing — в 'unknown' (согласно правилу запрета скрытия неопределенности).
+    """
+    fac_records = [r for r in records if r.get("type") == 37]
+    gdb = gamedb_inst if isinstance(gamedb_inst, dict) else None
+
+    # Отображение динамического record sid -> канонический gamedata stringID
+    sid_to_gid: dict[str, str] = {}
+    for r in fac_records:
+        rec_sid = r.get("sid", "")
+        gid = r.get("string", {}).get("gamedata stringID") or rec_sid
+        sid_to_gid[rec_sid] = gid
+
+    # Поиск записи игрока
+    player_rec = next(
+        (r for r in fac_records if r.get("string", {}).get("gamedata stringID") == player_faction_sid or r.get("sid") == player_faction_sid),
+        None,
+    )
+    player_rec_sid = player_rec.get("sid", "") if player_rec else ""
+    player_name = (player_rec.get("name") if player_rec else "") or "Безымянные"
+
+    rel_map: dict[str, dict[str, Any]] = {}
+
+    # Читаем отношения других фракций к игроку
+    for r in fac_records:
+        r_sid = r.get("sid", "")
+        if r_sid == player_rec_sid:
+            continue
+        canon_sid = sid_to_gid.get(r_sid, r_sid)
+        r_name = r.get("name", "")
+        if not r_name and gdb and canon_sid in gdb:
+            g_entry = gdb[canon_sid]
+            r_name = g_entry[1] if len(g_entry) > 1 and g_entry[1] else g_entry[0]
+
+        r_str, r_flt = r.get("string", {}), r.get("float", {})
+        rel_to_player: float | None = None
+        trust_to_player: float | None = None
+        trust_neg_to_player: float | None = None
+
+        for k, target_sid in r_str.items():
+            if k.startswith("relationSID") and target_sid in (player_rec_sid, player_faction_sid):
+                idx = k[len("relationSID"):]
+                rel_val = r_flt.get(f"relation{idx}")
+                if rel_val is not None:
+                    rel_to_player = round(float(rel_val), 2)
+                    trust_to_player = _r(r_flt.get(f"trust{idx}"))
+                    trust_neg_to_player = _r(r_flt.get(f"trustNeg{idx}"))
+                    break
+
+        # Не подменяем отсутствие связи на 0.0: сохраняем None и 'unknown'
+        rel_map[canon_sid] = {
+            "faction_sid": canon_sid,
+            "faction_name": r_name or canon_sid,
+            "relation": rel_to_player,
+            "trust": trust_to_player,
+            "trust_neg": trust_neg_to_player,
+            "standing": classify_standing(rel_to_player),
+        }
+
+    # Сортировка: сначала с известным relation (по убыванию), затем unknown, при равенстве по faction_sid
+    sorted_relations = sorted(
+        rel_map.values(),
+        key=lambda x: (x["relation"] is None, -(x["relation"] or 0.0), x["faction_sid"]),
+    )
+
+    summary = {
+        "allies_count": sum(1 for r in sorted_relations if r["standing"] == "ally"),
+        "friendly_count": sum(1 for r in sorted_relations if r["standing"] == "friendly"),
+        "neutral_count": sum(1 for r in sorted_relations if r["standing"] == "neutral"),
+        "unfriendly_count": sum(1 for r in sorted_relations if r["standing"] == "unfriendly"),
+        "hostile_count": sum(1 for r in sorted_relations if r["standing"] == "hostile"),
+        "unknown_count": sum(1 for r in sorted_relations if r["standing"] == "unknown"),
+        "total_factions": len(sorted_relations),
+    }
+
+    return {
+        "player_faction_sid": player_faction_sid,
+        "player_faction_name": player_name,
+        "relations": sorted_relations,
+        "summary": summary,
+    }
+
+
+def extract_world_state(
+    records: Sequence[dict[str, Any]],
+    gamedb_inst: Any = None,
+) -> dict[str, Any]:
+    """Извлекает состояние мира: уникальные NPC-лидеры и переопределения городов."""
+    rec56 = next((r for r in records if r.get("type") == 56), None)
+    raw_uniques = parse_uniques(rec56)
+    gdb = gamedb_inst if isinstance(gamedb_inst, dict) else None
+
+    uniques_list: list[dict[str, Any]] = []
+    for u in raw_uniques:
+        sid = u.get("sid", "")
+        entry = gdb.get(sid) if (gdb and sid in gdb) else None
+        name = entry[0] if entry else sid
+        name_ru = entry[1] if entry and len(entry) > 1 and entry[1] else name
+        st_code = u.get("state_code")
+        # Подтвержденное строковое состояние только для проверенного кода 2
+        st_name = CONFIRMED_UNIQUE_STATES.get(st_code) if st_code is not None else None
+        uniques_list.append({
+            "index": u.get("index"),
+            "sid": sid,
+            "name": name,
+            "name_ru": name_ru,
+            "state_code": st_code,
+            "state": st_name,
+            "player": u.get("player"),
+            "handle": u.get("handle"),
+        })
+
+    uniques_list.sort(key=lambda x: x["index"])
+
+    towns_list: list[dict[str, Any]] = []
+    all_towns_count = 0
+    for r in records:
+        if r.get("type") != 94:
+            continue
+        all_towns_count += 1
+        name = r.get("name", "")
+        clean_name = name[len("Town state "):] if name.startswith("Town state ") else name
+        s, i = r.get("string", {}), r.get("int", {})
+        rep = s.get("replacementTown")
+        if not rep:
+            continue
+
+        rep_entry = gdb.get(rep) if (gdb and rep in gdb) else None
+        rep_name = rep_entry[0] if rep_entry else rep
+        rep_name_ru = rep_entry[1] if rep_entry and len(rep_entry) > 1 and rep_entry[1] else rep_name
+
+        towns_list.append({
+            "name": clean_name,
+            "raw_name": name,
+            "replacement_sid": rep,
+            "replacement_name": rep_name,
+            "replacement_name_ru": rep_name_ru,
+            "faction": s.get("faction"),
+            "factions_here": indexed(s, "factions here"),
+            "handle": town_handle(i, "hand"),
+        })
+
+    towns_list.sort(key=lambda x: x["name"])
+
+    # Сводка ведется строго по числовым кодам состояния без домысливания
+    summary = {
+        "total_uniques": len(uniques_list),
+        "state_0_count": sum(1 for u in uniques_list if u["state_code"] == 0),
+        "state_1_count": sum(1 for u in uniques_list if u["state_code"] == 1),
+        "state_2_count": sum(1 for u in uniques_list if u["state_code"] == 2),
+        "total_towns": all_towns_count,
+        "overridden_towns_count": len(towns_list),
+    }
+
+    return {
+        "unique_npcs": uniques_list,
+        "town_overrides": towns_list,
+        "summary": summary,
+    }
+
+
+def parse_quick_save(
+    data: bytes,
+    faction_sid: str = DEFAULT_PLAYER_FACTION,
+    gamedb_inst: Any = None,
+) -> dict[str, Any]:
     """Полный разбор содержимого quick.save."""
     try:
         res = read_file(data)
     except Exception as exc:
         raise SaveReadError(f"Ошибка парсинга quick.save: {exc}") from exc
 
-    state = next((r for r in res.get("records", []) if r.get("type") == 56), None)
+    records = res.get("records", [])
+    state = next((r for r in records if r.get("type") == 56), None)
     counts = {k: state["int"].get(k) for k in ("members", "squads")} if state and "int" in state else {}
     mods = [x["sid"] for x in state["refs"].get("mods", [])] if state and "refs" in state else []
 
@@ -239,29 +445,35 @@ def parse_quick_save(data: bytes) -> dict[str, Any]:
         "money": st_int.get("player money"),
         "raw": {k: st_int.get(k) for k in ("player money", "time day", "time hour", "time minute") if k in st_int},
     }
-    research_rec = next((r for r in res.get("records", []) if r.get("type") == 21), None)
+    research_rec = next((r for r in records if r.get("type") == 21), None)
 
     return {
         "header": res.get("header"),
         "consumed": res.get("consumed"),
         "size": res.get("size"),
-        "registry": parse_registry(res.get("records", [])),
+        "registry": parse_registry(records),
         "player_counts": counts,
         "mods": mods,
         "world": world,
         "research": parse_research(research_rec),
-        "towns": parse_towns(res.get("records", [])),
-        "diplomacy_raw": parse_diplomacy(res.get("records", [])),
+        "towns": parse_towns(records),
+        "diplomacy_raw": parse_diplomacy(records),
         "uniques_raw": parse_uniques(state),
+        "diplomacy": extract_diplomacy(records, faction_sid, gamedb_inst),
+        "world_state": extract_world_state(records, gamedb_inst),
     }
 
 
-def read_quick_save(save_dir: PathLike) -> dict[str, Any]:
+def read_quick_save(
+    save_dir: PathLike,
+    faction_sid: str = DEFAULT_PLAYER_FACTION,
+    gamedb_inst: Any = None,
+) -> dict[str, Any]:
     """Читает и парсит quick.save из каталога сохранения."""
     p = Path(save_dir) / "quick.save"
     if not p.is_file():
         raise SaveReadError(f"Файл quick.save не найден: {p}")
-    return parse_quick_save(p.read_bytes())
+    return parse_quick_save(p.read_bytes(), faction_sid, gamedb_inst)
 
 
 # -----------------------------------------------------------------------------
