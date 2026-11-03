@@ -16,7 +16,7 @@
     - `recorded_at`: ISO timestamp;
     - `game_day`: числовой день из среза;
     - `kind`: тип события (`state_delta`, `location_change`, `squad_change`, `branch_switch`);
-    - `status`: `"inferred"` для автоматических расчетных дельт diff; `"confirmed"` для подтвержденных летописных событий;
+    - `status`: `"inferred"` для автоматических расчетных дельт diff; `"confirmed"` для подтвержденных хроникальных событий;
     - `summary`: лаконичное описание на русском языке;
     - `evidence`: массив подтверждений `[{"kind": "diff", "ref": snapshot_id}]`.
   - В схему `contracts/timeline-event.schema.json` опционально добавляются свойства `game_time` (строка формата `Day N HH:MM`) и `branch_id` (строка) для сохранения точной хронологической шкалы без нарушения обратной совместимости.

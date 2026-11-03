@@ -1,4 +1,4 @@
-# Kenshi-летопись с ИИ: какой инструмент для какой задачи (состояние на ноябрь 2026)
+# Kenshi-хроника с ИИ: какой инструмент для какой задачи (состояние на ноябрь 2026)
 
 **Главный вывод: ведите кампанию в Claude Code. Сделайте из неё локальный git-репозиторий, где лежат конвертер сейва, JSON-снимки, markdown-справочники и скриншоты. Числа, справочные файлы и визуализации пусть генерируются скриптами из JSON и проверяются через `git diff`, а не переписываются моделью «по памяти».** Claude Projects на claude.ai и ChatGPT в этой схеме — вспомогательные «окна» для художественной хроники и второго мнения. NotebookLM (ныне Gemini Notebook) подходит для справок по лору с цитатами.
 
@@ -9,7 +9,7 @@
 
 ## Key Findings
 
-### Сравнительная таблица (по сценарию «Kenshi-летопись»)
+### Сравнительная таблица (по сценарию «Kenshi-хроника»)
 
 | Критерий | ChatGPT Projects (+ Work/desktop) | Claude Projects / Cowork (claude.ai + Desktop) | Claude Code | OpenAI Codex | Gemini (Gems / Notebook / CLI) |
 |---|---|---|---|---|---|
@@ -82,7 +82,7 @@
 - **Модели.** Fable 5.1 (1 сентября 2026), Opus 5.5 (22 сентября; release notes Anthropic: «It performs at the level of Claude Fable 5.1 on most work and costs 40% less to run than Opus 5»; цена в API — $4/$20 за 1M токенов против $5/$25 у Opus 5, по данным Quartz), Sonnet 5.5 (28 сентября), Haiku 5.5 (7 октября).
 
 ### 3. Claude Code
-- **Инструкции.** Claude Code читает CLAUDE.md. С v2.1.277 (сентябрь 2026) он читает AGENTS.md напрямую, если CLAUDE.md нет; иначе AGENTS.md подключают строкой `@AGENTS.md`. [deployhq](https://www.deployhq.com/blog/ai-coding-config-files-guide) [claude](https://code.claude.com/docs/en/memory) [eesel](https://www.eesel.ai/blog/claude-code-agents-md) Для кампании это значит, что один AGENTS.md («правила летописца», стиль, глоссарий) будет общим для Claude Code, Codex и Gemini.
+- **Инструкции.** Claude Code читает CLAUDE.md. С v2.1.277 (сентябрь 2026) он читает AGENTS.md напрямую, если CLAUDE.md нет; иначе AGENTS.md подключают строкой `@AGENTS.md`. [deployhq](https://www.deployhq.com/blog/ai-coding-config-files-guide) [claude](https://code.claude.com/docs/en/memory) [eesel](https://www.eesel.ai/blog/claude-code-agents-md) Для кампании это значит, что один AGENTS.md («правила хрониста», стиль, глоссарий) будет общим для Claude Code, Codex и Gemini.
 - **Auto memory.** Заметки хранятся в `~/.claude/projects/<project>/memory/` в виде обычного markdown, их можно редактировать командой `/memory`. [Substack](https://aimaker.substack.com/p/anthropic-claude-updates-q1-2026-guide)
 - **Субагенты.** Это Markdown-файлы с YAML-фронтматтером в `.claude/agents/`. Встроены Explore, Plan и general-purpose. [claude](https://code.claude.com/docs/en/subagents-and-plugins.md) Удобно завести отдельных субагентов: «аудитор чисел» (сверяет любой текст с JSON) и «разметчик скриншотов». [huggingface](https://huggingface.co/learn/context-course/unit4/using-subagents)
 - **Работа до достижения цели.**
@@ -104,7 +104,7 @@
   - NotebookLM переименован в Gemini Notebook в июле 2026. Лимиты: 50 источников на блокнот бесплатно, 100 на Plus, 300 на Pro, до 600 на Ultra; до 500 000 слов или 200 МБ на источник. [fast](https://fast.io/resources/notebooklm-size-limit/) [fast](https://fast.io/resources/notebooklm-max-sources/) [geminiomniprompts](https://geminiomniprompts.org/blog/notebooklm-limits/) С 2 сентября 2026 квота обновляется каждые 5 часов, с недельным потолком. [elephas](https://elephas.app/blog/notebooklm-source-limits)
   - Gems ограничены 10 файлами, но могут подключать блокноты Notebook. [aifire](https://www.aifire.co/p/build-a-pro-knowledge-base-gemini-notebooklm-2026) [remio](https://www.remio.ai/post/the-gemini-notebooklm-integration-turning-300-sources-into-a-custom-brain)
   - Gemini CLI: GEMINI.md, контекст 1M. 19 мая 2026 Google объявил в Google Developers Blog («An important update: transitioning Gemini CLI to Antigravity CLI»), что с 18 июня 2026 Gemini CLI «stops serving Google AI Pro, Ultra, and free Gemini Code Assist for individuals users» (цитата по Digital Applied); их переводят на Antigravity CLI. Бесплатные 1000 запросов в день действовали только до 18 июня. Проверьте перед выбором.
-- **Cursor, GitHub Copilot.** Оба есть в официальном списке совместимых инструментов на agents.md («Cursor», «Coding agent from GitHub Copilot»). По документации GitHub, Copilot читает AGENTS.md в любом месте репозитория, и приоритет у ближайшего файла. Возможности те же, что у Claude Code и Codex, но они ориентированы на IDE. Для летописи преимуществ нет, если вы не работаете в VS Code постоянно. Отдельно их в этом исследовании не проверяли.
+- **Cursor, GitHub Copilot.** Оба есть в официальном списке совместимых инструментов на agents.md («Cursor», «Coding agent from GitHub Copilot»). По документации GitHub, Copilot читает AGENTS.md в любом месте репозитория, и приоритет у ближайшего файла. Возможности те же, что у Claude Code и Codex, но они ориентированы на IDE. Для хроники преимуществ нет, если вы не работаете в VS Code постоянно. Отдельно их в этом исследовании не проверяли.
 - **RAG и вики.** Для вопросов по лору (фракции, NPC, механики модов) нужен отдельный грунтованный корпус — Notebook или собственный индекс вики-страниц. Его нельзя смешивать с данными сейва, иначе модель будет путать «канон» с вашим отрядом.
 
 ### Известные проблемы и как их обойти
@@ -123,7 +123,7 @@
   - Решение: разметить скриншоты один раз в текстовый индекс и дальше ссылаться на него, а изображения прикладывать точечно.
 
 ### Предлагаемая структура репозитория
-- `AGENTS.md` — роль летописца/советника, стиль русской прозы, правило «числа только из JSON». Плюс `CLAUDE.md` со строкой `@AGENTS.md`. [deployhq](https://www.deployhq.com/blog/ai-coding-config-files-guide)
+- `AGENTS.md` — роль хрониста/советника, стиль русской прозы, правило «числа только из JSON». Плюс `CLAUDE.md` со строкой `@AGENTS.md`. [deployhq](https://www.deployhq.com/blog/ai-coding-config-files-guide)
 - `tools/convert_save.py`, `tools/validate.py`, `tools/render_tables.py` (генерирует md и HTML с сортировкой).
 - `data/snapshots/*.json`, `data/diffs/*.json`.
 - `docs/Хроника.md` (append-only), `docs/Отряд.md` (генерируется), `docs/Глоссарий.md`, `docs/Справка_по_выгрузке.md`.
