@@ -11,14 +11,15 @@ normalizer + validator + diff (supported contracts)
         |
 immutable snapshots / branches / events ledger
         |
-locator + renderer + atomic publisher
+locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,current.json,changes.json,locations.json,
-           world_reference.json,timeline.jsonl,brief.md,squad.md}
+           world_reference.json,timeline.jsonl,brief.md,squad.md,
+           screenshots/{index.json,index.md,*.jpg}}
         |
 verified GitHub delivery / manual transport fallback
         |
-LLM (чат-ИИ): verify manifest -> read release -> propose plans and events
+LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose plans and events
 ```
 
 Никакой сервисный процесс на постоянном сервере не требуется. Среда Antigravity/Codex/Claude управляет разработкой и запуском локального кода, **не становится** runtime-зависимостью чтения сейва.
@@ -28,6 +29,7 @@ LLM (чат-ИИ): verify manifest -> read release -> propose plans and events
 | Область | Автор изменений | Потребитель | Политика |
 |---|---|---|---|
 | Исходные сейвы и файлы игры | Kenshi, пользователь | нативный парсер | read-only, не в Git |
+| Исходные скриншоты игры (`_screens`) | Kenshi, скриншоты F8 | screenshots collector | read-only, оригиналы никогда не удаляются и не изменяются |
 | Импортированные JSON-выгрузки | внешний источник | нормализатор | неизменяемые входы, фиксировать хеш |
 | `data/snapshots/` и `data/diffs/` | детерминированный pipeline | publisher | менять только инструментами, иммутабельность исторических снимков |
 | `timeline/events.jsonl` | подтверждённые записи пользователя/импорт | publisher и чат-ИИ | append-only по event ID; изменение — отдельное корректирующее событие |
@@ -48,6 +50,7 @@ LLM (чат-ИИ): verify manifest -> read release -> propose plans and events
 - Выходной bundle должен быть небольшим, самодостаточным и пригодным для чтения как в GitHub, так и после ручной загрузки в чат.
 - В запросах чат-ИИ моделей всегда указывать идентификатор и дату опубликованного снимка. Если загрузка не удалась — явная ошибка актуальности.
 - Запись обратно в репозиторий — отдельная опциональная функция, не предполагать её наличие по факту чтения.
+- **Визуальный контекст скриншотов**: доступен через прямые Raw-ссылки GitHub (`https://raw.githubusercontent.com/...`), ссылки на просмотр в GitHub blob, а также инлайн-галерею `screenshots/index.md` и программный реестр `screenshots/index.json`. Модели анализируют визуальный ряд автономно без OCR и классификации.
 
 ## Выбор инструментов
 
@@ -67,10 +70,11 @@ LLM (чат-ИИ): verify manifest -> read release -> propose plans and events
 
 ## Реализованная граница pipeline и атомарной публикации
 
-Сквозной срез: `python -m tools.campaign pipeline` связывает `extract` -> `diff` -> `validate` -> `render` -> `publish`.
+Сквозной срез: `python -m tools.campaign pipeline` связывает `extract` -> `diff` -> `resolve_locations` -> `render` -> `collect_screenshots` -> `validate` -> `publish`.
 - `tools.diff`: вычисление детерминированного diff по действующему контракту с сохранением устойчивого ID во всех категориях изменений, агрегацией transfers по ID и sid, запретом склеивания разных `ps:*` по имени, поддержкой baseline / non-baseline режимов и сохранением в `data/diffs/<diff_id>.json`.
 - `tools.rendering`: генерация русскоязычных `brief.md` и `squad.md` строго из валидированных JSON без внешних зависимостей и wall-clock времени, обеспечивая 100% детерминизм побайтового совпадения при повторном рендере.
-- `tools.validation`: валидация пакета по схемам `Draft202012Validator`, проверка доступности и локальности артефактов внутри `published/`, семантическая проверка связи `snapshot_id`/`parent_snapshot_id`, проверка отсутствия персональных путей пользователя (`C:\Users\...`) и токенов/секретов во всех артефактах.
+- `tools.screenshots`: безопасный сбор скриншотов из `<KENSHI_DIR>/_screens` (или `KENSHI_SCREENS_DIR`) за скользящее 7-дневное окно (`now - 7d`) без изменения оригиналов, защита от незавершённой записи, генерация `screenshots/index.json` (`kenshi-screenshots-index/1`) и `screenshots/index.md`, автоматическая ротация и очистка устаревших изображений.
+- `tools.validation`: валидация пакета по схемам `Draft202012Validator`, проверка доступности и локальности артефактов внутри `published/`, проверка целостности и хешей скриншотов, семантическая проверка связи `snapshot_id`/`parent_snapshot_id`, проверка отсутствия персональных путей пользователя (`C:\Users\...`) и токенов/секретов во всех артефактах.
 - `tools.publisher`: атомарная публикация release bundle на Windows с использованием протокола `staging -> backup -> switch -> cleanup`. Предыдущая успешная публикация сохраняется в `published.backup` до подтверждения валидности новой версии. При возникновении исключения или занятом файле выполняется автоматический откат к backup. Отслеживаемый файл `published/.gitkeep` переносится в staging и сохраняется побайтово. При аварийном завершении процесса самовосстановление выполняется при следующем запуске.
 
 Независимые проверки используют `unittest` и временные данные. `tests/check_converter.py` выполняет настоящую интеграцию парсера на синтетическом GameData; `tests/check_live.py` принимает явно указанный реальный вход, запускает CLI дважды и сохраняет хеши/коды/время. Синтетическая интеграция не заменяет приёмку на двух реальных сейвах. Команды и переменные окружения приведены в `README.md`.
