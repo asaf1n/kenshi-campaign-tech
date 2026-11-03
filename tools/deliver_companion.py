@@ -97,10 +97,7 @@ def deliver_to_companion(
                 cwd=str(target_repo),
             )
             if diff_res.returncode != 0:
-                commit_msg = (
-                    f"chore(published): доставить выгрузку {game_time} ({snap_short})\n\n"
-                    "Co-Authored-By: Antigravity <noreply@google.com>"
-                )
+                commit_msg = f"chore(published): доставить выгрузку {game_time} ({snap_short})"
                 subprocess.run(
                     ["git", "commit", "-m", commit_msg],
                     cwd=str(target_repo),
