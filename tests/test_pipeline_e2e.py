@@ -125,7 +125,7 @@ class PipelineE2ETests(unittest.TestCase):
             self.assertTrue((published_dir / ".gitkeep").is_file())
 
     def test_cli_pipeline_deliver_to(self) -> None:
-        """--deliver-to доставляет published/ только после реальной публикации; при --dry-run пропускается."""
+        """--deliver-to доставляет published/ после реальной публикации; при --dry-run published/ не меняется и не доставляется."""
         if not REAL_EXPORT.is_file():
             self.skipTest(f"Реальный экспорт не найден: {REAL_EXPORT}")
 
@@ -145,7 +145,7 @@ class PipelineE2ETests(unittest.TestCase):
             ]
             dry = subprocess.run([*base, "--dry-run"], cwd=ROOT, capture_output=True)
             self.assertEqual(dry.returncode, 0, dry.stderr.decode("utf-8", errors="replace"))
-            self.assertEqual(json.loads(dry.stdout)["companion_delivery"]["status"], "skipped")
+            self.assertNotIn("companion_delivery", json.loads(dry.stdout))
             self.assertFalse((companion / "published").exists())
 
             real = subprocess.run(base, cwd=ROOT, capture_output=True)

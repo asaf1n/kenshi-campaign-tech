@@ -6,11 +6,10 @@
 
 ## Быстрый старт в PowerShell
 
-Инициализация одной командой: [scripts/Initialize-Pipeline.ps1](scripts/Initialize-Pipeline.ps1) находит каталог игры и сохранения, проверяет Python, `jsonschema`, схемы и справочник мира, выбирает самое свежее сохранение и печатает готовую команду `pipeline`. Ключи: `-Run` (выполнить; после прогона проверяется `validation.status == passed`), `-DryRun`, `-Source <имя или путь>`, `-BuildWorld`, `-Deliver` (после успешной публикации доставить в Kenshi-Compain через `--deliver-to`, без push). Чтобы переменные окружения остались в текущей сессии, запускайте через dot-sourcing:
+Запуск одной командой: [Initialize-Pipeline.ps1](Initialize-Pipeline.ps1) находит каталог игры, берёт самое свежее сохранение, выполняет `pipeline` (разбор сохранения и скриншотов в `published/`) и доставляет результат в Kenshi Compain. `campaign_id` и `branch_id` берутся из последнего `published/manifest.json`.
 
 ```powershell
-. .\scripts\Initialize-Pipeline.ps1            # проверки и команда запуска
-.\scripts\Initialize-Pipeline.ps1 -Run          # проверки и конвейер
+.\Initialize-Pipeline.ps1
 ```
 
 Все переменные окружения опциональны. `.env.example` содержит значения; `.env` читается при наличии. Канонический запуск на локальной машине пользователя:
@@ -225,7 +224,7 @@ python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 
 ## Структура репозитория
 
-- `scripts/`: PowerShell-обёртки для локального запуска (`Initialize-Pipeline.ps1`).
+- `Initialize-Pipeline.ps1`: запуск конвейера и доставка в Kenshi Compain одной командой.
 - `tools/`: нативный изолированный движок (бинарный парсер GameData, индексатор GameDB, SaveReader, расчет характеристик экипировки, расчет протезов, экспорт сессий, diff, географический локатор, публикатор, таймлайн, доставщик в Kenshi-Compain).
 - `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и валидные примеры.
 - `tests/`: модульные и интеграционные тесты; `tests/.evidence/` содержит доказательства прогонов для аудита.

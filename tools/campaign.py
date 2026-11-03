@@ -394,20 +394,16 @@ def main(argv: list[str] | None = None) -> int:
                 sessions_root=args.sessions_root,
                 screens_dir=args.screens_dir or cfg.screens,
             )
-            if getattr(args, "deliver_to", None):
-                # Результат publish вложен в result["publish"]; при dry-run published/ не меняется,
-                # поэтому доставлять нечего. Валидацию манифеста повторно проверяет deliver_to_companion.
-                publish_res = result.get("publish", {})
-                if publish_res.get("status") == "published":
-                    from tools.deliver_companion import deliver_to_companion
-                    result["companion_delivery"] = deliver_to_companion(
-                        published_dir=args.published_dir or Path("published"),
-                        companion_dir=args.deliver_to,
-                        auto_commit=True,
-                        auto_push=getattr(args, "deliver_push", False),
-                    )
-                else:
-                    result["companion_delivery"] = {"status": "skipped", "reason": "dry_run" if publish_res.get("dry_run") else "not_published"}
+            if getattr(args, "deliver_to", None) and result.get("publish", {}).get("manifest", {}).get("validation", {}).get("status") == "passed":
+                from tools.deliver_companion import deliver_to_companion
+                pub_p = args.published_dir or Path("published")
+                deliv_res = deliver_to_companion(
+                    published_dir=pub_p,
+                    companion_dir=args.deliver_to,
+                    auto_commit=True,
+                    auto_push=getattr(args, "deliver_push", False),
+                )
+                result["companion_delivery"] = deliv_res
 
         elif args.command == "deliver-companion":
             from tools.deliver_companion import deliver_to_companion
