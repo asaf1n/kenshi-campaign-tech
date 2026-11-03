@@ -1,4 +1,4 @@
-# Состав отряда: sha256-1de8a2d80eb4edda6b47cf2e7a22b49d478e7a74c845c7eeac0f54bd0380c844
+# Состав отряда: sha256-bd4ff17dd3de4db3a6797d02d3cb454c43b1e43fcb36ccac4e2f5bbaa8aca7ba
 
 ## Отряд `Безымянные_0`: Primaris
 Количество участников: 10 (гуманоидов: 9, животных: 1)
