@@ -102,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
     pipe_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     pipe_parser.add_argument("--dry-run", action="store_true")
+    pipe_parser.add_argument("--deliver-to", type=Path, help="Каталог игрового репозитория Kenshi-Compain для односторонней доставки")
+    pipe_parser.add_argument("--deliver-push", action="store_true", help="Выполнить git push в игровом репозитории Kenshi-Compain")
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
@@ -111,6 +113,13 @@ def main(argv: list[str] | None = None) -> int:
     ann_parser = commands.add_parser("annotate-screenshots", help="Разметка скриншотов и сборка ленты feed.md")
     ann_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры")
     ann_parser.add_argument("--published-dir", type=Path, default=Path("published"), help="Каталог публикации (published)")
+
+    # 7.2. deliver-companion
+    deliv_parser = commands.add_parser("deliver-companion", help="Доставка проверенного published в игровой репозиторий Kenshi-Compain")
+    deliv_parser.add_argument("--published-dir", type=Path, help="Каталог публикации (по умолчанию published)")
+    deliv_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
+    deliv_parser.add_argument("--no-commit", action="store_true", help="Не выполнять git commit в Kenshi-Compain")
+    deliv_parser.add_argument("--push", action="store_true", help="Выполнить git push в Kenshi-Compain")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -384,6 +393,25 @@ def main(argv: list[str] | None = None) -> int:
                 timeline_path=args.timeline,
                 sessions_root=args.sessions_root,
                 screens_dir=args.screens_dir or cfg.screens,
+            )
+            if getattr(args, "deliver_to", None) and result.get("validation", {}).get("status") == "passed":
+                from tools.deliver_companion import deliver_to_companion
+                pub_p = args.published_dir or Path("published")
+                deliv_res = deliver_to_companion(
+                    published_dir=pub_p,
+                    companion_dir=args.deliver_to,
+                    auto_commit=True,
+                    auto_push=getattr(args, "deliver_push", False),
+                )
+                result["companion_delivery"] = deliv_res
+
+        elif args.command == "deliver-companion":
+            from tools.deliver_companion import deliver_to_companion
+            result = deliver_to_companion(
+                published_dir=args.published_dir,
+                companion_dir=args.companion_dir,
+                auto_commit=not args.no_commit,
+                auto_push=args.push,
             )
 
         elif args.command == "build-world":

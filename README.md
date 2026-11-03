@@ -14,8 +14,8 @@ $env:KENSHI_WORKSHOP_DIR = 'C:\Program Files (x86)\Steam\steamapps\workshop\cont
 $env:KENSHI_SAVE_DIRS = (Join-Path $env:LOCALAPPDATA 'kenshi\save') + ';' + (Join-Path $env:KENSHI_DIR 'save')
 $env:KENSHI_FACTION_SID = '204-gamedata.base'
 
-# Единый конвейер одной командой: extract -> diff -> locate -> validate -> render -> publish
-python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main
+# Единый конвейер одной командой: extract -> diff -> locate -> validate -> render -> publish -> deliver
+python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main --deliver-to "C:\Users\artem\Kenshi Compain"
 
 # Либо по отдельным шагам:
 python -m tools.campaign build-world
@@ -27,6 +27,7 @@ python -m tools.campaign period-diff --from-day 107 --to-day 127 --branch-id mai
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
 python -m tools.campaign publish [--snapshot-id <snapshot_id>] [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>] [--screens-dir <screens_dir>]
+python -m tools.campaign deliver-companion [--companion-dir "C:\Users\artem\Kenshi Compain"] [--push]
 python -m tools.campaign index show
 python -m tools.campaign index rebuild [--snapshots-dir data/snapshots]
 python -m tools.campaign index validate
@@ -67,17 +68,20 @@ python -m tools.campaign timeline validate
   - `published/screenshots/*.jpg` — оригинальные файлы изображений без ухудшения качества и изменения разрешения.
 - **Доступ чат-моделей**: модели обращаются к изображениям по прямым Raw-ссылкам GitHub (`https://raw.githubusercontent.com/...`) либо через нативные инструменты мультимодального анализа (Gemini `read_file`, ChatGPT Python interpreter, просмотр галереи Claude).
 
-## Постоянные авторские документы кампаний
+## Разделение контекста: игровой компаньон Kenshi-Compain
 
-Подтверждённая история, роли, билды, планы и методика каждой кампании хранятся в GitHub под `Campaign/<campaign_name>/`. Общая документация не содержит сюжетных фактов, текущего состояния и решений отдельных прохождений. Авторские файлы не входят в автоматически генерируемый `published/`; `pipeline` их не переписывает.
+Для предотвращения смешивания инженерного и игрового контекста авторские документы кампаний (`Campaign/`), хроники, билды и системные инструкции для LLM-чата вынесены в специализированный репозиторий:
+🔗 **Канонический игровой репозиторий:** [asaf1n/Kenshi-Compain](https://github.com/asaf1n/Kenshi-Compain)
 
-Чат-ИИ ассистент читает авторские файлы нужной кампании из актуального Git-коммита. Для числового состояния отдельно проверяет `published/manifest.json`, принадлежность выпуска выбранной кампании и данные соответствующего коммита. По подтверждению пользователя авторские документы меняются прямо в GitHub под прежними именами, с проверкой diff и удалённого коммита. GitHub каноничен; Project Sources, Library и вложения чатов автоматически не синхронизируются.
+Репозиторий `kenshi-campaign-tech` является автономным инженерным конвертером (upstream) и поставляет проверенный срез состояния `published/`.
 
-## Доставка и интеграция с чат-ИИ моделями (AC-13)
+## Доставка проверенных данных (AC-13)
 
-Конвейер готовит проверенное игровое состояние для чат-ИИ моделей (LLM ассистентов) в виде release bundle в каталоге `published/`, доставляемого через GitHub.
-
-Авторские документы отдельных кампаний хранятся непосредственно в GitHub по пути `Campaign/<campaign_name>/`. Локальная среда требуется для чтения исходных сейвов, но не для работы с авторскими документами через GitHub.
+Конвейер готовит проверенное игровое состояние в виде release bundle в каталоге `published/` и осуществляет одностороннюю доставку в репозиторий `Kenshi-Compain` через команду:
+```powershell
+python -m tools.campaign deliver-companion [--push]
+```
+или автоматически флагом `--deliver-to "C:\Users\artem\Kenshi Compain"` при выполнении `pipeline`.
 
 ### Состав release bundle
 
@@ -94,7 +98,7 @@ python -m tools.campaign timeline validate
 ### Регламент доставки и верификации
 
 1. **Локальный конвейер**: запустить конвейер обновления (`pipeline`). Убедиться, что код возврата `0`, а `validation.status` в `manifest.json` равен `"passed"`.
-2. **Доставка в GitHub**: после успешной верификации локально сформированного `published/` выполняются обычные commit и push без повторного запроса; `pipeline` сам Git не вызывает. Подтверждённые авторские документы редактируются напрямую в GitHub; удалённый коммит уже является доставкой и не требует локального push.
+2. **Доставка в GitHub**: после успешной верификации локально сформированного `published/` выполняются обычные commit и push без повторного запроса; `pipeline` сам Git не вызывает. Односторонняя доставка в `Kenshi-Compain` выполняется автоматически через `deliver-companion`.
 3. **Проверка удалённого выпуска**: проверить коммит и публикацию `published/manifest.json` в репозитории на GitHub; убедиться, что удалённый хеш коммита соответствует локальному.
 4. **Сверка свежести (freshness test)**: чат-ИИ ассистент считывает актуальные `snapshot_id`, `generated_at` и `world_ref_id` из `manifest.json` и `brief.md` через подключённый проект или веб-интерфейс, подтверждая актуальность игрового дня и времени.
 
@@ -147,6 +151,7 @@ python -m tools.campaign pipeline `
 - Рендеринг `brief.md` и `squad.md` (`render`).
 - Валидация по JSON Schema Draft 2020-12, проверка приватности (`validate`).
 - Атомарная публикация release bundle в каталог `published/` (`publish`).
+- Односторонняя доставка в `Kenshi-Compain` при наличии флага `--deliver-to`.
 
 ### 4. Управление ветками прохождения
 
@@ -213,7 +218,7 @@ python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 
 ## Структура репозитория
 
-- `tools/`: нативный изолированный движок (бинарный парсер GameData, индексатор GameDB, SaveReader, расчет характеристик экипировки, расчет протезов, экспорт сессий, diff, географический локатор, публикатор, таймлайн).
+- `tools/`: нативный изолированный движок (бинарный парсер GameData, индексатор GameDB, SaveReader, расчет характеристик экипировки, расчет протезов, экспорт сессий, diff, географический локатор, публикатор, таймлайн, доставщик в Kenshi-Compain).
 - `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и валидные примеры.
 - `tests/`: модульные и интеграционные тесты; `tests/.evidence/` содержит доказательства прогонов для аудита.
 - `data/`, `published/`, `timeline/`, `sessions/`: снимки, публикации, append-only журнал событий и протоколы сессий.

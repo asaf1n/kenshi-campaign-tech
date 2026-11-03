@@ -15,7 +15,7 @@ def run() -> None:
     required = [
         'README.md', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md',
         'prompts/01-START-AGENT.md', 'prompts/02-EXECUTE-APPROVED.md',
-        'prompts/03-LLM-INSTRUCTIONS.md', 'orchestrate_workflow/method.md',
+        'orchestrate_workflow/method.md',
         'docs/requirements.md', 'docs/data-contract.md',
         'docs/architecture.md', 'docs/acceptance.md',
         'docs/multiagent.md', 'docs/chatgpt-interface.md',
