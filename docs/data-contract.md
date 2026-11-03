@@ -76,7 +76,13 @@ Handle — JSON-массив `[TYPE, C, S, I, CS]` с возможными `null
 ```text
 published/
   manifest.json
-  current.json
+  extended/
+    current.json        # очищенный полный срез; читать только выборочно
+  current/              # шарды по вопросам LLM
+    index.json          # kenshi-current-index/1: бойцы, постройки, обзорные файлы
+    characters/ps_<id>.json
+    bases/<id постройки>.json
+    world.json, world_state.json, diplomacy.json, research.json, supplies.json, squads.json, storage_by_location.json
   changes.json
   brief.md
   squad.md
@@ -98,6 +104,12 @@ published/
 
 `brief.md` — краткая сводка с `snapshot_id`, днём игры, составом, деньгами, структурированными географическими группами отряда, ключевыми изменениями и ссылками на детальные JSON. Все значения ссылаются на соответствующие поля JSON; при отсутствии сведений выводится «не получено».
 `squad.md` — подробный структурированный состав по отрядам и участникам (ID, раса, состояние здоровья, характеристики, местоположение со статусом и расстоянием, экипировка, инвентарь).
+
+### Публикационная проекция `current` и шарды
+
+Файлы `extended/current.json` и `current/*` строятся из снимка в `data/snapshots/` только при публикации (`tools/current_layers.py`); исходные снимки и расчёт разниц сохраняют все поля. Из проекции исключаются каждое поле `raw`, `hidden_stats_raw` и навыки в `skills_base` со значением строго `1.0`. Нормативное правило для потребителей: навык, отсутствующий в `skills_base`, имеет значение `1.0`; навыки `< 1.0` (штрафы, травмы) и `> 1.0` сохраняются. Признак кражи предмета `is_stolen: bool` (`raw.int.ownedbyTYPE == 1`) формируется при чтении сохранения до исключения `raw`; в снимках, извлечённых до его введения, поля нет, а `raw` из публикации исключён, поэтому признак кражи для них недоступен.
+
+`artifacts.current` указывает на `extended/current.json` (обязательный ключ), необязательный `artifacts.current_index` — на `current/index.json`. Индекс `kenshi-current-index/1` содержит списки `characters` (`id`, `name`, `squad_name`, `path`, `size_bytes`), `bases` (`town`, `id`, `name`, `path`, `size_bytes`) и `overview` (обзорные файлы). Валидатор воспроизводит шарды из монолита и требует побайтового совпадения, отсутствия лишних файлов в `current/` и суммарного объёма `manifest.json`, `brief.md`, `squad.md`, `changes.json` не более 140 000 символов (стартовый набор выгрузки).
 
 ## Контракт ленты скриншотов: `kenshi-screenshots-index/1`
 

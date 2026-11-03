@@ -253,7 +253,7 @@ class PublishTests(unittest.TestCase):
             published_dir=self.published_dir,
         )
 
-        cur = read_json((self.published_dir / "current.json").read_bytes())
+        cur = read_json((self.published_dir / "extended" / "current.json").read_bytes())
         ch = read_json((self.published_dir / "changes.json").read_bytes())
         loc_path = self.published_dir / "locations.json"
         loc = read_json(loc_path.read_bytes()) if loc_path.is_file() else None
@@ -286,7 +286,7 @@ class PublishTests(unittest.TestCase):
         self.assertIn("Хот Лон", brief1)
         self.assertIn("Кан", brief1)
         # Ссылки на артефакты
-        self.assertIn("[Детальный снимок состояния (current.json)](current.json)", brief1)
+        self.assertIn("[Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)", brief1)
         self.assertIn("[Детальные изменения (changes.json)](changes.json)", brief1)
         self.assertIn("[Полный состав отряда (squad.md)](squad.md)", brief1)
         # Сведения о местоположении: «не получено» в fallback-режиме без locations
@@ -302,8 +302,8 @@ class PublishTests(unittest.TestCase):
         self.assertIn("тесак", squad1.lower())
 
         # 4. Проверка отсутствия локальных путей пользователя и секретов
-        for art_path in self.published_dir.glob("*"):
-            if art_path.name == ".gitkeep":
+        for art_path in self.published_dir.rglob("*"):
+            if art_path.name == ".gitkeep" or not art_path.is_file():
                 continue
             text = art_path.read_text(encoding="utf-8", errors="replace")
             for forbidden in ("Users/artem", "Users\\\\artem", "/home/", "/root/", "Bearer ", "sk-"):

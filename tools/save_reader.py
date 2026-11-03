@@ -521,6 +521,8 @@ def collect_items(
             "item_function": i.get("item function"),
             "unique": b.get("unique") if "unique" in b else None,
             "owned_by": clean_handle(town_handle(i, "ownedby")),
+            # «Украдено»: владелец предмета - другой персонаж; признак нужен после исключения raw из публикации.
+            "is_stolen": i.get("ownedbyTYPE") == 1,
             "raw": {"bool": dict(b), "float": dict(f), "int": dict(i), "string": dict(s)},
         }
         out.append(item_entry)

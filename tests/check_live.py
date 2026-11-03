@@ -113,7 +113,7 @@ def main() -> int:
     # Сверка чисел brief.md с JSON
     brief_text = (args.published_dir / "brief.md").read_text(encoding="utf-8")
     squad_text = (args.published_dir / "squad.md").read_text(encoding="utf-8")
-    cur_pub = read_json((args.published_dir / "current.json").read_bytes())
+    cur_pub = read_json((args.published_dir / "extended" / "current.json").read_bytes())
     if cur_pub.get("world", {}).get("day") is not None:
         assert f"День {cur_pub['world']['day']}" in brief_text
     assert f"**Всего персонажей:** {len(cur_pub['characters'])}" in brief_text

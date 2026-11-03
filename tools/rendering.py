@@ -359,7 +359,8 @@ def render_brief(
     lines.extend([
         "",
         "## Связанные артефакты",
-        "- [Детальный снимок состояния (current.json)](current.json)",
+        "- [Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)",
+        "- [Расширенный снимок (extended/current.json): читать только выборочно](extended/current.json)",
         "- [Детальные изменения (changes.json)](changes.json)",
         "- [Полный состав отряда (squad.md)](squad.md)",
     ])

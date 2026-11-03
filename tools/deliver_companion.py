@@ -10,12 +10,18 @@ import subprocess
 import sys
 from typing import Any
 
+from tools.io_utils import linked
+
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
 DEFAULT_PUBLISHED_DIR = Path(__file__).resolve().parents[1] / "published"
 
+# Каталоги выпуска, которые синхронизируются целиком (устаревшие файлы внутри удаляются).
+SYNCED_DIRS = ("screenshots", "current", "extended")
+# Корневые файлы прежних выпусков: удаляются в целевом репозитории, если в публикации их больше нет.
+LEGACY_ARTIFACTS = ("current.json",)
+
 REQUIRED_ARTIFACTS = (
     "manifest.json",
-    "current.json",
     "changes.json",
     "locations.json",
     "world_reference.json",
@@ -23,6 +29,38 @@ REQUIRED_ARTIFACTS = (
     "brief.md",
     "squad.md",
 )
+
+
+def _prune(directory: Path, base: Path, keep: set[Path]) -> None:
+    """Удаляет файлы вне keep и пустые каталоги; ссылки и junction не затрагиваются и не обходятся."""
+    for entry in list(directory.iterdir()):
+        if linked(entry):
+            continue
+        if entry.is_dir():
+            _prune(entry, base, keep)
+            if not any(entry.iterdir()):
+                entry.rmdir()
+        elif entry.is_file() and entry.relative_to(base) not in keep:
+            entry.unlink()
+
+
+def _sync_dir(src: Path, dst: Path) -> None:
+    """Копирует файлы каталога выпуска и удаляет в целевом каталоге файлы, которых нет в публикации.
+
+    Целевой каталог, являющийся ссылкой, и ссылки внутри него пропускаются: запись и удаление идут только
+    по обычным каталогам и файлам.
+    """
+    if dst.exists() and linked(dst):
+        return
+    src_files = {p.relative_to(src) for p in src.rglob("*") if p.is_file()}
+    for rel in src_files:
+        target = dst / rel
+        if any(linked(parent) for parent in target.parents if parent == dst or dst in parent.parents):
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / rel, target)
+    if dst.is_dir():
+        _prune(dst, dst, src_files)
 
 
 def deliver_to_companion(
@@ -56,31 +94,23 @@ def deliver_to_companion(
 
     target_published.mkdir(parents=True, exist_ok=True)
 
-    # 1. Копирование корневых артефактов
+    # 1. Корневые артефакты и .gitkeep
     for art in REQUIRED_ARTIFACTS:
         src = pub_path / art
         if src.is_file():
             shutil.copy2(src, target_published / art)
+    for legacy in LEGACY_ARTIFACTS:
+        if not (pub_path / legacy).is_file():
+            (target_published / legacy).unlink(missing_ok=True)
 
-    # Копирование .gitkeep
     gitkeep = pub_path / ".gitkeep"
     if gitkeep.is_file():
         shutil.copy2(gitkeep, target_published / ".gitkeep")
 
-    # 2. Копирование скриншотов, если они есть
-    src_screens = pub_path / "screenshots"
-    dst_screens = target_published / "screenshots"
-    if src_screens.is_dir():
-        dst_screens.mkdir(parents=True, exist_ok=True)
-        source_names = set()
-        for item in src_screens.iterdir():
-            if item.is_file():
-                source_names.add(item.name)
-                shutil.copy2(item, dst_screens / item.name)
-        # Файлы, которых нет в текущей публикации, удаляются строго внутри screenshots/.
-        for stale in dst_screens.iterdir():
-            if stale.is_file() and stale.name not in source_names:
-                stale.unlink()
+    # 2. Каталоги выпуска; удаление устаревших файлов строго внутри этих каталогов
+    for name in SYNCED_DIRS:
+        if (pub_path / name).is_dir():
+            _sync_dir(pub_path / name, target_published / name)
 
     committed = False
     pushed = False

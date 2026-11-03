@@ -179,7 +179,8 @@ def test_chatgpt_channel_and_freshness(
     """Проверка канала чат-ИИ моделей (AC-13): полный release bundle, приватность, тест свежести."""
     required_bundle = [
         "manifest.json",
-        "current.json",
+        "extended/current.json",
+        "current/index.json",
         "changes.json",
         "locations.json",
         "world_reference.json",

@@ -39,7 +39,7 @@
 ```text
 published/
 ├── manifest.json
-├── current.json
+├── extended/current.json
 ├── changes.json
 ├── locations.json
 ├── world_reference.json

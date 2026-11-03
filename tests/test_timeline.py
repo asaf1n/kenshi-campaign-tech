@@ -274,7 +274,7 @@ except OSError:
         self.assertEqual(manifest["artifacts"]["timeline"], "timeline.jsonl")
         projected = read_timeline(self.published / "timeline.jsonl", projection=True)
         self.assertEqual({e["event_id"] for e in projected}, {"corrected", "visible"})
-        self.assertEqual(next(e for e in projected if e["event_id"] == "visible")["evidence"][0]["ref"], "current.json")
+        self.assertEqual(next(e for e in projected if e["event_id"] == "visible")["evidence"][0]["ref"], "extended/current.json")
         brief = (self.published / "brief.md").read_text(encoding="utf-8")
         self.assertIn("исправляет base", brief)
         self.assertIn("Локальный источник; недоступен облачному читателю", brief)

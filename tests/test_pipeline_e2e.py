@@ -48,7 +48,7 @@ class PipelineE2ETests(unittest.TestCase):
             self.assertEqual(res1["pipeline_status"], "success")
             snap1_id = res1["snapshot_id"]
             self.assertTrue((published_dir / "manifest.json").is_file())
-            self.assertTrue((published_dir / "current.json").is_file())
+            self.assertTrue((published_dir / "extended" / "current.json").is_file())
             self.assertTrue((published_dir / "changes.json").is_file())
             self.assertTrue((published_dir / "brief.md").is_file())
             self.assertTrue((published_dir / "squad.md").is_file())

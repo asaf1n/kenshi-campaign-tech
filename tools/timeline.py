@@ -266,7 +266,7 @@ def project_timeline(
             if source["kind"] == "snapshot" and source["ref"] in {
                 snapshot_id, f"data/snapshots/{snapshot_id}/current.json",
             }:
-                source["ref"] = "current.json"
+                source["ref"] = "extended/current.json"
             elif source["kind"] == "diff" and source["ref"] == f"data/diffs/{diff_id}.json":
                 source["ref"] = "changes.json"
             else:

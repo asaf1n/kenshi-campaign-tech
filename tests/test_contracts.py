@@ -22,7 +22,7 @@ class ContractTests(unittest.TestCase):
 
     def test_real_snapshots_validate_against_session_schema(self) -> None:
         """Схема session корректно валидирует реальный v10 снимок и v11 эталон."""
-        v10_published = read_json((ROOT / "published/current.json").read_bytes())
+        v10_published = read_json((ROOT / "published/extended/current.json").read_bytes())
         validate(v10_published, "session")
         v11_example = read_json((ROOT / "examples/session-11.example.json").read_bytes())
         validate(v11_example, "session")

@@ -122,9 +122,9 @@ def _hash_directory(target_dir: Path) -> dict[str, str]:
     hashes: dict[str, str] = {}
     if not target_dir.is_dir():
         return hashes
-    for p in sorted(target_dir.iterdir()):
+    for p in sorted(target_dir.rglob("*")):
         if p.is_file():
-            hashes[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+            hashes[p.relative_to(target_dir).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()
     return hashes
 
 
@@ -289,7 +289,8 @@ class BranchAndIndexTests(unittest.TestCase):
         # Фиксируем хеши файлов published/ после публикации B
         hashes_after_b = _hash_directory(self.published_dir)
         self.assertIn("manifest.json", hashes_after_b)
-        self.assertIn("current.json", hashes_after_b)
+        self.assertIn("extended/current.json", hashes_after_b)
+        self.assertIn("current/index.json", hashes_after_b)
         self.assertIn("changes.json", hashes_after_b)
         self.assertIn("locations.json", hashes_after_b)
 

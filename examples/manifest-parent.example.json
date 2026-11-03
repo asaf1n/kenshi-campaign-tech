@@ -10,7 +10,7 @@
   "source_format": "kenshi-session/10",
   "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "artifacts": {
-    "current": "current.json",
+    "current": "extended/current.json",
     "changes": "changes.json",
     "brief": "brief.md",
     "squad": "squad.md",

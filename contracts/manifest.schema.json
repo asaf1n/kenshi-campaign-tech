@@ -53,6 +53,9 @@
         "current": {
           "$ref": "#/$defs/relativePath"
         },
+        "current_index": {
+          "$ref": "#/$defs/relativePath"
+        },
         "changes": {
           "$ref": "#/$defs/relativePath"
         },

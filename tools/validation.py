@@ -537,6 +537,11 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     if changes.get("format") != "kenshi-session-diff/5":
         raise PublicationValidationError(f"Некорректный формат changes.json: {changes.get('format')}")
 
+    if "current_index" in artifacts:
+        from tools.current_layers import validate_layers
+
+        validate_layers(package_dir, artifacts, current, PublicationValidationError)
+
     to_ref = changes.get("to") or {}
     if to_ref.get("snapshot_id") != manifest.get("snapshot_id"):
         raise PublicationValidationError(

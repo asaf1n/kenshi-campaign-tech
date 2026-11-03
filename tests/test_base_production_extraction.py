@@ -98,6 +98,7 @@ class TestBaseProductionSynthetic(unittest.TestCase):
         self.assertTrue(weap["unique"])
         self.assertEqual(weap["owned_by"], [1, 5, 500, 1, 600])
         self.assertIn("bool", weap["raw"])
+        self.assertIs(weap["is_stolen"], True)  # ownedbyTYPE == 1; признак переживает исключение raw из публикации
 
         # Аптечка с зарядами (wear/dam/stun отсутствуют)
         med = next(it for it in items if it["item_sid"] == "item_medkit")
