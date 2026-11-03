@@ -29,6 +29,8 @@ def render_brief(
 
     characters = current.get("characters", [])
     squads = current.get("squads", [])
+    humanoids = [c for c in characters if not c.get("is_animal")]
+    animals = [c for c in characters if c.get("is_animal")]
 
     lines: list[str] = [
         f"# Краткая сводка: {snapshot_id}",
@@ -38,7 +40,7 @@ def render_brief(
         f"- **Баланс:** {money_str}",
         "",
         "## Состав отряда",
-        f"- **Всего персонажей:** {len(characters)}",
+        f"- **Всего персонажей:** {len(characters)} (гуманоидов: {len(humanoids)}, животных: {len(animals)})",
         f"- **Всего отрядов:** {len(squads)}",
     ]
 
@@ -46,7 +48,10 @@ def render_brief(
         sq_id = sq.get("squad_id", "")
         sq_name = sq.get("squad_name") or sq_id
         members = [c for c in characters if c.get("squad_id") == sq_id]
-        lines.append(f"- **Отряд `{sq_id}`** ({sq_name}): {len(members)} участников")
+        m_hum = [c for c in members if not c.get("is_animal")]
+        m_anim = [c for c in members if c.get("is_animal")]
+        anim_suffix = f" (гуманоидов: {len(m_hum)}, животных: {len(m_anim)})" if m_anim else ""
+        lines.append(f"- **Отряд `{sq_id}`** ({sq_name}): {len(members)} участников{anim_suffix}")
 
     lines.extend([
         "",
@@ -79,7 +84,7 @@ def render_brief(
 
     ws_data = current.get("world_state")
     if isinstance(ws_data, dict):
-        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("state")]
+        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("state") or u.get("state_detail")]
         town_reps = ws_data.get("town_overrides", [])
         if uniques or town_reps:
             lines.extend([
@@ -87,11 +92,35 @@ def render_brief(
                 "## Состояние мира (World States)",
             ])
             if uniques:
-                u_str = ", ".join(f"{u.get('name_ru') or u.get('name') or u.get('sid')} ({u.get('state') or 'код 2'})" for u in uniques)
-                lines.append(f"- **Уникальные NPC:** {u_str}")
+                u_parts = []
+                for u in uniques:
+                    u_name = u.get("name_ru") or u.get("name") or u.get("sid")
+                    st_label = u.get("state_detail") or u.get("state") or f"код {u.get('state_code')}"
+                    if u.get("captured_by"):
+                        st_label += f" — несёт {u['captured_by']}"
+                    u_parts.append(f"{u_name} ({st_label})")
+                lines.append(f"- **Уникальные NPC:** {', '.join(u_parts)}")
             if town_reps:
                 t_str = ", ".join(f"{t.get('name')} ({t.get('faction')})" for t in town_reps)
                 lines.append(f"- **Переопределённые города:** {t_str}")
+
+    prop_data = current.get("property")
+    storage_by_loc = prop_data.get("storage_by_location") if isinstance(prop_data, dict) else None
+    if storage_by_loc:
+        lines.extend([
+            "",
+            "## Складской баланс по базам и поселениям",
+        ])
+        for loc_name, info in sorted(storage_by_loc.items()):
+            b_cnt = info.get("buildings_count", 0)
+            it_cnt = info.get("total_items_count", 0)
+            summary_items = info.get("items_summary", [])
+            top_str = ", ".join(f"{it['name']}: {it['quantity']} шт." for it in summary_items[:5])
+            if len(summary_items) > 5:
+                top_str += f" (ещё {len(summary_items) - 5} поз.)"
+            if not top_str:
+                top_str = "склады пусты"
+            lines.append(f"- **{loc_name}** ({b_cnt} зданий, {it_cnt} ед. хранения): {top_str}")
 
     lines.extend([
         "",
@@ -369,9 +398,12 @@ def render_squad(
         sq_id = sq.get("squad_id", "")
         sq_name = sq.get("squad_name") or sq_id
         members = squad_map.get(sq_id, [])
+        m_hum = [c for c in members if not c.get("is_animal")]
+        m_anim = [c for c in members if c.get("is_animal")]
+        anim_suffix = f" (гуманоидов: {len(m_hum)}, животных: {len(m_anim)})" if m_anim else ""
         lines.extend([
             f"## Отряд `{sq_id}`: {sq_name}",
-            f"Количество участников: {len(members)}",
+            f"Количество участников: {len(members)}{anim_suffix}",
             "",
         ])
 
@@ -384,9 +416,10 @@ def render_squad(
             cid = c.get("id") or "не указан"
             name = c.get("name") or "Без имени"
             race = c.get("race") or "не указана"
+            animal_tag = " [Животное]" if c.get("is_animal") else ""
 
             lines.extend([
-                f"### {name} (`{cid}`)",
+                f"### {name} (`{cid}`){animal_tag}",
                 f"- **Раса:** {race}",
             ])
 
@@ -434,10 +467,24 @@ def render_squad(
 
             jobs = c.get("jobs", {})
             if isinstance(jobs, dict) and jobs.get("primary"):
-                p_tasks = [t.get("task_name") or str(t.get("task_code")) for t in jobs["primary"] if isinstance(t, dict)]
+                p_tasks = []
+                for t in jobs["primary"]:
+                    if isinstance(t, dict):
+                        tn = t.get("task_name") or str(t.get("task_code"))
+                        if t.get("target_name"):
+                            tn += f" [{t['target_name']}]"
+                        p_tasks.append(tn)
                 if p_tasks:
                     en_str = "" if jobs.get("enabled", True) else " (отключены)"
                     lines.append(f"- **Работы{en_str}:** {', '.join(p_tasks)}")
+
+            carrying = c.get("carrying", {})
+            if isinstance(carrying, dict) and carrying.get("is_carrying"):
+                target_desc = carrying.get("target_name") or (f"цель {carrying['target_handle']}" if carrying.get("target_handle") else "персонажа")
+                lines.append(f"- **Переноска:** несёт {target_desc}")
+            elif isinstance(carrying, dict) and carrying.get("carried_by"):
+                carrier_desc = carrying.get("carried_by_name") or (f"персонаж {carrying['carried_by']}" if carrying.get("carried_by") else "кто-то")
+                lines.append(f"- **Переноска:** на плече у {carrier_desc}")
 
             bounties = c.get("bounties", {})
             if isinstance(bounties, dict) and bounties.get("has_bounty"):

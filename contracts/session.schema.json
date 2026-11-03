@@ -118,6 +118,7 @@
                 "id": {"type": "string", "minLength": 1},
                 "name": {"type": ["string", "null"]},
                 "squad_id": {"type": ["string", "null"]},
+                "handle": {"type": ["array", "null"]},
                 "jobs": {
                   "type": ["object", "null"],
                   "properties": {
@@ -131,7 +132,8 @@
                           "index": {"type": "integer"},
                           "task_code": {"type": "integer"},
                           "task_name": {"type": "string"},
-                          "target_handle": {"type": ["array", "null"]}
+                          "target_handle": {"type": ["array", "null"]},
+                          "target_name": {"type": ["string", "null"]}
                         }
                       }
                     },
@@ -144,7 +146,9 @@
                   "properties": {
                     "is_carrying": {"type": "boolean"},
                     "target_handle": {"type": ["array", "null"]},
-                    "carried_by": {"type": ["array", "null"]}
+                    "target_name": {"type": ["string", "null"]},
+                    "carried_by": {"type": ["array", "null"]},
+                    "carried_by_name": {"type": ["string", "null"]}
                   }
                 },
                 "bounties": {
@@ -312,6 +316,8 @@
                     "name_ru": {"type": ["string", "null"]},
                     "state_code": {"type": ["integer", "null"]},
                     "state": {"type": ["string", "null"]},
+                    "state_detail": {"type": ["string", "null"]},
+                    "captured_by": {"type": ["string", "null"]},
                     "player": {"type": ["boolean", "null"]},
                     "handle": {"type": ["array", "null"]}
                   }

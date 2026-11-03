@@ -862,6 +862,7 @@ def parse_character(
         "template_sid": inst.get("target"),
         "position": [round(v, 1) for v in inst.get("pos", [])] if inst.get("pos") else None,
         "rotation": [round(v, 4) for v in inst.get("rot", [])] if inst.get("rot") else None,
+        "handle": town_handle(st_int, "handle"),
         "appearance": appearance_info,
         "attributes_base": attributes_base,
         "skills_base": skills_base,
@@ -1210,6 +1211,13 @@ def read_save_snapshot(
     qs_data = read_quick_save(sdir, faction_sid, gamedb_inst)
     squads, characters, warnings = read_all_platoons(sdir, faction_sid, qs_data, gamedb_inst)
     prop_data = read_player_property(sdir, faction_sid, qs_data.get("towns"), gamedb_inst, warnings)
+
+    from tools.world_context import enrich_world_and_production_context
+    enrich_world_and_production_context(
+        characters,
+        prop_data,
+        (qs_data.get("world_state") or {}).get("unique_npcs"),
+    )
 
     saved_at = datetime.datetime.fromtimestamp(
         (sdir / "quick.save").stat().st_mtime,

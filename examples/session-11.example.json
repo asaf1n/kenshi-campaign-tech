@@ -35,7 +35,8 @@
             "index": 0,
             "task_code": 14,
             "task_name": "Лечить союзников",
-            "target_handle": [1, 54, 1001, 0, 0]
+            "target_handle": [1, 54, 1001, 0, 0],
+            "target_name": "Хот Лон" 
           },
           {
             "index": 1,
@@ -229,6 +230,7 @@
         "name_ru": "Лорд Феникс",
         "state_code": 2,
         "state": "dead",
+        "state_detail": "dead_or_captured (world event)",
         "player": false,
         "handle": [1, 54, 958496064, 9, 992309568]
       },
@@ -290,6 +292,8 @@
   },
   "research": {
     "completed": ["Smithing Basics"],
+    "tech_level": 3,
+    "blueprints_completed": ["Blueprint: Katana"],
     "available": ["Heavy Armour"],
     "current": null
   },

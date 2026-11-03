@@ -8,9 +8,14 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from export_platoons import collect_items
-from kenshi_gd import read_file
-from saves import town_handle
+try:
+    from export_platoons import collect_items
+    from kenshi_gd import read_file
+    from saves import town_handle
+except ImportError:
+    from tools.export_platoons import collect_items
+    from tools.kenshi_gd import read_file
+    from tools.saves import town_handle
 
 BUILDING_STATE = 35  # состояние здания: владелец, готовность, handle, ссылки на город и родительское здание
 CONTAINER = 41
@@ -113,14 +118,35 @@ def research_block(raw: dict[str, Any] | None, names: Any, warnings: list[str]) 
     queue = [research_entry(s, "in_progress" if i == 0 else "queued", s in paid_set, names,
                             prog[i] if i < len(prog) else None) for i, s in enumerate(cur)]
     completed = [research_entry(s, "completed", s in paid_set, names) for s in fin]
+
+    # Эффективный техуровень вычисляется по завершенным исследованиям level_upgrade (базовый 1)
+    levels = [1]
+    for e in completed:
+        if e.get("level_upgrade"):
+            lvl = e.get("level")
+            if isinstance(lvl, int):
+                levels.append(lvl + 1)
+            name_en = e.get("name_en") or e.get("name") or ""
+            m = re.search(r"Tech Level (\d+)", name_en, re.IGNORECASE)
+            if m:
+                levels.append(int(m.group(1)))
+    tech_level = max(levels)
+
+    blueprints_completed = [
+        e.get("name") or e.get("sid")
+        for e in completed
+        if e.get("blueprint_only") or e.get("item_blueprint")
+    ]
+
     return {
         "completed": completed,
         "in_progress": queue[:1],
         "queue": queue[1:],
         # Очередь в сохранениях всегда оплачена (paid у её записей); здесь — оплаченное вне очереди и не завершённое.
         "paid": [research_entry(s, "paid", True, names) for s in paid if s not in fin_set and s not in cur_set],
-        "tech_level": None,
+        "tech_level": tech_level,
         "level_upgrades_completed": [e.get("name") or e["sid"] for e in completed if e.get("level_upgrade")],
+        "blueprints_completed": blueprints_completed,
     }
 
 

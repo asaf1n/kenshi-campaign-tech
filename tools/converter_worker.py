@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from tools import gamedb, kenshi_gd, save_reader, saves, session_export
 from tools.combat_analysis import calculate_character_combat, calculate_character_physics
+from tools.world_context import enrich_world_and_production_context
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, install_write_guard, read_json
 from tools.normalization import scrub
 
@@ -32,6 +33,7 @@ ENGINE_FILES: list[str] = [
     "tools/session_diff.py",
     "tools/session_export.py",
     "tools/task_types.py",
+    "tools/world_context.py",
     "tools/zipnames.py",
 ]
 
@@ -62,7 +64,7 @@ def build_native_snapshot(save: Path, faction_sid: str, game_index: dict[str, li
     """Сохраняет представление v10 и дополняет его нативными полями v11."""
     original_character = session_export.character
     original_compact = session_export.compact_character
-    fields = ("jobs", "carrying", "bounties", "combat_modes", "items")
+    fields = ("jobs", "carrying", "bounties", "combat_modes", "items", "handle")
 
     def character(inst: dict[str, Any], by: dict[str, Any], names: Any) -> dict[str, Any]:
         result = original_character(inst, by, names)
@@ -100,6 +102,11 @@ def build_native_snapshot(save: Path, faction_sid: str, game_index: dict[str, li
     )
     extend_buildings(snapshot["property"]["buildings"], native_property["buildings"])
     snapshot.update(format="kenshi-session/11", diplomacy=quick["diplomacy"], world_state=quick["world_state"])
+    enrich_world_and_production_context(
+        snapshot["characters"],
+        snapshot.get("property"),
+        (snapshot.get("world_state") or {}).get("unique_npcs"),
+    )
     return snapshot
 
 
