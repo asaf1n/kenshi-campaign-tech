@@ -166,10 +166,21 @@ def calculate_character_combat(char: dict[str, Any]) -> dict[str, Any]:
         covering = slot_to_zones.get(slot.lower(), [])
         cut_res = float(item.get("cut_resist") or item.get("cut") or 0.0)
         blunt_res = float(item.get("blunt_resist") or item.get("blunt") or 0.0)
-        coverage = int(item.get("coverage") or 100)
+        cov_val = item.get("coverage")
 
         for z in covering:
             body_coverage[z]["layers"].append(item.get("name") or item.get("sid", slot))
+            if isinstance(cov_val, dict):
+                zone_cov = cov_val.get(z) or cov_val.get(z.lower()) or 100
+                try:
+                    coverage = int(zone_cov)
+                except (ValueError, TypeError):
+                    coverage = 100
+            else:
+                try:
+                    coverage = int(cov_val or 100)
+                except (ValueError, TypeError):
+                    coverage = 100
             body_coverage[z]["coverage_pct"] = max(body_coverage[z]["coverage_pct"], coverage)
             # При послойной броне сопротивления приближенно суммируются с затуханием
             body_coverage[z]["cut_resist_pct"] = round(min(90.0, body_coverage[z]["cut_resist_pct"] + cut_res), 1)

@@ -1,8 +1,8 @@
 # Визуальная лента скриншотов Kenshi
 
-- **Обновлено**: `2026-11-03T03:10:48Z`
-- **Окно выборки**: последние 7 суток (с `2026-10-27T03:10:48Z` по `2026-11-03T03:10:48Z`)
-- **Количество скриншотов**: 336
+- **Обновлено**: `2026-11-03T04:08:38Z`
+- **Окно выборки**: последние 7 суток (с `2026-10-27T04:08:38Z` по `2026-11-03T04:08:38Z`)
+- **Количество скриншотов**: 338
 
 Визуальная лента игрового процесса в хронологическом порядке для контекста чат-моделей (ChatGPT, Claude, Gemini). Изображения сохраняются в оригинальном разрешении и качестве.
 
@@ -3701,5 +3701,27 @@
 - **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_418.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_418.jpg)
 
 ![screenshot_418.jpg](screenshot_418.jpg)
+
+---
+
+### 337. screenshot_419.jpg
+
+- **Время записи (UTC)**: `2026-11-03T03:57:33Z`
+- **Размер**: 533.5 КБ
+- **SHA-256**: `dbdc5e2ef4a8f9c3d58b757aae10e24e0be15060dc0e68066a339ceb85b363fa`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_419.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_419.jpg)
+
+![screenshot_419.jpg](screenshot_419.jpg)
+
+---
+
+### 338. screenshot_420.jpg
+
+- **Время записи (UTC)**: `2026-11-03T04:06:25Z`
+- **Размер**: 504.3 КБ
+- **SHA-256**: `8e064d6516a6c7cbee32206398a12ec25c0de692594f2ed5dd0b7c2032934c2a`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_420.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_420.jpg)
+
+![screenshot_420.jpg](screenshot_420.jpg)
 
 ---
