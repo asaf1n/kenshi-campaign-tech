@@ -14,7 +14,7 @@ immutable snapshots / branches / events ledger
 locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,extended/current.json,current/{index.json,characters/,bases/,*.json},changes.json,locations.json,
-           world_reference.json,timeline.jsonl,brief.md,squad.md,
+           world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,
            screenshots/{index.json,*.jpg; index.md, annotations.jsonl, feed.md при содержательном OCR}}
         |
 verified GitHub delivery / manual transport fallback

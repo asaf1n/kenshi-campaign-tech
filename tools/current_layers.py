@@ -19,6 +19,7 @@ MONOLITH_PATH = "extended/current.json"
 # Верхний предел текстовых файлов стартового набора (manifest, brief, squad, changes), символов.
 START_SET_LIMIT_CHARS = 140_000
 DROPPED_KEYS = frozenset({"raw", "hidden_stats_raw"})
+WORLD_DROPPED_KEYS = frozenset({"regions_map", "source_hashes"})
 OVERVIEW_KEYS = ("world", "world_state", "diplomacy", "research", "supplies", "squads", "storage_by_location")
 
 
@@ -49,6 +50,11 @@ def _shard_name(identifier: Any) -> str:
     if SAFE_NAME.fullmatch(text) and not text.endswith(".") and not RESERVED_NAME.fullmatch(text):
         return text.replace(":", "_")
     return "x_" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def public_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
+    """Публикуемый справочник мира без растра регионов и контрольных сумм исходников (полный файл остаётся в data/world/)."""
+    return {key: value for key, value in world_ref.items() if key not in WORLD_DROPPED_KEYS}
 
 
 def character_shard_path(character_id: str) -> str:

@@ -10,6 +10,13 @@ import html
 from typing import Any
 
 
+def game_time_title(day: Any, time: Any) -> str:
+    """Заголовок документа по игровому времени: `День 131, 15:06`; хеши снимков в заголовки не попадают."""
+    if day is None:
+        return "Срез без даты"
+    return f"День {day}, {time}" if time is not None else f"День {day}"
+
+
 def render_brief(
     current: dict[str, Any],
     changes: dict[str, Any],
@@ -33,7 +40,7 @@ def render_brief(
     animals = [c for c in characters if c.get("is_animal")]
 
     lines: list[str] = [
-        f"# Краткая сводка: {snapshot_id}",
+        f"# Краткая сводка: {game_time_title(day, time)}",
         "",
         "## Игровой мир",
         f"- **Время:** {day_str}{time_str}",
@@ -387,7 +394,7 @@ def render_squad(
     loc_char_map = {c["id"]: c for c in locations.get("characters", [])} if locations else {}
 
     lines: list[str] = [
-        f"# Состав отряда: {snapshot_id}",
+        f"# Состав отряда: {game_time_title(current.get('world', {}).get('day'), current.get('world', {}).get('time'))}",
         "",
     ]
 

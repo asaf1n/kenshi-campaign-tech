@@ -10,12 +10,10 @@
     "world_ref_id",
     "game_version",
     "mods",
-    "source_hashes",
     "created_at",
     "meta",
     "locations",
-    "regions",
-    "regions_map"
+    "regions"
   ],
   "properties": {
     "format": {

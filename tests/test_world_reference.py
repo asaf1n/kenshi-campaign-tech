@@ -81,6 +81,14 @@ class WorldReferenceTests(unittest.TestCase):
             validate_world_reference(bad_rle)
         self.assertIn("!= 65536", str(ctx.exception))
 
+        # 5b. Публикуемая проекция без растра регионов и хешей исходников остаётся валидной
+        from tools.current_layers import public_world_reference
+
+        slim = public_world_reference(self.example_data)
+        self.assertNotIn("regions_map", slim)
+        self.assertNotIn("source_hashes", slim)
+        validate_world_reference(slim)
+
         # 6. Негативный: ссылка на неизвестный регион
         bad_reg = copy.deepcopy(self.example_data)
         bad_reg["locations"][0]["region"] = "NonExistentRegion123"

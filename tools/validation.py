@@ -284,13 +284,13 @@ def validate_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
                     f"{loc_j['instance_id']} (r={rj}) на расстоянии d={d:.2f} (r_i+r_j={ri+rj:.2f} > {0.95*d:.2f})"
                 )
 
-    # 4. Сумма длин RLE-сегментов строго равна 65536
-    rle = world_ref.get("regions_map", {}).get("rle", [])
-    total_len = sum(seg["length"] for seg in rle)
-    if total_len != 65536:
-        raise WorldReferenceValidationError(
-            f"Сумма длин RLE-сегментов карты регионов {total_len} != 65536"
-        )
+    # 4. Сумма длин RLE-сегментов строго равна 65536 (растр отсутствует в публикуемой проекции)
+    if "regions_map" in world_ref:
+        total_len = sum(seg["length"] for seg in world_ref["regions_map"].get("rle", []))
+        if total_len != 65536:
+            raise WorldReferenceValidationError(
+                f"Сумма длин RLE-сегментов карты регионов {total_len} != 65536"
+            )
 
     # 5. Целостность ссылок на палитру BIOME_GROUP
     regions = world_ref.get("regions", [])
@@ -304,7 +304,7 @@ def validate_world_reference(world_ref: dict[str, Any]) -> dict[str, Any]:
                 f"Локация {loc['instance_id']} ссылается на неизвестный регион: {reg}"
             )
 
-    for seg in rle:
+    for seg in world_ref.get("regions_map", {}).get("rle", []):
         idx = seg["index"]
         if idx not in region_indices:
             raise WorldReferenceValidationError(
@@ -469,6 +469,15 @@ def check_privacy(raw_text: str, filename: str) -> None:
         raise PublicationValidationError(
             f"В публикуемом файле {filename} обнаружен секрет: {sec_match.group(0)}"
         )
+
+
+TIMELINE_EMPTY_WARNING = "artifact:timeline: empty"
+
+
+def package_warnings(package_dir: Path) -> list[str]:
+    """Предупреждения, не блокирующие публикацию: пустой, но заявленный в манифесте `timeline.jsonl`."""
+    timeline = package_dir / "timeline.jsonl"
+    return [TIMELINE_EMPTY_WARNING] if timeline.is_file() and timeline.stat().st_size == 0 else []
 
 
 def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -786,6 +795,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
 
     return {
         "status": "passed",
+        "warnings": package_warnings(package_dir),
         "manifest": manifest,
         "checks": [
             "schema",

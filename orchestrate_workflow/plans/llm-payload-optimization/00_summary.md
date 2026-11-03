@@ -1,6 +1,6 @@
 # llm-payload-optimization: Оптимизация объема и структуры выпуска published/ для LLM
 
-Статус плана: в работе (этапы 00-03 выполнены)
+Статус плана: в работе (этапы 00-06 выполнены, этап 07 ждёт решения игрока)
 Репозиторий: `kenshi-campaign-tech`  
 Дата обновления: 2026-11-03
 
@@ -32,10 +32,10 @@
 | [01-screenshot-optimization-and-clustering](01-screenshot-optimization-and-clustering.md) | выполнена 2026-11-03 | Даунскейл 1600px q80, разметка keyframes, публикация только keyframes с согласованным обновлением AGENTS.md, полный архив в `data/screenshots_archive/` вне git |
 | [02-ocr-suppression-and-cleanup](02-ocr-suppression-and-cleanup.md) | выполнена 2026-11-03 | Подавление пустых OCR (`feed.md`, `index.md`, `annotations.jsonl`), обязательный `index.json`, очистка при доставке только внутри screenshots/ |
 | [03-release-sharding-and-payload-reduction](03-release-sharding-and-payload-reduction.md) | выполнена 2026-11-03 | Очистка публичной проекции `current.json` в `publisher.py`, нормализация `is_stolen`, контракт навыков 1.0, шарды L0/L1/L2, лимит объёма стартового набора выгрузки ($\le$ 140k симв. / $\le$ 40k токенов) |
-| [04-world-reference-slimming](04-world-reference-slimming.md) | в очереди | Публикационная проекция `world_reference.json` без `regions_map` и `source_hashes` (<220k символов), сохранение полного кэша в `data/world` |
-| [05-validation-and-headers](05-validation-and-headers.md) | в очереди | Очистка sha256 в `brief.md`/`squad.md`, передача `validation.warnings: ["artifact:timeline: empty"]` со статусом `passed`, сквозная доставка |
-| [06-cumulative-timeline-and-branch-switch](06-cumulative-timeline-and-branch-switch.md) | в очереди | Детерминированная сборка `timeline.jsonl` по контракту `kenshi-event/1`, детектор смены ветки `branch_switch` в манифесте |
-| [07-git-history-options](07-git-history-options.md) | в очереди | Подготовка 3 вариантов оптимизации накопленной истории git для решения игрока (без автоматических деструктивных правок) |
+| [04-world-reference-slimming](04-world-reference-slimming.md) | выполнена 2026-11-03 | Публикационная проекция `world_reference.json` без `regions_map` и `source_hashes` (<220k символов), сохранение полного кэша в `data/world` |
+| [05-validation-and-headers](05-validation-and-headers.md) | выполнена 2026-11-03 | Очистка sha256 в `brief.md`/`squad.md`, передача `validation.warnings: ["artifact:timeline: empty"]` со статусом `passed`, сквозная доставка |
+| [06-cumulative-timeline-and-branch-switch](06-cumulative-timeline-and-branch-switch.md) | выполнена 2026-11-03 | Детерминированная сборка `timeline.jsonl` по контракту `kenshi-event/1`, детектор смены ветки `branch_switch` в манифесте |
+| [07-git-history-options](07-git-history-options.md) | подготовлена, ждёт решения игрока | Подготовка 3 вариантов оптимизации накопленной истории git для решения игрока (без автоматических деструктивных правок) |
 
 ## Корректировки по обсуждению (2026-11-03)
 1. **Один процесс выгрузки**: сохранение и скриншоты -> `pipeline` -> `published/` -> доставка в Kenshi Compain -> push. Параметры и режимы сверх этого процесса не добавляются.

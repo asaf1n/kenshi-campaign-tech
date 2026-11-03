@@ -189,6 +189,25 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((self.published_dir / "manifest.json").read_bytes(), manifest_first)
         self.assertEqual((self.published_dir / ".gitkeep").read_bytes(), b"")
 
+    def test_headers_without_hashes_and_empty_timeline_warning(self) -> None:
+        """Заголовки brief.md и squad.md по игровому времени без sha256; пустой timeline.jsonl даёт warning при status passed."""
+        snap_id = "snap-headers"
+        _create_sample_snapshot(self.snapshots_dir, snap_id)
+        kwargs = dict(snapshot_id=snap_id, snapshots_dir=self.snapshots_dir, diffs_dir=self.diffs_dir,
+                      published_dir=self.published_dir)
+        publish(**kwargs)
+
+        cur = read_json((self.published_dir / "extended" / "current.json").read_bytes())
+        when = f"День {cur['world']['day']}, {cur['world']['time']}"
+        self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8").splitlines()[0], f"# Краткая сводка: {when}")
+        self.assertEqual((self.published_dir / "squad.md").read_text(encoding="utf-8").splitlines()[0], f"# Состав отряда: {when}")
+        manifest_bytes = (self.published_dir / "manifest.json").read_bytes()
+        validation = read_json(manifest_bytes)["validation"]
+        self.assertEqual((validation["status"], validation["warnings"]), ("passed", ["artifact:timeline: empty"]))
+
+        publish(**kwargs)  # предупреждение не нарушает идемпотентность выпуска
+        self.assertEqual((self.published_dir / "manifest.json").read_bytes(), manifest_bytes)
+
     def test_ac09_package_validation_and_rejected_escapes(self) -> None:
         """AC-09: валидация пакета, отвержение невалидных путей/ссылок/выходов за пределы."""
         snap_id = "snap-val"

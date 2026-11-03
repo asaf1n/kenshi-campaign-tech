@@ -112,6 +112,10 @@ def deliver_to_companion(
         if (pub_path / name).is_dir():
             _sync_dir(pub_path / name, target_published / name)
 
+    warnings = validation.get("warnings", [])
+    if warnings:
+        sys.stderr.write(f"Предупреждения выпуска: {'; '.join(warnings)}\n")
+
     committed = False
     pushed = False
     game_time = manifest.get("game_time", "Unknown")

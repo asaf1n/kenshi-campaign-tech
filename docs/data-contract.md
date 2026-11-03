@@ -111,6 +111,16 @@ published/
 
 `artifacts.current` указывает на `extended/current.json` (обязательный ключ), необязательный `artifacts.current_index` — на `current/index.json`. Индекс `kenshi-current-index/1` содержит списки `characters` (`id`, `name`, `squad_name`, `path`, `size_bytes`), `bases` (`town`, `id`, `name`, `path`, `size_bytes`) и `overview` (обзорные файлы). Валидатор воспроизводит шарды из монолита и требует побайтового совпадения, отсутствия лишних файлов в `current/` и суммарного объёма `manifest.json`, `brief.md`, `squad.md`, `changes.json` не более 140 000 символов (стартовый набор выгрузки).
 
+### Накопительный таймлайн и смена ветки
+
+К событиям авторского журнала добавляются события, восстановленные детерминированно из дельт между последовательными снимками ветки (`tools/chain_timeline.py`): вступление и уход бойцов, смена отряда, изменение протезов, изменение казны. Статус таких событий `observed` (факты вычислены по данным сохранений), `session_id` — `auto-<ветка>`, `evidence` — `diff`. В `timeline.jsonl` попадает окно из последних 20 переходов по цепочке `parent_snapshot_id` (пропущенные снимки в цепочке не участвуют); полная цепочка остаётся в `data/`. Схема события получила необязательные `game_time` (`Day N HH:MM`) и `branch_id`.
+
+Смена ветки фиксируется, если игровое время снимка меньше времени родителя (`time_rollback`) либо родитель принадлежит другой ветке (форк, `parent_mismatch`); линейное продолжение ветки сменой не считается. Тогда в `manifest.json` записывается необязательный объект `branch_switch` (`from_branch`, `to_branch`, `from_snapshot`, `to_snapshot`, `reason`) и в таймлайн добавляется событие `kind: "branch_switch"`.
+
+### Предупреждения валидации и заголовки
+
+`manifest.validation.warnings` (необязательный массив строк) переносит предупреждения, не блокирующие публикацию: пустой `timeline.jsonl` даёт `"artifact:timeline: empty"` при `validation.status == "passed"`. Утилита доставки выводит предупреждения в stderr. Заголовки `brief.md` и `squad.md` строятся по игровому времени (`# Краткая сводка: День 131, 15:06`, `# Состав отряда: День 131, 15:06`) и не содержат хешей снимков.
+
 ## Контракт ленты скриншотов: `kenshi-screenshots-index/1`
 
 Проектный контракт `contracts/screenshots-index.schema.json` (JSON Schema Draft 2020-12) фиксирует структуру реестра визуальной ленты скриншотов в `published/screenshots/index.json`:
@@ -230,6 +240,7 @@ Publisher читает журнал целиком, проверяет его, �
 - Локации (`locations`): 261 подтверждённая географическая точка (`type in {1..7, 9}`). Технические маркеры `TOWN_NEST_MARKER` (`type == 8`) исключены. Каждая локация содержит устойчивый `instance_id`, `template_sid`, `name_en`, `name_ru` (null при отсутствии перевода), `kind` (`outpost`, `town`, `village`, `ruins`, `slave_camp`, `military`, `prison`, `poi`), точные координаты `x, y, z` в `[-147456, 147456)`, `zone` на сетке 64×64 (`"col.row"`), `region` (из `BIOME_GROUP`, null для зон 'NONE'), `coordinate_source` (`game_leveldata`), `radius_source` (`game_buildings` для 48 локаций с подтверждёнными зданиями, `template_parameter` для остальных 213), детерминированный `confirmed_radius` с гарантией попарного непересечения `r_i + r_j <= 0.95 * distance(i, j)`, статическую привязку зданий `static_buildings` (`[{"zone": "...", "building_id": ...}]`).
 - Регионы (`regions`): палитра активных `BIOME_GROUP` (строго `type_id == 95`, `sid`, `name_en`, `name_ru`, RGB `index`).
 - Карта регионов (`regions_map`): детерминированная RLE-сетка индексов 256×256 (сумма длин = 65536) с пикселем 1152 ед., bottom-up ориентацией TGA (`desc=0x00`) и пометкой приграничных пикселей `border`.
+- Публикационная проекция: в `published/world_reference.json` поля `regions_map` и `source_hashes` отсутствуют (около 207 тыс. символов вместо 650 тыс.), в схеме `contracts/world-reference.schema.json` они необязательны; валидатор проверяет сумму RLE-сегментов только при наличии `regions_map`. Полный справочник хранится в `data/world/` и используется локатором.
 - Неизменяемые артефакты сохраняются в `data/world/<world_ref_id>.json`.
 
 ## Пространственное разрешение локаций: `kenshi-locations/1`

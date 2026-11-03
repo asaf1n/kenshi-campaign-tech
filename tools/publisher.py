@@ -27,7 +27,7 @@ from tools.io_utils import canonical, digest, linked, read_json
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
-from tools.validation import validate_publication
+from tools.validation import TIMELINE_EMPTY_WARNING, validate_publication
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -337,13 +337,38 @@ def publish(
     # Авторский журнал читается целиком: повреждение не скрывается фильтром ветки.
     ledger = timeline_path or snapshots_dir.parent.parent / "timeline/events.jsonl"
     events = read_timeline(ledger)
-    timeline_data = []
+    selected: list[dict[str, Any]] = []
     if events:
         if idx_data is None or not effective_branch:
             raise PublisherError("Для публикации событий нужен валидный индекс и выбранная ветка")
         sessions = load_sessions(sessions_root or ledger.parent.parent, idx_data)
         selected = filter_events_by_branch(events, effective_branch, idx_data, sessions, snapshot_id=snapshot_id)
-        timeline_data = project_timeline(selected, snapshot_id, diff_id)
+
+    # Накопительный таймлайн: события окна цепочки снимков и фиксация смены ветки (детерминированно по индексу).
+    chain: list[dict[str, Any]] = []
+    branch_switch: dict[str, str] | None = None
+    if idx_data is not None and effective_branch:
+        from tools.chain_timeline import branch_switch_event, chain_events, detect_branch_switch
+
+        def load_chain_diff(parent: str, child: str) -> dict[str, Any] | None:
+            if (parent, child) == (effective_parent, snapshot_id):
+                return diff_data
+            path = diffs_dir / f"{make_diff_id(parent, child)}.json"
+            if path.is_file():
+                return read_json(path.read_bytes())
+            try:
+                return diff_snapshots(prev_dir=snapshots_dir / parent, cur_dir=snapshots_dir / child, output_dir=diffs_dir,
+                                      parent_snapshot_id=parent, index_data=idx_data)
+            except Exception:
+                return None
+
+        chain = chain_events(idx_data, snapshot_id, effective_branch, load_chain_diff, make_diff_id)
+        branch_switch = detect_branch_switch(idx_data, effective_parent, snapshot_id, effective_branch)
+        if branch_switch:
+            recorded_at = idx_data["snapshots"][snapshot_id].get("registered_at", "")
+            chain.append(branch_switch_event(branch_switch, recorded_at, diff_id))
+    combined = [*selected, *chain]
+    timeline_data = project_timeline(combined, snapshot_id, diff_id) if combined else []
     timeline_bytes = b"".join(canonical(e) for e in timeline_data)
 
     # 3. Рендеринг русскоязычных Markdown с географическими сводками
@@ -375,6 +400,7 @@ def publish(
         },
         "validation": {
             "status": "passed",
+            **({"warnings": [TIMELINE_EMPTY_WARNING]} if not timeline_bytes else {}),
             "checks": [
                 "schema",
                 "artifacts",
@@ -385,6 +411,9 @@ def publish(
             ],
         },
     }
+
+    if branch_switch:
+        manifest_data["branch_switch"] = branch_switch
 
     target_screens_dir = screens_dir
     if target_screens_dir is None:
@@ -545,7 +574,9 @@ def publish(
                 if stable_locations == previous_locations_data:
                     locations_data = stable_locations
             (staging_dir / "locations.json").write_bytes(canonical(locations_data))
-            (staging_dir / "world_reference.json").write_bytes(canonical(w_ref))
+            from tools.current_layers import public_world_reference
+
+            (staging_dir / "world_reference.json").write_bytes(canonical(public_world_reference(w_ref)))
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")

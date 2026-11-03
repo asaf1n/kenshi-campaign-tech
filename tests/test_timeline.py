@@ -22,7 +22,7 @@ from tools.timeline import (
     _writer_lock, append_event, create_session, filter_by_branch, import_events,
     load_sessions, read_timeline, resolve_timeline,
 )
-from tools.validation import check_privacy, validate_publication, validate_timeline
+from tools.validation import check_privacy, validate_event, validate_publication, validate_timeline
 
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "2026-11-01T12:00:00Z"
@@ -93,6 +93,67 @@ class TimelineTests(unittest.TestCase):
 
     def bundle(self) -> dict[str, bytes]:
         return {path.name: path.read_bytes() for path in self.published.iterdir() if path.is_file()}
+
+    def test_chain_events_follow_parent_chain_and_are_deterministic(self) -> None:
+        """События строятся по цепочке родителей (пропущенный снимок B не участвует), окно ограничено, результат повторяем."""
+        from tools.chain_timeline import WINDOW_EDGES, chain_events, chain_ids
+
+        index = {"snapshots": {
+            "A": {"parent_snapshot_id": None, "registered_at": "2026-11-03T01:00:00Z"},
+            "B": {"parent_snapshot_id": "A", "registered_at": "2026-11-03T02:00:00Z"},
+            "C": {"parent_snapshot_id": "A", "registered_at": "2026-11-03T03:00:00Z",
+                  "game_time": {"day": 17, "time": "14:30"}},
+        }}
+        # В дельте нет ключа day (изменилось только время суток): день берётся из индекса снимка.
+        diffs = {("A", "C"): {"valid": True, "world": {"time": {"to": "14:30"}, "money": {"from": 1, "to": 5, "delta": 4}},
+                              "roster": {"joined": [{"name": "Новичок"}]}}}
+        asked: list[tuple[str, str]] = []
+
+        def load(parent: str, child: str):
+            asked.append((parent, child))
+            return diffs.get((parent, child))
+
+        first = chain_events(index, "C", "main", load, lambda p, c: f"{p}__{c}")
+        self.assertEqual(asked, [("A", "C")])
+        self.assertEqual([(e["kind"], e["summary"]) for e in first],
+                         [("squad_change", "В отряд вступили: Новичок"), ("state_delta", "Казна: 1 -> 5 (+4)")])
+        self.assertEqual({e["game_time"] for e in first}, {"Day 17 14:30"})
+        for event in first:
+            validate_event(event)
+        self.assertEqual(first, chain_events(index, "C", "main", load, lambda p, c: f"{p}__{c}"))
+
+        long_chain = {"snapshots": {f"s{n}": {"parent_snapshot_id": f"s{n - 1}" if n else None} for n in range(40)}}
+        self.assertEqual(len(chain_ids(long_chain, "s39")), WINDOW_EDGES + 1)
+
+    def test_branch_switch_detection_table(self) -> None:
+        """Откат времени и чужая или не совпадающая с головой родительская связь дают смену ветки; штатное продолжение нет."""
+        from tools.chain_timeline import detect_branch_switch
+
+        index = {"snapshots": {
+            "P": {"branch_id": "main", "game_time": {"day": 20, "time": "10:00"}},
+            "linear": {"branch_id": "main", "game_time": {"day": 21, "time": "09:00"}},
+            "rollback": {"branch_id": "main", "game_time": {"day": 19, "time": "23:59"}},
+        }}
+        self.assertIsNone(detect_branch_switch(index, "P", "linear", "main"))  # линейное продолжение, даже если выпуски пропущены
+        self.assertIsNone(detect_branch_switch(index, None, "linear", "main"))
+        self.assertEqual(detect_branch_switch(index, "P", "rollback", "main")["reason"], "time_rollback")
+        self.assertEqual(detect_branch_switch(index, "P", "linear", "alt")["reason"], "parent_mismatch")
+
+    def test_fork_publication_records_branch_switch_idempotently(self) -> None:
+        """Снимок ветки alt от родителя ветки main: branch_switch в манифесте и в таймлайне, повторный выпуск идентичен."""
+        def publish_fork() -> dict[str, bytes]:
+            with patch("tools.publisher.ROOT", self.root):
+                publish("C", self.snapshots, self.root / "data/diffs", self.published, index_path=self.index_path,
+                        world_dir=self.world_dir, timeline_path=self.ledger, sessions_root=self.root, branch_id="alt")
+            return self.bundle()
+
+        first = publish_fork()
+        manifest = json.loads(first["manifest.json"])
+        self.assertEqual((manifest["branch_switch"]["reason"], manifest["branch_switch"]["from_branch"],
+                          manifest["branch_switch"]["to_branch"]), ("parent_mismatch", "main", "alt"))
+        events = [json.loads(line) for line in first["timeline.jsonl"].decode("utf-8").splitlines()]
+        self.assertIn("branch_switch", [event["kind"] for event in events])
+        self.assertEqual(publish_fork(), first)
 
     def test_import_statuses_idempotency_and_atomic_batch(self) -> None:
         """Повтор и ошибочный пакет не переписывают факты и не оставляют принятого префикса пакета."""

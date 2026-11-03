@@ -104,6 +104,13 @@
             "type": "string"
           },
           "uniqueItems": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
         }
       }
     },
@@ -112,6 +119,35 @@
         "save",
         "export"
       ]
+    },
+    "branch_switch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_branch",
+        "to_branch",
+        "reason"
+      ],
+      "properties": {
+        "from_branch": {
+          "type": "string"
+        },
+        "to_branch": {
+          "type": "string"
+        },
+        "from_snapshot": {
+          "type": "string"
+        },
+        "to_snapshot": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "time_rollback",
+            "parent_mismatch"
+          ]
+        }
+      }
     }
   },
   "$defs": {
