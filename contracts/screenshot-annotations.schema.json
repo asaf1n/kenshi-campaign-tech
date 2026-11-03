@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/kenshi/screenshot-annotations.schema.json",
-  "title": "Kenshi screenshot annotation record (kenshi-screenshot-annotation/1)",
-  "description": "Один JSON-объект на строку в annotations.jsonl. Машиночитаемая разметка кадра для поиска контекста чат-моделями.",
+  "title": "Kenshi screenshot technical extraction record (kenshi-screenshot-annotation/1)",
+  "description": "Технический экстракт кадра для контекстного поиска LLM-компаньоном. Содержит только файловые метаданные, перцептивное хеширование и распознанный текст интерфейса (OCR). Запрещено генерировать интерпретации сцен, действий и событий.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,8 +12,7 @@
     "order",
     "modified_at",
     "meta",
-    "ui_text",
-    "visual",
+    "ocr",
     "provenance"
   ],
   "properties": {
@@ -40,17 +39,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "dhash",
         "scene_group_id",
         "is_exact_duplicate"
       ],
       "properties": {
-        "game_day": {
-          "type": ["integer", "null"],
-          "minimum": 0
-        },
-        "game_time": {
-          "type": ["string", "null"],
-          "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+        "dhash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
         },
         "scene_group_id": {
           "type": "string",
@@ -65,7 +61,7 @@
         }
       }
     },
-    "ui_text": {
+    "ocr": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -75,6 +71,14 @@
         "items_or_tasks"
       ],
       "properties": {
+        "game_day": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "game_time": {
+          "type": ["string", "null"],
+          "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+        },
         "location": {
           "type": ["string", "null"]
         },
@@ -105,74 +109,29 @@
         }
       }
     },
-    "visual": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "scene_type",
-        "present_characters",
-        "actions",
-        "summary"
-      ],
-      "properties": {
-        "scene_type": {
-          "type": "string",
-          "enum": [
-            "travel",
-            "combat",
-            "dialogue",
-            "trade",
-            "building",
-            "exploration",
-            "base",
-            "inventory",
-            "resting",
-            "stealth",
-            "other"
-          ]
-        },
-        "present_characters": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "environment": {
-          "type": ["string", "null"]
-        },
-        "actions": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "source",
-        "confidence",
-        "annotated_at"
+        "extracted_at"
       ],
       "properties": {
         "source": {
           "type": "string",
           "enum": [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
+            "gemini-3.8-flash",
             "ocr",
-            "heuristic",
+            "metadata",
             "cache"
           ]
         },
         "confidence": {
-          "type": "number",
+          "type": ["number", "null"],
           "minimum": 0.0,
           "maximum": 1.0
         },
-        "annotated_at": {
+        "extracted_at": {
           "type": "string",
           "format": "date-time"
         }

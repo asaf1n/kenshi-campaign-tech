@@ -448,27 +448,19 @@ def publish(
         if "screenshots" not in manifest_data["validation"]["checks"]:
             manifest_data["validation"]["checks"].append("screenshots")
 
-        # Формирование семантической разметки и хронологической ленты скриншотов
+        # Техническое извлечение данных кадра и хронологическая лента
         screenshots_annotations_bytes = None
         screenshots_feed_md = None
         try:
             from tools.screenshot_clustering import cluster_screenshots
-            from tools.screenshot_annotator import annotate_screenshots_batch
+            from tools.screenshot_extractor import extract_screenshots_batch
             from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
-
-            campaign_context = {
-                "game_day": cur.get("world", {}).get("day") if isinstance(cur, dict) else None,
-                "game_time": cur.get("world", {}).get("time") if isinstance(cur, dict) else None,
-                "location": (locations_data.get("locations", [{}])[0].get("name") if isinstance(locations_data, dict) and locations_data.get("locations") else None),
-                "squad_members": [c.get("name") for c in cur.get("characters", []) if isinstance(c, dict) and c.get("name")] if isinstance(cur, dict) else [],
-            }
 
             clustered_screenshots, episodes_summary = cluster_screenshots(collected_screenshots)
             prev_ann_path = published_dir / "screenshots/annotations.jsonl"
-            annotated_records = annotate_screenshots_batch(
+            annotated_records = extract_screenshots_batch(
                 clustered_screenshots=clustered_screenshots,
                 cache_path=prev_ann_path if prev_ann_path.is_file() else None,
-                context=campaign_context,
                 now_iso=screenshots_index_data["generated_at"],
             )
             screenshots_annotations_bytes = serialize_annotations_jsonl(annotated_records)

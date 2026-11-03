@@ -74,7 +74,7 @@ def run_pipeline(
         dry_run=dry_run,
         timeline_path=timeline_path,
         sessions_root=sessions_root,
-        screens_dir=screens_dir if screens_dir is not None else config.screens,
+        screens_dir=screens_dir if screens_dir is not None else (config.screens if config.screens.is_dir() else None),
     )
 
     return {

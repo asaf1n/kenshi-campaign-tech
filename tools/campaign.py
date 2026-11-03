@@ -342,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
             from datetime import datetime, timezone, timedelta
             from tools.screenshots import collect_recent_screenshots
             from tools.screenshot_clustering import cluster_screenshots
-            from tools.screenshot_annotator import annotate_screenshots_batch
+            from tools.screenshot_extractor import extract_screenshots_batch
             from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
 
             screens_dir = args.screens_dir or Config.from_env().screens
@@ -353,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             clustered, episodes = cluster_screenshots(collected)
             prev_ann_p = pub_dir / "screenshots/annotations.jsonl"
             now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            annotated = annotate_screenshots_batch(clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso)
+            annotated = extract_screenshots_batch(clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso)
             sc_dir = pub_dir / "screenshots"
             sc_dir.mkdir(parents=True, exist_ok=True)
             (sc_dir / "annotations.jsonl").write_bytes(serialize_annotations_jsonl(annotated))

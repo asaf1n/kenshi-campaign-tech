@@ -1,4 +1,8 @@
-"""Модуль генерации хронологической ленты feed.md и сериализации annotations.jsonl."""
+"""Модуль генерации технической хронологической ленты feed.md и сериализации annotations.jsonl.
+
+Исключены любые вымышленные описания сцен, действий или сюжета.
+Лента фиксирует только технические данные, группировку кадров и OCR интерфейса.
+"""
 from __future__ import annotations
 
 import json
@@ -11,7 +15,6 @@ def serialize_annotations_jsonl(records: list[dict[str, Any]]) -> bytes:
     """Сериализация списка аннотаций в UTF-8 JSONL байты."""
     lines: list[str] = []
     for rec in records:
-        # json.dumps с сортировкой ключей и compact представлением
         line = json.dumps(rec, ensure_ascii=False, sort_keys=True)
         lines.append(line)
     text = "\n".join(lines) + ("\n" if lines else "")
@@ -26,17 +29,17 @@ def render_screenshot_feed(
     window_start: str = "",
     window_end: str = "",
 ) -> str:
-    """Генерация Markdown-хроники feed.md для контекста игрового компаньона."""
+    """Генерация технической Markdown-хроники feed.md для анализа LLM-компаньоном."""
     lines: list[str] = [
-        "# Хронологическая визуальная лента эпизодов Kenshi",
+        "# Техническая лента скриншотов Kenshi",
         "",
-        f"- **Обновлено**: `{generated_at}`",
+        f"- **Сформировано**: `{generated_at}`",
         f"- **Окно выборки**: последние {window_days} суток (с `{window_start}` по `{window_end}`)",
         f"- **Всего скриншотов в окне**: {len(annotations)}",
-        f"- **Сгруппировано эпизодов/сцен**: {len(episodes)}",
+        f"- **Сгруппировано серий/кадров**: {len(episodes)}",
         "",
-        "Хронологическая лента сцен игрового процесса для ориентирования игрового компаньона. "
-        "Похожие последовательные кадры объединены в эпизоды. Описания фиксируют наблюдаемое.",
+        "Техническая лента сгруппированных по сходству кадров с извлеченным текстом интерфейса (OCR). "
+        "Интерпретация происходящего в игре полностью принадлежит LLM-компаньону по оригинальным изображениям.",
         "",
     ]
 
@@ -53,11 +56,11 @@ def render_screenshot_feed(
         "",
     ])
 
-    # Индексируем аннотации по имени файла для быстрого доступа
+    # Индексируем записи по имени файла
     ann_by_fn = {rec.get("filename"): rec for rec in annotations}
 
     for ep in episodes:
-        ep_id = ep.get("episode_id", "ep_000")
+        ep_id = ep.get("episode_id", "seq_000")
         ep_idx = ep.get("episode_index", 1)
         count = ep.get("count", 1)
         start_time = ep.get("start_time", "")
@@ -65,93 +68,79 @@ def render_screenshot_feed(
         key_fn = ep.get("key_filename", "")
         filenames = ep.get("filenames", [])
 
-        key_ann = ann_by_fn.get(key_fn, {})
-        meta = key_ann.get("meta", {})
-        ui = key_ann.get("ui_text", {})
-        visual = key_ann.get("visual", {})
-
-        # Агрегация данных по всем кадрам эпизода
+        # Агрегация данных OCR без домыслов
         all_locations = set()
         all_characters = set()
-        all_actions = set()
+        all_notifications: list[str] = []
         all_dialogues: list[dict[str, Any]] = []
-
-        day_val = meta.get("game_day")
-        time_val = meta.get("game_time")
+        all_items_tasks = set()
+        day_val = None
+        time_val = None
 
         for fn in filenames:
             frame_ann = ann_by_fn.get(fn, {})
-            f_meta = frame_ann.get("meta", {})
-            f_ui = frame_ann.get("ui_text", {})
-            f_vis = frame_ann.get("visual", {})
-
-            if not day_val and f_meta.get("game_day"):
-                day_val = f_meta.get("game_day")
-            if not time_val and f_meta.get("game_time"):
-                time_val = f_meta.get("game_time")
-
-            if f_ui.get("location"):
-                all_locations.add(f_ui["location"])
-            for c in f_ui.get("characters", []):
+            f_ocr = frame_ann.get("ocr", {})
+            if not day_val and f_ocr.get("game_day"):
+                day_val = f_ocr.get("game_day")
+            if not time_val and f_ocr.get("game_time"):
+                time_val = f_ocr.get("game_time")
+            if f_ocr.get("location"):
+                all_locations.add(f_ocr["location"])
+            for c in f_ocr.get("characters", []):
                 all_characters.add(c)
-            for c in f_vis.get("present_characters", []):
-                all_characters.add(c)
-            for a in f_vis.get("actions", []):
-                all_actions.add(a)
-            for d in f_ui.get("dialogues", []):
+            for d in f_ocr.get("dialogues", []):
                 if d and d not in all_dialogues:
                     all_dialogues.append(d)
+            for n in f_ocr.get("notifications", []):
+                if n and n not in all_notifications:
+                    all_notifications.append(n)
+            for t in f_ocr.get("items_or_tasks", []):
+                all_items_tasks.add(t)
 
-        loc_str = ", ".join(sorted(all_locations)) if all_locations else (visual.get("environment") or "Пустоши Kenshi")
-        time_str = f"День {day_val}, {time_val}" if (day_val and time_val) else (f"День {day_val}" if day_val else "Время не определено")
-        chars_str = ", ".join(sorted(all_characters)) if all_characters else "Не различимы"
-        scene_type_ru = {
-            "travel": "Путешествие / переход",
-            "combat": "Сражение / боевой контакт",
-            "dialogue": "Диалог / переговоры",
-            "trade": "Торговля",
-            "building": "Строительство / база",
-            "exploration": "Исследование руин / локации",
-            "base": "Управление поселением",
-            "inventory": "Инвентарь / менеджмент",
-            "resting": "Лагерь / отдых",
-            "stealth": "Скрытность / разведка",
-            "other": "Игровой процесс",
-        }.get(visual.get("scene_type", "other"), visual.get("scene_type", "other"))
+        loc_str = ", ".join(sorted(all_locations)) if all_locations else "Не зафиксирована в UI"
+        time_str = f"День {day_val}, {time_val}" if (day_val and time_val) else (f"День {day_val}" if day_val else "Не зафиксировано в UI")
+        chars_str = ", ".join(sorted(all_characters)) if all_characters else "Не зафиксированы в UI"
 
         lines.extend([
-            f"### Эпизод {ep_idx}: {loc_str} ({count} кадр{'а' if 1 < count < 5 else 'ов' if count >= 5 else ''})",
+            f"### Серия {ep_idx} ({count} кадр{'а' if 1 < count < 5 else 'ов' if count >= 5 else ''})",
             "",
-            f"- **Ориентир времени**: `{time_str}` (файлы: `{start_time}` – `{end_time}`)",
-            f"- **Локация**: {loc_str}",
-            f"- **Участники**: {chars_str}",
-            f"- **Тип сцены**: {scene_type_ru}",
-            f"- **Краткое описание**: {visual.get('summary', 'Наблюдение игровой сцены.')}",
+            f"- **Файловое время**: с `{start_time}` по `{end_time}`",
+            f"- **Игровое время (OCR)**: `{time_str}`",
+            f"- **Локация (OCR)**: {loc_str}",
+            f"- **Персонажи в UI (OCR)**: {chars_str}",
         ])
 
-        if all_actions:
-            lines.append(f"- **Действия**: {', '.join(sorted(all_actions))}")
+        if all_items_tasks:
+            lines.append(f"- **Задачи/предметы в UI**: {', '.join(sorted(all_items_tasks))}")
+
+        if all_notifications:
+            lines.extend([
+                "",
+                "**Уведомления интерфейса:**",
+            ])
+            for n in all_notifications:
+                lines.append(f"- {n}")
 
         if all_dialogues:
             lines.extend([
                 "",
-                "**Диалоги и реплики:**",
+                "**Зафиксированные реплики (диалоги):**",
             ])
             for d in all_dialogues:
-                spk = d.get("speaker") or "Реплика"
+                spk = d.get("speaker") or "Персонаж"
                 txt = d.get("text", "")
                 lines.append(f"> **{spk}**: «{txt}»")
 
         lines.extend([
             "",
-            "**Кадры эпизода:**",
+            "**Кадры серии:**",
         ])
         for fn in filenames:
             blob_url = f"{BLOB_DEFAULT_URL}/published/screenshots/{fn}"
             raw_url = f"{RAW_DEFAULT_URL}/published/screenshots/{fn}"
             lines.append(f"- [{fn}]({fn}) ([GitHub]({blob_url}) | [Raw]({raw_url}))")
 
-        # Встраивание первого кадра эпизода в качестве превью
+        # Встраивание первого кадра серии в качестве превью
         lines.extend([
             "",
             f"![{key_fn}]({key_fn})",

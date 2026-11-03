@@ -5,15 +5,16 @@
   "order": 1,
   "modified_at": "2026-10-27T07:52:48Z",
   "meta": {
-    "game_day": 45,
-    "game_time": "12:40",
-    "scene_group_id": "ep_001_hub_gate",
+    "dhash": "091f1f1b9b9f6f6f",
+    "scene_group_id": "seq_001",
     "is_exact_duplicate": false,
     "duplicate_of": null
   },
-  "ui_text": {
+  "ocr": {
+    "game_day": 45,
+    "game_time": "12:40",
     "location": "Хаб",
-    "characters": ["Хот Лон", "Бип", "Торговец шиноби"],
+    "characters": ["Хот Лон", "Бип"],
     "dialogues": [
       {
         "speaker": "Бип",
@@ -24,16 +25,9 @@
     "notifications": ["Отряд вошел в зону: Хаб"],
     "items_or_tasks": ["Охрана", "Следование"]
   },
-  "visual": {
-    "scene_type": "dialogue",
-    "present_characters": ["Хот Лон", "Бип"],
-    "environment": "Разрушенный город в пустыне, полдень, песчаная буря",
-    "actions": ["Разговор у ворот", "Остановка каравана"],
-    "summary": "Отряд во главе с Хот Лоном остановился у южных ворот Хаба во время песчаной бури."
-  },
   "provenance": {
-    "source": "gemini-2.5-flash",
+    "source": "gemini-3.8-flash",
     "confidence": 0.92,
-    "annotated_at": "2026-11-03T11:00:00Z"
+    "extracted_at": "2026-11-03T11:00:00Z"
   }
 }
