@@ -448,6 +448,48 @@ def publish(
         if "screenshots" not in manifest_data["validation"]["checks"]:
             manifest_data["validation"]["checks"].append("screenshots")
 
+        # Формирование семантической разметки и хронологической ленты скриншотов
+        screenshots_annotations_bytes = None
+        screenshots_feed_md = None
+        try:
+            from tools.screenshot_clustering import cluster_screenshots
+            from tools.screenshot_annotator import annotate_screenshots_batch
+            from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
+
+            campaign_context = {
+                "game_day": cur.get("world", {}).get("day") if isinstance(cur, dict) else None,
+                "game_time": cur.get("world", {}).get("time") if isinstance(cur, dict) else None,
+                "location": (locations_data.get("locations", [{}])[0].get("name") if isinstance(locations_data, dict) and locations_data.get("locations") else None),
+                "squad_members": [c.get("name") for c in cur.get("characters", []) if isinstance(c, dict) and c.get("name")] if isinstance(cur, dict) else [],
+            }
+
+            clustered_screenshots, episodes_summary = cluster_screenshots(collected_screenshots)
+            prev_ann_path = published_dir / "screenshots/annotations.jsonl"
+            annotated_records = annotate_screenshots_batch(
+                clustered_screenshots=clustered_screenshots,
+                cache_path=prev_ann_path if prev_ann_path.is_file() else None,
+                context=campaign_context,
+                now_iso=screenshots_index_data["generated_at"],
+            )
+            screenshots_annotations_bytes = serialize_annotations_jsonl(annotated_records)
+            screenshots_feed_md = render_screenshot_feed(
+                annotations=annotated_records,
+                episodes=episodes_summary,
+                generated_at=screenshots_index_data["generated_at"],
+                window_days=screenshots_index_data["window_days"],
+                window_start=screenshots_index_data["window_start"],
+                window_end=screenshots_index_data["window_end"],
+            )
+
+            manifest_data["artifacts"]["screenshot_annotations"] = "screenshots/annotations.jsonl"
+            manifest_data["artifacts"]["screenshot_feed"] = "screenshots/feed.md"
+            if "screenshot_annotations" not in manifest_data["validation"]["checks"]:
+                manifest_data["validation"]["checks"].append("screenshot_annotations")
+        except Exception:
+            # Изоляция сбоев: ошибка разметки не блокирует публикацию
+            screenshots_annotations_bytes = None
+            screenshots_feed_md = None
+
     lock_file = Path(tempfile.gettempdir()) / f"kenshi_{published_dir.name}.lock"
     staging_dir = published_dir.parent / f"{published_dir.name}.staging"
     backup_dir = published_dir.parent / f"{published_dir.name}.backup"
@@ -482,6 +524,10 @@ def publish(
                 sc_staging.mkdir(parents=True, exist_ok=True)
                 (sc_staging / "index.json").write_bytes(canonical(screenshots_index_data))
                 (sc_staging / "index.md").write_text(screenshots_gallery_md, encoding="utf-8")
+                if screenshots_annotations_bytes is not None:
+                    (sc_staging / "annotations.jsonl").write_bytes(screenshots_annotations_bytes)
+                if screenshots_feed_md is not None:
+                    (sc_staging / "feed.md").write_text(screenshots_feed_md, encoding="utf-8")
                 for item in collected_screenshots:
                     src_p = item["source_path"]
                     dst_p = sc_staging / item["filename"]

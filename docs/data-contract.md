@@ -124,6 +124,39 @@ published/
 - Защита от поврежденных файлов: пустые (0 байт) файлы, файлы с невалидными сигнатурами (magic bytes) и файлы, модифицируемые игрой во время чтения, отбрасываются.
 - Идемпотентность: повторный запуск без изменений состава изображений сохраняет метки времени и не порождает диффов.
 
+## Контракт семантической разметки скриншотов: `kenshi-screenshot-annotation/1`
+
+Проектный контракт `contracts/screenshot-annotations.schema.json` (JSON Schema Draft 2020-12) фиксирует структуру машиночитаемой разметки в `published/screenshots/annotations.jsonl` (один JSON-объект на строку) для контекстного поиска игровым компаньоном:
+- `format`: `"kenshi-screenshot-annotation/1"`.
+- `sha256`: контрольная сумма изображения (SHA-256).
+- `filename`: имя файла скриншота.
+- `order`: порядковый номер кадра в скользящем окне.
+- `modified_at`: время изменения файла (UTC ISO-8601).
+- `meta`:
+  - `game_day`: игровой день (int или null).
+  - `game_time`: игровое время ("HH:MM" или null).
+  - `scene_group_id`: устойчивый ID эпизода/сцены (`ep_XXX`).
+  - `is_exact_duplicate`: флаг точного дубликата по содержимому (bool).
+  - `duplicate_of`: SHA-256 оригинального кадра при дублировании (string или null).
+- `ui_text`:
+  - `location`: название зоны/города из интерфейса (string или null).
+  - `characters[]`: список имен персонажей и NPC, распознанных в UI.
+  - `dialogues[]`: список реплик в speech bubbles (`speaker`, `text`, `confidence`).
+  - `notifications[]`: системные сообщения и уведомления интерфейса.
+  - `items_or_tasks[]`: активные действия, работы или предметы.
+- `visual`:
+  - `scene_type`: категория сцены (`travel`, `combat`, `dialogue`, `trade`, `building`, `exploration`, `base`, `inventory`, `resting`, `stealth`, `other`).
+  - `present_characters[]`: различимые персонажи в кадре.
+  - `environment`: описание окружения (погода, время суток, биом).
+  - `actions[]`: наблюдаемые действия участников.
+  - `summary`: объективное краткое описание наблюдаемой сцены.
+- `provenance`:
+  - `source`: источник происхождения разметки (`gemini-3.8-flash`, `ocr`, `heuristic`, `cache`).
+  - `confidence`: степень уверенности (число от 0.0 до 1.0).
+  - `annotated_at`: время формирования разметки (UTC ISO-8601).
+
+Хронологическая визуальная лента `published/screenshots/feed.md` строится на базе разметки и группирует кадры в связные эпизоды со ссылками на оригиналы в GitHub.
+
 ## Совместимый diff: `kenshi-session-diff/5`
 
 Сравнение двух неизменяемых снимков сохраняет совместимость с форматом `kenshi-session-diff/5` со следующими обязательными расширениями:

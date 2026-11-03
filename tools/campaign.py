@@ -107,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
         publication_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры (по умолчанию KENSHI_SCREENS_DIR или <KENSHI_DIR>/_screens)")
 
+    # 7.1. annotate-screenshots
+    ann_parser = commands.add_parser("annotate-screenshots", help="Разметка скриншотов и сборка ленты feed.md")
+    ann_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры")
+    ann_parser.add_argument("--published-dir", type=Path, default=Path("published"), help="Каталог публикации (published)")
+
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
     build_world_parser.add_argument("--output", type=Path, help="Каталог или файл для записи")
@@ -332,6 +337,34 @@ def main(argv: list[str] | None = None) -> int:
                 sessions_root=args.sessions_root,
                 screens_dir=effective_screens_dir,
             )
+
+        elif args.command == "annotate-screenshots":
+            from datetime import datetime, timezone, timedelta
+            from tools.screenshots import collect_recent_screenshots
+            from tools.screenshot_clustering import cluster_screenshots
+            from tools.screenshot_annotator import annotate_screenshots_batch
+            from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
+
+            screens_dir = args.screens_dir or Config.from_env().screens
+            pub_dir = args.published_dir.resolve()
+            now_dt = datetime.now(timezone.utc)
+            cutoff_dt = now_dt - timedelta(days=7)
+            collected = collect_recent_screenshots(screens_dir, cutoff_dt, now_dt)
+            clustered, episodes = cluster_screenshots(collected)
+            prev_ann_p = pub_dir / "screenshots/annotations.jsonl"
+            now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            annotated = annotate_screenshots_batch(clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso)
+            sc_dir = pub_dir / "screenshots"
+            sc_dir.mkdir(parents=True, exist_ok=True)
+            (sc_dir / "annotations.jsonl").write_bytes(serialize_annotations_jsonl(annotated))
+            (sc_dir / "feed.md").write_text(
+                render_screenshot_feed(
+                    annotated, episodes, generated_at=now_iso, window_days=7,
+                    window_start=cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), window_end=now_iso
+                ),
+                encoding="utf-8"
+            )
+            result = {"annotated_count": len(annotated), "episodes_count": len(episodes)}
 
         elif args.command == "pipeline":
             cfg = Config.from_env(args.faction_sid)

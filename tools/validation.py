@@ -1,6 +1,7 @@
 """Проверка проектных схем Draft 2020-12 и валидация пакета публикации."""
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -69,7 +70,7 @@ def _validate_evidence_ref(ref: str) -> None:
 
 
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session", "screenshots-index"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session", "screenshots-index", "screenshot-annotations"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -439,6 +440,8 @@ def check_examples() -> int:
             validate(value, "session")
         elif fmt == "kenshi-screenshots-index/1":
             validate(value, "screenshots-index")
+        elif fmt == "kenshi-screenshot-annotation/1":
+            validate(value, "screenshot-annotations")
         else:
             validate_event(value)
         count += 1
@@ -703,6 +706,33 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
                     if entry.name not in seen_filenames:
                         raise PublicationValidationError(f"Обнаружен неиндексированный файл скриншота: {entry.name}")
 
+    # 4.2. Проверка screenshot_annotations при наличии
+    if "screenshot_annotations" in artifacts:
+        ann_rel = artifacts["screenshot_annotations"]
+        if not ann_rel.endswith(".jsonl"):
+            raise PublicationValidationError(f"artifacts.screenshot_annotations обязан указывать на JSONL: {ann_rel}")
+        ann_path = package_dir / ann_rel
+        if not ann_path.is_file():
+            raise PublicationValidationError(f"Файл аннотаций скриншотов отсутствует: {ann_rel}")
+        try:
+            for line_no, raw_line in enumerate(ann_path.read_text(encoding="utf-8").splitlines(), 1):
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                record = json.loads(raw_line)
+                validate(record, "screenshot-annotations")
+        except Exception as error:
+            raise PublicationValidationError(f"Ошибка валидации {ann_rel}: {error}") from error
+
+    # 4.3. Проверка screenshot_feed при наличии
+    if "screenshot_feed" in artifacts:
+        feed_rel = artifacts["screenshot_feed"]
+        if not feed_rel.endswith(".md"):
+            raise PublicationValidationError(f"artifacts.screenshot_feed обязан указывать на Markdown: {feed_rel}")
+        feed_path = package_dir / feed_rel
+        if not feed_path.is_file():
+            raise PublicationValidationError(f"Файл визуальной ленты отсутствует: {feed_rel}")
+
     # 5. Проверка приватности во всех текстовых файлах пакета
     for root_dir, dirs, files in os.walk(package_dir):
         for name in files:
@@ -759,6 +789,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             "geography" if (has_locations and has_world_ref) else "no_geography",
             "timeline" if "timeline" in artifacts else "no_timeline",
             "screenshots" if "screenshots" in artifacts else "no_screenshots",
+            "screenshot_annotations" if "screenshot_annotations" in artifacts else "no_screenshot_annotations",
             "privacy",
             "index" if checked_index else "no_index",
         ],

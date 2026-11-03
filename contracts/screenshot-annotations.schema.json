@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/screenshot-annotations.schema.json",
+  "title": "Kenshi screenshot annotation record (kenshi-screenshot-annotation/1)",
+  "description": "Один JSON-объект на строку в annotations.jsonl. Машиночитаемая разметка кадра для поиска контекста чат-моделями.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "sha256",
+    "filename",
+    "order",
+    "modified_at",
+    "meta",
+    "ui_text",
+    "visual",
+    "provenance"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-screenshot-annotation/1"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "filename": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+\\.(jpg|jpeg|png)$"
+    },
+    "order": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "modified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scene_group_id",
+        "is_exact_duplicate"
+      ],
+      "properties": {
+        "game_day": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "game_time": {
+          "type": ["string", "null"],
+          "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "scene_group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "is_exact_duplicate": {
+          "type": "boolean"
+        },
+        "duplicate_of": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ui_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "characters",
+        "dialogues",
+        "notifications",
+        "items_or_tasks"
+      ],
+      "properties": {
+        "location": {
+          "type": ["string", "null"]
+        },
+        "characters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dialogues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "properties": {
+              "speaker": { "type": ["string", "null"] },
+              "text": { "type": "string", "minLength": 1 },
+              "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+            }
+          }
+        },
+        "notifications": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "items_or_tasks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scene_type",
+        "present_characters",
+        "actions",
+        "summary"
+      ],
+      "properties": {
+        "scene_type": {
+          "type": "string",
+          "enum": [
+            "travel",
+            "combat",
+            "dialogue",
+            "trade",
+            "building",
+            "exploration",
+            "base",
+            "inventory",
+            "resting",
+            "stealth",
+            "other"
+          ]
+        },
+        "present_characters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "environment": {
+          "type": ["string", "null"]
+        },
+        "actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "confidence",
+        "annotated_at"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "ocr",
+            "heuristic",
+            "cache"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "annotated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

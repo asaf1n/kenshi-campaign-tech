@@ -73,6 +73,12 @@
         },
         "screenshots": {
           "$ref": "#/$defs/relativePath"
+        },
+        "screenshot_annotations": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "screenshot_feed": {
+          "$ref": "#/$defs/relativePath"
         }
       }
     },

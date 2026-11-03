@@ -1,0 +1,39 @@
+{
+  "format": "kenshi-screenshot-annotation/1",
+  "sha256": "fc7fc36767120d957787691d1109c6820b1a00a2a42ef27b21fbad09b5f0b262",
+  "filename": "screenshot_83.jpg",
+  "order": 1,
+  "modified_at": "2026-10-27T07:52:48Z",
+  "meta": {
+    "game_day": 45,
+    "game_time": "12:40",
+    "scene_group_id": "ep_001_hub_gate",
+    "is_exact_duplicate": false,
+    "duplicate_of": null
+  },
+  "ui_text": {
+    "location": "Хаб",
+    "characters": ["Хот Лон", "Бип", "Торговец шиноби"],
+    "dialogues": [
+      {
+        "speaker": "Бип",
+        "text": "Бип готов к великим битвам!",
+        "confidence": 0.95
+      }
+    ],
+    "notifications": ["Отряд вошел в зону: Хаб"],
+    "items_or_tasks": ["Охрана", "Следование"]
+  },
+  "visual": {
+    "scene_type": "dialogue",
+    "present_characters": ["Хот Лон", "Бип"],
+    "environment": "Разрушенный город в пустыне, полдень, песчаная буря",
+    "actions": ["Разговор у ворот", "Остановка каравана"],
+    "summary": "Отряд во главе с Хот Лоном остановился у южных ворот Хаба во время песчаной бури."
+  },
+  "provenance": {
+    "source": "gemini-2.5-flash",
+    "confidence": 0.92,
+    "annotated_at": "2026-11-03T11:00:00Z"
+  }
+}
