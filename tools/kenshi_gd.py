@@ -106,8 +106,8 @@ class Reader:
         except UnicodeDecodeError:
             try:
                 value = raw.decode("cp1251", errors="strict")
-            except UnicodeDecodeError as exc:
-                raise ValueError(f"Строка не является UTF-8 или CP1251: смещение {self.p}") from exc
+            except UnicodeDecodeError:
+                value = raw.decode("cp1251", errors="replace")
         self.p += size
         return value
 
