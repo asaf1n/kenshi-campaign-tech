@@ -1,4 +1,4 @@
-# Краткая сводка: sha256-10f4b11912fcf1271f06c1becb086cb21c0c70c943dac57905d922aa5ee38f48
+# Краткая сводка: sha256-b74ee90cf6c8c73988ecc7723def1409205ce555d684aa91edd32f630c6ec5f8
 
 ## Игровой мир
 - **Время:** День 131, время 15:06
@@ -149,7 +149,8 @@
 Подтверждённые события отсутствуют.
 
 ## Связанные артефакты
-- [Детальный снимок состояния (current.json)](current.json)
+- [Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)
+- [Расширенный снимок (extended/current.json): читать только выборочно](extended/current.json)
 - [Детальные изменения (changes.json)](changes.json)
 - [Полный состав отряда (squad.md)](squad.md)
 - [Журнал событий (timeline.jsonl)](timeline.jsonl)
