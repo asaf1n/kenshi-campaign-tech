@@ -209,6 +209,51 @@
                       "owned_by": {"type": ["array", "null"]}
                     }
                   }
+                },
+                "physics_calculated": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "status": {"type": "string"},
+                    "carried_weight_kg": {"type": ["number", "null"]},
+                    "weight_capacity_kg": {"type": ["number", "null"]},
+                    "encumbrance_pct": {"type": ["number", "null"]},
+                    "speed_run_mph_est": {"type": ["number", "null"]},
+                    "formula_notes": {"type": ["string", "null"]}
+                  }
+                },
+                "combat_calculated": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "status": {"type": "string"},
+                    "weapon_requirements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slot": {"type": "string"},
+                          "name": {"type": "string"},
+                          "weight_kg": {"type": ["number", "null"]},
+                          "damage_blunt": {"type": ["number", "null"]},
+                          "strength_required": {"type": ["number", "null"]},
+                          "strength_deficit": {"type": ["number", "null"]},
+                          "speed_penalty_pct": {"type": ["number", "null"]}
+                        }
+                      }
+                    },
+                    "armour_penalties": {
+                      "type": "object",
+                      "properties": {
+                        "stealth_mult": {"type": ["number", "null"]},
+                        "athletics_mult": {"type": ["number", "null"]},
+                        "combat_speed_mult": {"type": ["number", "null"]},
+                        "dodge_mult": {"type": ["number", "null"]}
+                      }
+                    },
+                    "body_coverage": {
+                      "type": "object"
+                    },
+                    "formula_notes": {"type": ["string", "null"]}
+                  }
                 }
               }
             }

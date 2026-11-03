@@ -491,6 +491,40 @@ def render_squad(
                 inv_str = ", ".join(f"{k} x{v}" for k, v in sorted(all_items.items()))
                 lines.append(f"- **Инвентарь:** {inv_str}")
 
+            phys = c.get("physics_calculated")
+            if phys and isinstance(phys, dict):
+                lines.append(
+                    f"- **Физические показатели (расчёт, unverified):** "
+                    f"вес {phys.get('carried_weight_kg', 0)} кг / "
+                    f"грузоподъёмность {phys.get('weight_capacity_kg', 0)} кг, "
+                    f"перегруз {phys.get('encumbrance_pct', 0)}%, "
+                    f"скорость {phys.get('speed_run_mph_est', 0)} миль/ч"
+                )
+
+            combat = c.get("combat_calculated")
+            if combat and isinstance(combat, dict):
+                w_reqs = combat.get("weapon_requirements", [])
+                if w_reqs:
+                    req_parts = []
+                    for wr in w_reqs:
+                        p_str = f"{wr.get('name')}: сила {wr.get('strength_required')}"
+                        if wr.get("strength_deficit", 0) > 0:
+                            p_str += f" (дефицит {wr.get('strength_deficit')}, штраф {wr.get('speed_penalty_pct')}%)"
+                        else:
+                            p_str += " (ОК)"
+                        req_parts.append(p_str)
+                    lines.append(f"- **Требования оружия (расчёт, unverified):** {', '.join(req_parts)}")
+
+                penalties = combat.get("armour_penalties", {})
+                if penalties:
+                    lines.append(
+                        f"- **Штрафы брони (расчёт):** "
+                        f"скрытность x{penalties.get('stealth_mult', 1.0)}, "
+                        f"атлетика x{penalties.get('athletics_mult', 1.0)}, "
+                        f"скорость боя x{penalties.get('combat_speed_mult', 1.0)}, "
+                        f"уклонение x{penalties.get('dodge_mult', 1.0)}"
+                    )
+
             lines.append("")
 
     return "\n".join(lines)

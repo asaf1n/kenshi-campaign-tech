@@ -94,7 +94,44 @@
           "unique": true,
           "owned_by": null
         }
-      ]
+      ],
+      "physics_calculated": {
+        "status": "unverified_engine_formula",
+        "carried_weight_kg": 14.5,
+        "weight_capacity_kg": 25.0,
+        "encumbrance_pct": 0.0,
+        "speed_run_mph_est": 22.5,
+        "formula_notes": "Расчетная оценка по формулам Kenshi Wiki."
+      },
+      "combat_calculated": {
+        "status": "unverified_engine_formula",
+        "weapon_requirements": [
+          {
+            "slot": "weapon_back",
+            "name": "Мейто Нодати",
+            "weight_kg": 4.0,
+            "damage_blunt": 0.15,
+            "strength_required": 8.0,
+            "strength_deficit": 0.0,
+            "speed_penalty_pct": 0.0
+          }
+        ],
+        "armour_penalties": {
+          "stealth_mult": 1.0,
+          "athletics_mult": 1.0,
+          "combat_speed_mult": 1.0,
+          "dodge_mult": 1.0
+        },
+        "body_coverage": {
+          "chest": {
+            "coverage_pct": 100,
+            "cut_resist_pct": 45.0,
+            "blunt_resist_pct": 30.0,
+            "layers": ["Пыльник"]
+          }
+        },
+        "formula_notes": "Расчетные боевые показатели Kenshi 1.0.xx."
+      }
     },
     {
       "id": "ps:1002",
