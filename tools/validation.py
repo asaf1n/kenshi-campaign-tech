@@ -69,7 +69,7 @@ def _validate_evidence_ref(ref: str) -> None:
 
 
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session", "screenshots-index"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -437,6 +437,8 @@ def check_examples() -> int:
             validate_index(value)
         elif fmt in {"kenshi-session/10", "kenshi-session/11"}:
             validate(value, "session")
+        elif fmt == "kenshi-screenshots-index/1":
+            validate(value, "screenshots-index")
         else:
             validate_event(value)
         count += 1
@@ -645,11 +647,67 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
         except (ValueError, OSError) as error:
             raise PublicationValidationError(f"Некорректная проекция timeline.jsonl: {error}") from error
 
-    # 5. Проверка приватности во всех файлах пакета
+    # 4.1. Проверка screenshots при наличии
+    if "screenshots" in artifacts:
+        from tools.screenshots import compute_file_sha256
+        sc_rel = artifacts["screenshots"]
+        if not sc_rel.endswith(".json"):
+            raise PublicationValidationError(f"artifacts.screenshots обязан указывать на JSON-индекс: {sc_rel}")
+        sc_path = package_dir / sc_rel
+        try:
+            sc_data = read_json(sc_path.read_bytes())
+            validate(sc_data, "screenshots-index")
+        except (ValidationError, Exception) as error:
+            raise PublicationValidationError(f"Ошибка валидации схемы screenshots-index: {error}") from error
+
+        sc_items = sc_data.get("screenshots", [])
+        if sc_data.get("count") != len(sc_items):
+            raise PublicationValidationError(
+                f"Несовпадение count ({sc_data.get('count')}) и длины screenshots ({len(sc_items)}) в индексе"
+            )
+
+        seen_orders: set[int] = set()
+        seen_filenames: set[str] = set()
+        for idx, item in enumerate(sc_items, 1):
+            ord_num = item.get("order")
+            fn = item.get("filename")
+            rel_p = item.get("path")
+            if ord_num != idx:
+                raise PublicationValidationError(f"Нарушен хронологический порядок: ожидался order {idx}, получен {ord_num}")
+            if fn in seen_filenames:
+                raise PublicationValidationError(f"Повтор имени файла в screenshots: {fn}")
+            seen_filenames.add(fn)
+
+            img_p = (package_dir / rel_p).resolve()
+            if not img_p.is_relative_to(package_dir):
+                raise PublicationValidationError(f"Путь скриншота {rel_p} выходит за пределы пакета")
+            if linked(img_p):
+                raise PublicationValidationError(f"Скриншот {rel_p} является ссылкой (symlink/junction)")
+            if not img_p.is_file():
+                raise PublicationValidationError(f"Файл скриншота {rel_p} отсутствует на диске")
+            if img_p.stat().st_size != item["size_bytes"]:
+                raise PublicationValidationError(
+                    f"Несовпадение размера скриншота {fn}: в индексе {item['size_bytes']}, на диске {img_p.stat().st_size}"
+                )
+            actual_sha = compute_file_sha256(img_p)
+            if actual_sha != item["sha256"]:
+                raise PublicationValidationError(
+                    f"Несовпадение SHA-256 скриншота {fn}: в индексе {item['sha256']}, на диске {actual_sha}"
+                )
+
+        # Проверка отсутствия неиндексированных скриншотов
+        sc_dir = package_dir / "screenshots"
+        if sc_dir.is_dir():
+            for entry in sc_dir.iterdir():
+                if entry.is_file() and entry.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+                    if entry.name not in seen_filenames:
+                        raise PublicationValidationError(f"Обнаружен неиндексированный файл скриншота: {entry.name}")
+
+    # 5. Проверка приватности во всех текстовых файлах пакета
     for root_dir, dirs, files in os.walk(package_dir):
         for name in files:
             file_p = Path(root_dir) / name
-            if file_p.name == ".gitkeep":
+            if file_p.name == ".gitkeep" or file_p.suffix.lower() in {".jpg", ".jpeg", ".png"}:
                 continue
             text = file_p.read_text(encoding="utf-8", errors="replace")
             check_privacy(text, file_p.relative_to(package_dir).as_posix())
@@ -700,6 +758,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             "semantics",
             "geography" if (has_locations and has_world_ref) else "no_geography",
             "timeline" if "timeline" in artifacts else "no_timeline",
+            "screenshots" if "screenshots" in artifacts else "no_screenshots",
             "privacy",
             "index" if checked_index else "no_index",
         ],

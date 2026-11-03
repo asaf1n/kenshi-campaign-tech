@@ -70,6 +70,9 @@
         },
         "world_reference": {
           "$ref": "#/$defs/relativePath"
+        },
+        "screenshots": {
+          "$ref": "#/$defs/relativePath"
         }
       }
     },

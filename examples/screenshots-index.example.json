@@ -1,0 +1,30 @@
+{
+  "format": "kenshi-screenshots-index/1",
+  "generated_at": "2026-11-03T03:00:00Z",
+  "count": 2,
+  "window_days": 7,
+  "window_start": "2026-10-27T03:00:00Z",
+  "window_end": "2026-11-03T03:00:00Z",
+  "screenshots": [
+    {
+      "order": 1,
+      "filename": "screenshot_393.jpg",
+      "path": "screenshots/screenshot_393.jpg",
+      "modified_at": "2026-10-28T12:26:00Z",
+      "size_bytes": 790575,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "url_raw": "https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_393.jpg",
+      "url_blob": "https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_393.jpg"
+    },
+    {
+      "order": 2,
+      "filename": "screenshot_394.jpg",
+      "path": "screenshots/screenshot_394.jpg",
+      "modified_at": "2026-10-28T13:37:00Z",
+      "size_bytes": 787182,
+      "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "url_raw": "https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_394.jpg",
+      "url_blob": "https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_394.jpg"
+    }
+  ]
+}

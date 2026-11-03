@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 6. publish
     pub_parser = commands.add_parser("publish", help="Атомарная публикация release bundle")
-    pub_parser.add_argument("--snapshot-id", required=True)
+    pub_parser.add_argument("--snapshot-id", nargs="?", default=None, help="Идентификатор снимка")
     pub_parser.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots")
     pub_parser.add_argument("--diffs-dir", type=Path, default=ROOT / "data/diffs")
     pub_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
@@ -105,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
+        publication_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры (по умолчанию KENSHI_SCREENS_DIR или <KENSHI_DIR>/_screens)")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -308,8 +309,16 @@ def main(argv: list[str] | None = None) -> int:
             }
 
         elif args.command == "publish":
+            effective_screens_dir = args.screens_dir or Config.from_env().screens
+            snap_id = args.snapshot_id
+            if not snap_id:
+                manifest_file = args.published_dir / "manifest.json"
+                if manifest_file.is_file():
+                    snap_id = read_json(manifest_file.read_bytes()).get("snapshot_id")
+            if not snap_id:
+                raise ValueError("snapshot_id обязателен для публикации при отсутствии существующего manifest.json")
             result = publish(
-                snapshot_id=args.snapshot_id,
+                snapshot_id=snap_id,
                 snapshots_dir=args.snapshots_dir,
                 diffs_dir=args.diffs_dir,
                 published_dir=args.published_dir,
@@ -321,13 +330,15 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 timeline_path=args.timeline,
                 sessions_root=args.sessions_root,
+                screens_dir=effective_screens_dir,
             )
 
         elif args.command == "pipeline":
+            cfg = Config.from_env(args.faction_sid)
             result = run_pipeline(
                 source=args.source,
                 source_kind=args.source_kind,
-                config=Config.from_env(args.faction_sid),
+                config=cfg,
                 output_snapshots=args.output,
                 output_diffs=args.diffs_dir,
                 published_dir=args.published_dir,
@@ -339,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 timeline_path=args.timeline,
                 sessions_root=args.sessions_root,
+                screens_dir=args.screens_dir or cfg.screens,
             )
 
         elif args.command == "build-world":

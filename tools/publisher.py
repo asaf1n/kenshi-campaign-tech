@@ -23,7 +23,7 @@ from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
 from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index, save_index
-from tools.io_utils import canonical, digest, read_json
+from tools.io_utils import canonical, digest, linked, read_json
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
@@ -31,6 +31,7 @@ from tools.validation import validate_publication
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SCREENS_DIR: Path | None = None
 
 try:
     import msvcrt
@@ -150,6 +151,7 @@ def publish(
     fault_inject: str | None = None,
     timeline_path: Path | None = None,
     sessions_root: Path | None = None,
+    screens_dir: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = snapshots_dir.resolve()
     diffs_dir = diffs_dir.resolve()
@@ -381,6 +383,69 @@ def publish(
         },
     }
 
+    target_screens_dir = screens_dir
+    if target_screens_dir is None:
+        if DEFAULT_SCREENS_DIR is not None:
+            target_screens_dir = DEFAULT_SCREENS_DIR
+        elif "KENSHI_SCREENS_DIR" in os.environ:
+            target_screens_dir = Path(os.environ["KENSHI_SCREENS_DIR"])
+        elif published_dir.resolve() == canonical_pub_dir:
+            from tools.config import Config
+            target_screens_dir = Config.from_env().screens
+
+    screenshots_index_data = None
+    screenshots_gallery_md = None
+    collected_screenshots: list[dict[str, Any]] = []
+
+    if target_screens_dir is not None:
+        target_screens_dir = Path(target_screens_dir).resolve()
+        if not target_screens_dir.is_dir() or linked(target_screens_dir):
+            raise PublisherError(f"Каталог скриншотов недоступен: {target_screens_dir}")
+
+        gen_str = manifest_data["generated_at"]
+        gen_dt = datetime.fromisoformat(gen_str.replace("Z", "+00:00"))
+        cutoff_dt = gen_dt - timedelta(days=7)
+
+        from tools.screenshots import (
+            build_screenshots_index,
+            collect_recent_screenshots,
+            copy_screenshot_safe,
+            render_screenshots_gallery,
+        )
+
+        collected_screenshots = collect_recent_screenshots(
+            source_dir=target_screens_dir,
+            cutoff_time=cutoff_dt,
+            now_time=gen_dt,
+        )
+
+        gen_iso = gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        w_start_iso = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        screenshots_index_data = build_screenshots_index(
+            items=collected_screenshots,
+            generated_at=gen_iso,
+            window_days=7,
+            window_start=w_start_iso,
+            window_end=gen_iso,
+        )
+
+        prev_idx_path = published_dir / "screenshots/index.json"
+        if prev_idx_path.is_file():
+            try:
+                prev_idx = read_json(prev_idx_path.read_bytes())
+                if prev_idx.get("screenshots") == screenshots_index_data.get("screenshots"):
+                    screenshots_index_data["generated_at"] = prev_idx["generated_at"]
+                    screenshots_index_data["window_start"] = prev_idx.get("window_start", screenshots_index_data["window_start"])
+                    screenshots_index_data["window_end"] = prev_idx.get("window_end", screenshots_index_data["window_end"])
+            except Exception:
+                pass
+
+        screenshots_gallery_md = render_screenshots_gallery(screenshots_index_data)
+
+        manifest_data["artifacts"]["screenshots"] = "screenshots/index.json"
+        if "screenshots" not in manifest_data["validation"]["checks"]:
+            manifest_data["validation"]["checks"].append("screenshots")
+
     lock_file = Path(tempfile.gettempdir()) / f"kenshi_{published_dir.name}.lock"
     staging_dir = published_dir.parent / f"{published_dir.name}.staging"
     backup_dir = published_dir.parent / f"{published_dir.name}.backup"
@@ -409,6 +474,17 @@ def publish(
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
+
+            if screenshots_index_data is not None:
+                sc_staging = staging_dir / "screenshots"
+                sc_staging.mkdir(parents=True, exist_ok=True)
+                (sc_staging / "index.json").write_bytes(canonical(screenshots_index_data))
+                (sc_staging / "index.md").write_text(screenshots_gallery_md, encoding="utf-8")
+                for item in collected_screenshots:
+                    src_p = item["source_path"]
+                    dst_p = sc_staging / item["filename"]
+                    copy_screenshot_safe(src_p, dst_p, expected_sha256=item["sha256"])
+
             # Время выпуска меняется только при изменении содержимого bundle.
             previous_manifest = published_dir / "manifest.json"
             if previous_manifest.is_file():
@@ -419,6 +495,16 @@ def publish(
                     and (published_dir / name).read_bytes() == (staging_dir / name).read_bytes()
                     for name in manifest_data["artifacts"].values()
                 )
+                if screenshots_index_data is not None and same_files:
+                    pub_sc_dir = published_dir / "screenshots"
+                    staging_sc_dir = staging_dir / "screenshots"
+                    if pub_sc_dir.is_dir() and staging_sc_dir.is_dir():
+                        pub_files = {p.name: p.stat().st_size for p in pub_sc_dir.iterdir() if p.is_file()}
+                        stg_files = {p.name: p.stat().st_size for p in staging_sc_dir.iterdir() if p.is_file()}
+                        if pub_files != stg_files:
+                            same_files = False
+                    else:
+                        same_files = False
                 if same_files and comparable == previous:
                     manifest_data["generated_at"] = previous["generated_at"]
                 elif manifest_data["generated_at"] == previous.get("generated_at"):
@@ -494,10 +580,13 @@ def publish(
                 backup_dir.rename(published_dir)
             raise
 
-    return {
+    res = {
         "status": "published",
         "snapshot_id": snapshot_id,
         "published_dir": str(published_dir),
         "manifest": manifest_data,
         "timeline_sha256": digest(timeline_bytes),
     }
+    if screenshots_index_data is not None:
+        res["screenshots_count"] = screenshots_index_data["count"]
+    return res

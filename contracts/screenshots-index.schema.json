@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/screenshots-index.schema.json",
+  "title": "Kenshi screenshots index (kenshi-screenshots-index/1)",
+  "description": "Индекс визуальной ленты скриншотов за последние 7 суток для чат-моделей.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "generated_at",
+    "count",
+    "window_days",
+    "window_start",
+    "window_end",
+    "screenshots"
+  ],
+  "properties": {
+    "format": {
+      "const": "kenshi-screenshots-index/1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "window_days": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "window_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "window_end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "screenshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "filename",
+          "path",
+          "modified_at",
+          "size_bytes",
+          "sha256",
+          "url_raw",
+          "url_blob"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "filename": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+\\.(jpg|jpeg|png)$"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^screenshots/[A-Za-z0-9_.-]+\\.(jpg|jpeg|png)$"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "url_raw": {
+            "type": "string",
+            "format": "uri"
+          },
+          "url_blob": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    }
+  }
+}

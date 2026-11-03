@@ -27,6 +27,7 @@ def run_pipeline(
     dry_run: bool = False,
     timeline_path: Path | None = None,
     sessions_root: Path | None = None,
+    screens_dir: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = output_snapshots or ROOT / "data/snapshots"
     diffs_dir = output_diffs or ROOT / "data/diffs"
@@ -73,6 +74,7 @@ def run_pipeline(
         dry_run=dry_run,
         timeline_path=timeline_path,
         sessions_root=sessions_root,
+        screens_dir=screens_dir if screens_dir is not None else config.screens,
     )
 
     return {

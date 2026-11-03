@@ -15,6 +15,7 @@ class Config:
     game: Path
     workshop: Path
     faction_sid: str
+    screens_dir: Path | None = None
 
     @classmethod
     def from_env(cls, faction_sid: str | None = None,
@@ -28,7 +29,13 @@ class Config:
         if not faction.strip():
             raise ExtractionError("faction_sid не может быть пустым")
         workshop = Path(env.get("KENSHI_WORKSHOP_DIR") or game.parent.parent / "workshop/content/233860")
-        return cls(saves, game, workshop, faction)
+        screens_raw = env.get("KENSHI_SCREENS_DIR")
+        screens = Path(screens_raw) if screens_raw else (game / "_screens")
+        return cls(saves, game, workshop, faction, screens)
+
+    @property
+    def screens(self) -> Path:
+        return self.screens_dir if self.screens_dir is not None else self.game / "_screens"
 
     def protected(self) -> list[Path]:
-        return [self.game, self.workshop, *self.save_dirs]
+        return [self.game, self.workshop, self.screens, *self.save_dirs]
