@@ -5,9 +5,9 @@
 .DESCRIPTION
     Задаёт переменные окружения Kenshi, берёт самое свежее сохранение, выполняет pipeline
     (разбор сохранения и скриншотов -> published/) и доставляет результат в репозиторий
-    Kenshi Compain (KENSHI_COMPANION_DIR или соседний каталог "Kenshi Compain").
+    Kenshi Compain (KENSHI_COMPANION_DIR или соседний каталог "Kenshi Compain"): commit и push в GitHub.
     campaign_id и branch_id берутся из последнего published/manifest.json.
-    Сохранения и скриншоты игры открываются только на чтение; git скрипт не вызывает.
+    Сохранения и скриншоты игры открываются только на чтение; git вызывает только доставка в Kenshi Compain.
 #>
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -59,7 +59,7 @@ try {
 
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
     Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
-    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId --deliver-to $companion
+    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId --deliver-to $companion --deliver-push
     if ($LASTEXITCODE -ne 0) { throw "pipeline завершился с кодом $LASTEXITCODE" }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
