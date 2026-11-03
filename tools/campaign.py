@@ -46,9 +46,13 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("check-schemas", help="Проверка контрактных схем и примеров")
 
     # 3. diff
-    diff_parser = commands.add_parser("diff", help="Сравнение двух снимков (kenshi-session-diff/5)")
+    diff_parser = commands.add_parser("diff", aliases=["period-diff"], help="Сравнение двух снимков или периода (kenshi-session-diff/5)")
     diff_parser.add_argument("--from", dest="from_snap", help="Предыдущий снимок (ID или путь к каталогу)")
-    diff_parser.add_argument("--to", dest="to_snap", required=True, help="Текущий снимок (ID или путь к каталогу)")
+    diff_parser.add_argument("--to", dest="to_snap", help="Текущий снимок (ID или путь к каталогу)")
+    diff_parser.add_argument("--from-day", type=int, help="Начальный игровой день периода")
+    diff_parser.add_argument("--to-day", type=int, help="Конечный игровой день периода")
+    diff_parser.add_argument("--branch-id", help="Ветка для разрешения снимков по дням")
+    diff_parser.add_argument("--index-file", type=Path, help="Путь к index.json")
     diff_parser.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots")
     diff_parser.add_argument("--output", type=Path, help="Файл для сохранения diff (по умолчанию data/diffs/<diff_id>.json)")
     diff_parser.add_argument("--explain", action="store_true", help="Включить описание отслеживаемых полей")
@@ -156,6 +160,19 @@ def main(argv: list[str] | None = None) -> int:
             sub.add_argument("--snapshot-id", action="append", required=True)
             sub.add_argument("--notes", type=Path, help="Авторские заметки; по умолчанию шаблон")
 
+    record_parser = timeline_subs.add_parser("record", help="Добавить подтвержденное игровое событие")
+    record_parser.add_argument("--root", type=Path, default=ROOT, help="Корень кампании")
+    record_parser.add_argument("--event-id", required=True, help="ID события")
+    record_parser.add_argument("--session-id", required=True, help="ID сессии")
+    record_parser.add_argument("--summary", required=True, help="Описание события")
+    record_parser.add_argument("--day", type=int, help="Игровой день")
+    record_parser.add_argument("--snapshot-id", help="Снимок")
+    record_parser.add_argument("--kind", default="user_action", help="Категория события")
+    record_parser.add_argument("--status", choices=["confirmed", "observed", "inferred"], default="confirmed")
+    record_parser.add_argument("--evidence-kind", choices=["screenshot", "user_note", "snapshot", "diff", "other"], default="user_note")
+    record_parser.add_argument("--evidence-ref", default="user_note")
+    record_parser.add_argument("--evidence-note")
+
     args = parser.parse_args(argv)
     try:
         result: Any = None
@@ -177,6 +194,24 @@ def main(argv: list[str] | None = None) -> int:
                 result = append_event(read_json(args.source.read_bytes()), ledger, index_data=idx, root=root)
             elif args.subcommand == "import":
                 result = import_events(read_event_batch(args.source), ledger, index_data=idx, root=root)
+            elif args.subcommand == "record":
+                from datetime import datetime, timezone
+                ev_item: dict[str, Any] = {"kind": args.evidence_kind, "ref": args.evidence_ref}
+                if args.evidence_note:
+                    ev_item["note"] = args.evidence_note
+                event_data = {
+                    "format": "kenshi-event/1",
+                    "event_id": args.event_id,
+                    "session_id": args.session_id,
+                    "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "game_day": args.day,
+                    "snapshot_id": args.snapshot_id,
+                    "kind": args.kind,
+                    "status": args.status,
+                    "summary": args.summary,
+                    "evidence": [ev_item],
+                }
+                result = append_event(event_data, ledger, index_data=idx, root=root)
             else:
                 events = read_timeline(ledger)
                 result = validate_timeline(events, idx)
@@ -196,16 +231,42 @@ def main(argv: list[str] | None = None) -> int:
                 parent_snapshot_id=args.parent_snapshot_id,
             )
 
-        elif args.command == "diff":
+        elif args.command in {"diff", "period-diff"}:
+            from tools.index import find_snapshot_by_day, load_index
             snapshots_dir = (args.snapshots_dir or ROOT / "data/snapshots").resolve()
-            cur_dir = _resolve_snapshot_dir(args.to_snap, snapshots_dir)
-            prev_dir = _resolve_snapshot_dir(args.from_snap, snapshots_dir) if args.from_snap else None
+            idx_file = (args.index_file or (snapshots_dir.parent / "index.json")).resolve()
+            idx_data = None
+            if idx_file.is_file():
+                try:
+                    idx_data = load_index(idx_file)
+                except Exception:
+                    idx_data = None
+
+            from_snap = args.from_snap
+            to_snap = args.to_snap
+
+            if args.from_day is not None and idx_data:
+                resolved_from = find_snapshot_by_day(idx_data, args.from_day, args.branch_id)
+                if resolved_from:
+                    from_snap = resolved_from
+
+            if args.to_day is not None and idx_data:
+                resolved_to = find_snapshot_by_day(idx_data, args.to_day, args.branch_id)
+                if resolved_to:
+                    to_snap = resolved_to
+
+            if not to_snap:
+                raise ValueError("Не указан целевой снимок (--to или --to-day)")
+
+            cur_dir = _resolve_snapshot_dir(to_snap, snapshots_dir)
+            prev_dir = _resolve_snapshot_dir(from_snap, snapshots_dir) if from_snap else None
             output_dir = args.output.parent if args.output else (ROOT / "data/diffs")
             result = diff_snapshots(
                 prev_dir=prev_dir,
                 cur_dir=cur_dir,
                 output_dir=output_dir,
                 explain=args.explain,
+                index_data=idx_data,
             )
             if args.output:
                 args.output.write_bytes(canonical(result))

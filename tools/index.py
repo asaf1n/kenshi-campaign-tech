@@ -467,3 +467,25 @@ def get_branch_tree(index_data: dict[str, Any]) -> dict[str, Any]:
         "branches": branches,
         "roots": tree_roots,
     }
+
+
+def find_snapshot_by_day(index_data: dict[str, Any], day: int, branch_id: str | None = None) -> str | None:
+    """Найти снимок на ветке по игровому дню (или ближайший)."""
+    target_branch = branch_id or index_data.get("active_branch_id")
+    candidates = []
+    for sid, entry in index_data.get("snapshots", {}).items():
+        if target_branch and entry.get("branch_id") != target_branch:
+            continue
+        gt = entry.get("game_time")
+        if isinstance(gt, dict) and gt.get("day") is not None:
+            candidates.append((gt["day"], sid))
+
+    if not candidates:
+        return None
+
+    exact = [sid for d, sid in candidates if d == day]
+    if exact:
+        return exact[0]
+
+    candidates.sort(key=lambda item: (abs(item[0] - day), -item[0]))
+    return candidates[0][1]

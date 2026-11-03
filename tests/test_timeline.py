@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.test_publish import _create_sample_snapshot
-from tools.index import empty_index
+from tools.index import empty_index, save_index
 from tools.io_utils import canonical, digest, read_json
 from tools.publisher import publish
 from tools.rendering import render_brief
@@ -353,6 +353,58 @@ except OSError:
         self.assertEqual(self.world_file.read_bytes(), source_before)
         self.assertEqual([e["event_id"] for e in read_timeline(self.ledger)], ["world-change"])
         self.assertEqual([e["event_id"] for e in read_timeline(self.published / "timeline.jsonl", projection=True)], ["world-change"])
+
+    def test_cli_timeline_record_and_period_diff(self) -> None:
+        """Проверка CLI команд timeline record и period-diff."""
+        from tools.campaign import main as campaign_main
+
+        # 1. Запись подтвержденного события через CLI timeline record
+        create_session("sess-test", ["A", "B"], self.index, root=self.root)
+        save_index(self.index, self.index_path)
+
+        campaign_main([
+            "timeline", "record",
+            "--root", str(self.root),
+            "--event-id", "ev-clean-lab",
+            "--session-id", "sess-test",
+            "--summary", "Зачищена древняя лаборатория в Черной Пустыне",
+            "--day", "16",
+            "--snapshot-id", "B",
+            "--kind", "combat",
+            "--status", "confirmed",
+            "--evidence-kind", "user_note",
+            "--evidence-ref", "sessions/sess-test/notes.md",
+            "--evidence-note", "Зачистка подтверждена игроком",
+        ])
+
+        recorded_events = read_timeline(self.ledger)
+        self.assertEqual(len(recorded_events), 1)
+        self.assertEqual(recorded_events[0]["event_id"], "ev-clean-lab")
+        self.assertEqual(recorded_events[0]["summary"], "Зачищена древняя лаборатория в Черной Пустыне")
+
+        # 2. Публикация проецирует событие в release bundle
+        self.publish(branch_id="main")
+        proj_events = read_timeline(self.published / "timeline.jsonl", projection=True)
+        self.assertEqual(len(proj_events), 1)
+        self.assertEqual(proj_events[0]["event_id"], "ev-clean-lab")
+        brief_text = (self.published / "brief.md").read_text(encoding="utf-8")
+        self.assertIn("Зачищена древняя лаборатория в Черной Пустыне", brief_text)
+
+        # 3. Вызов period-diff по дням через CLI
+        out_diff = self.root / "diff_res.json"
+        campaign_main([
+            "diff",
+            "--from-day", "15",
+            "--to-day", "16",
+            "--branch-id", "main",
+            "--snapshots-dir", str(self.snapshots),
+            "--index-file", str(self.index_path),
+            "--output", str(out_diff),
+        ])
+        diff_output = read_json(out_diff.read_bytes())
+        self.assertTrue(diff_output.get("valid"))
+        self.assertEqual(diff_output.get("from", {}).get("snapshot_id"), "A")
+        self.assertEqual(diff_output.get("to", {}).get("snapshot_id"), "B")
 
 
 if __name__ == "__main__":
