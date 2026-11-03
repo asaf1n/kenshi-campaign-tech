@@ -413,13 +413,42 @@ def publish(
             collect_recent_screenshots,
             copy_screenshot_safe,
             render_screenshots_gallery,
+            BLOB_DEFAULT_URL,
+            RAW_DEFAULT_URL,
         )
 
-        collected_screenshots = collect_recent_screenshots(
+        from tools import screenshot_publish
+        from tools.screenshot_clustering import cluster_screenshots
+
+        window_screenshots = collect_recent_screenshots(
             source_dir=target_screens_dir,
             cutoff_time=cutoff_dt,
             now_time=gen_dt,
         )
+        # В выпуск идут только ключевые кадры, уменьшенные до 1600 px; полный набор остаётся в локальном архиве.
+        clustered_window, window_episodes = cluster_screenshots(window_screenshots)
+        archived = {
+            item["filename"]: item
+            for item in screenshot_publish.archive_screenshots(clustered_window)
+        }
+        collected_screenshots = []
+        for order, key_item in enumerate(
+            screenshot_publish.select_keyframes(list(archived.values()), window_episodes), 1
+        ):
+            name = key_item["published_name"]
+            collected_screenshots.append({
+                **key_item,
+                "order": order,
+                "filename": name,
+                "path": f"screenshots/{name}",
+                "source_path": key_item["archive_path"],
+                "size_bytes": key_item["published_size"],
+                "sha256": key_item["published_sha256"],
+                "source_sha256": key_item["sha256"],
+                "is_keyframe": True,
+                "url_raw": f"{RAW_DEFAULT_URL}/published/screenshots/{name}",
+                "url_blob": f"{BLOB_DEFAULT_URL}/published/screenshots/{name}",
+            })
 
         gen_iso = gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         w_start_iso = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -452,7 +481,6 @@ def publish(
         screenshots_annotations_bytes = None
         screenshots_feed_md = None
         try:
-            from tools.screenshot_clustering import cluster_screenshots
             from tools.screenshot_extractor import extract_screenshots_batch
             from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
 

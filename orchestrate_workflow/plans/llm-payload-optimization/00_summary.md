@@ -1,6 +1,6 @@
 # llm-payload-optimization: Оптимизация объема и структуры выпуска published/ для LLM
 
-Статус плана: в работе (этап 00 выполнен)
+Статус плана: в работе (этапы 00 и 01 выполнены)
 Репозиторий: `kenshi-campaign-tech`  
 Дата обновления: 2026-11-03
 
@@ -29,7 +29,7 @@
 | Задача | Состояние очереди | Назначение |
 |---|---|---|
 | [00-investigation-and-test-hygiene](00-investigation-and-test-hygiene.md) | выполнена 2026-11-03 | Базовый аудит тестов, формирование белого списка skipped, расследование чтения отрядов 14 vs 30 бойцов |
-| [01-screenshot-optimization-and-clustering](01-screenshot-optimization-and-clustering.md) | в очереди | Даунскейл 1600px q80, разметка keyframes, публикация только keyframes с согласованным обновлением AGENTS.md, полный архив в `data/screenshots_archive/` вне git |
+| [01-screenshot-optimization-and-clustering](01-screenshot-optimization-and-clustering.md) | выполнена 2026-11-03 | Даунскейл 1600px q80, разметка keyframes, публикация только keyframes с согласованным обновлением AGENTS.md, полный архив в `data/screenshots_archive/` вне git |
 | [02-ocr-suppression-and-cleanup](02-ocr-suppression-and-cleanup.md) | в очереди | Подавление пустых OCR (`feed.md`, `index.md`, `annotations.jsonl`), обязательный `index.json`, очистка при доставке только внутри screenshots/ |
 | [03-release-sharding-and-payload-reduction](03-release-sharding-and-payload-reduction.md) | в очереди | Очистка публичной проекции `current.json` в `publisher.py`, нормализация `is_stolen`, контракт навыков 1.0, шарды L0/L1/L2, лимит объёма стартового набора выгрузки ($\le$ 140k симв. / $\le$ 40k токенов) |
 | [04-world-reference-slimming](04-world-reference-slimming.md) | в очереди | Публикационная проекция `world_reference.json` без `regions_map` и `source_hashes` (<220k символов), сохранение полного кэша в `data/world` |

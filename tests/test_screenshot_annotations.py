@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.publisher import publish
 from tools.screenshot_clustering import cluster_screenshots, compute_dhash, hamming_distance
@@ -216,8 +217,14 @@ class ScreenshotExtractorTests(unittest.TestCase):
         snap_id = "test_snap_ann"
         _create_sample_snapshot(self.snapshots_dir, snap_id, day=50)
 
+        from tests.image_fixtures import write_test_image
+        from tools import screenshot_publish
+        archive_patcher = patch.object(screenshot_publish, "ARCHIVE_DIR", self.tmp_path / "archive")
+        archive_patcher.start()
+        self.addCleanup(archive_patcher.stop)
+
         shot = self.screens_dir / "screenshot_test.jpg"
-        _create_dummy_image(shot, b"sample_visual_content", mtime=now.timestamp() - 3600)
+        write_test_image(shot, b"sample_visual_content", mtime=now.timestamp() - 3600)
 
         res = publish(
             snapshot_id=snap_id,

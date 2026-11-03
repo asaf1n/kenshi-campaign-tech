@@ -19,9 +19,10 @@ from typing import Any
 
 from tools.io_utils import linked
 
-REPO_DEFAULT_URL = "https://github.com/asaf1n/kenshi-campaign-tech"
-RAW_DEFAULT_URL = f"https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main"
-BLOB_DEFAULT_URL = f"https://github.com/asaf1n/kenshi-campaign-tech/blob/main"
+# Выгрузка читается из репозитория игрового компаньона: ссылки на кадры ведут туда.
+REPO_DEFAULT_URL = "https://github.com/asaf1n/Kenshi-Compain"
+RAW_DEFAULT_URL = "https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main"
+BLOB_DEFAULT_URL = "https://github.com/asaf1n/Kenshi-Compain/blob/main"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 DEFAULT_WINDOW_DAYS = 7
 
@@ -152,7 +153,7 @@ def build_screenshots_index(
     """Формирование контракта kenshi-screenshots-index/1."""
     clean_screenshots = []
     for item in items:
-        clean_screenshots.append({
+        record = {
             "order": item["order"],
             "filename": item["filename"],
             "path": item["path"],
@@ -161,7 +162,11 @@ def build_screenshots_index(
             "sha256": item["sha256"],
             "url_raw": item["url_raw"],
             "url_blob": item["url_blob"],
-        })
+        }
+        for optional in ("source_sha256", "is_keyframe"):
+            if optional in item:
+                record[optional] = item[optional]
+        clean_screenshots.append(record)
 
     return {
         "format": "kenshi-screenshots-index/1",
@@ -189,8 +194,8 @@ def render_screenshots_gallery(index_data: dict[str, Any]) -> str:
         f"- **Окно выборки**: последние {w_days} суток (с `{w_start}` по `{w_end}`)",
         f"- **Количество скриншотов**: {count}",
         "",
-        "Визуальная лента игрового процесса в хронологическом порядке для контекста чат-моделей (ChatGPT, Claude, Gemini). "
-        "Изображения сохраняются в оригинальном разрешении и качестве.",
+        "Ключевые кадры игрового процесса в хронологическом порядке для визуального контекста LLM. "
+        "Кадры уменьшены до 1600 px по длинной стороне; полный набор хранится вне репозитория.",
         "",
     ]
 

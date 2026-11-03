@@ -39,3 +39,6 @@ tests/.evidence/
 
 # Этапные локальные сессии AI-Orchestrated-Workflow исключаются
 # ТОЛЬКО точными путями через .git/info/exclude при запуске конкретного плана.
+
+# Полный архив уменьшенных скриншотов: вне git (можно связать junction с диском облачного хранилища)
+data/screenshots_archive/

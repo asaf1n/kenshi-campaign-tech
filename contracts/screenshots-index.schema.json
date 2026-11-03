@@ -85,6 +85,13 @@
           "url_blob": {
             "type": "string",
             "format": "uri"
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "is_keyframe": {
+            "type": "boolean"
           }
         }
       }

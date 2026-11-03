@@ -18,7 +18,7 @@
 6. `locations.json` — разрешенные пространственные координаты поселений и объектов.
 7. `world_reference.json` — справочник географии, зон, фракций и уникальных персонажей.
 8. `timeline.jsonl` — журнал подтвержденных игровых событий.
-9. `screenshots/` — лента скриншотов за 7 суток (`annotations.jsonl`, `feed.md`, `index.json`, `index.md`).
+9. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`annotations.jsonl`, `feed.md`, `index.json`, `index.md`).
 
 ## Доставка в Kenshi-Compain
 

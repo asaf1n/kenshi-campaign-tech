@@ -1,7 +1,7 @@
 """Автоматические тесты публикации скриншотов Kenshi.
 
 Покрываемые требования:
-1. Публикуются все изображения за последние 7 суток.
+1. Публикуются ключевые кадры за последние 7 суток, уменьшенные до 1600 px (при числе кадров окна до 20 публикуются все).
 2. Изображения старше 7 суток исключаются.
 3. Пограничное время ровно 7 суток обрабатывается корректно (включается).
 4. Старые изображения удаляются из следующей публикации даже без новых скриншотов.
@@ -24,6 +24,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+try:
+    from image_fixtures import write_test_image
+except ImportError:  # запуск как tests.test_screenshots
+    from tests.image_fixtures import write_test_image
+
+from tools import screenshot_publish
 from tools.io_utils import canonical, digest, read_json
 from tools.publisher import PublisherError, publish
 from tools.screenshots import (
@@ -36,19 +42,16 @@ from tools.validation import PublicationValidationError, validate, validate_publ
 
 
 def _make_dummy_jpeg(path: Path, content: bytes = b"dummy_content", mtime: float | None = None) -> None:
-    # Валидный минимальный заголовок JPEG: \xff\xd8 ... \xff\xd9
-    data = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" + content + b"\xff\xd9"
-    path.write_bytes(data)
-    if mtime is not None:
-        os.utime(path, (mtime, mtime))
+    write_test_image(path, content, mtime=mtime)
 
 
 def _make_dummy_png(path: Path, content: bytes = b"dummy_png", mtime: float | None = None) -> None:
-    # Валидный минимальный заголовок PNG
-    data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4" + content + b"\x00\x00\x00\x00IEND\xaeB`\x82"
-    path.write_bytes(data)
-    if mtime is not None:
-        os.utime(path, (mtime, mtime))
+    write_test_image(path, content, mtime=mtime)
+
+
+def _pub(path: Path) -> str:
+    """Имя опубликованного файла: исходное имя и префикс sha256 оригинала, расширение jpg."""
+    return f"{path.stem}-{compute_file_sha256(path)[:8]}.jpg"
 
 
 def _create_sample_snapshot(
@@ -119,8 +122,11 @@ class ScreenshotTests(unittest.TestCase):
 
         self.index_patcher = patch("tools.publisher.DEFAULT_INDEX_PATH", self.root / "index.json")
         self.index_patcher.start()
+        self.archive_patcher = patch.object(screenshot_publish, "ARCHIVE_DIR", self.root / "archive")
+        self.archive_patcher.start()
 
     def tearDown(self) -> None:
+        self.archive_patcher.stop()
         self.index_patcher.stop()
         self.temp_dir.cleanup()
 
@@ -159,17 +165,17 @@ class ScreenshotTests(unittest.TestCase):
         pub_screens = self.published_dir / "screenshots"
         self.assertTrue((pub_screens / "index.json").is_file())
         self.assertTrue((pub_screens / "index.md").is_file())
-        self.assertTrue((pub_screens / "screenshot_1.jpg").is_file())
-        self.assertTrue((pub_screens / "screenshot_2.png").is_file())
-        self.assertTrue((pub_screens / "screenshot_boundary.jpg").is_file())
-        self.assertFalse((pub_screens / "screenshot_old.jpg").exists())
-        self.assertFalse((pub_screens / "screenshot_ancient.jpg").exists())
+        for name in ("screenshot_1.jpg", "screenshot_2.png", "screenshot_boundary.jpg"):
+            self.assertTrue((pub_screens / _pub(self.screens_dir / name)).is_file())
+        self.assertFalse((pub_screens / _pub(self.screens_dir / "screenshot_old.jpg")).exists())
+        self.assertFalse((pub_screens / _pub(self.screens_dir / "screenshot_ancient.jpg")).exists())
 
         idx_data = read_json((pub_screens / "index.json").read_bytes())
         self.assertEqual(idx_data["count"], 3)
         filenames = [s["filename"] for s in idx_data["screenshots"]]
         # Хронологический порядок: старый -> новый
-        self.assertEqual(filenames, ["screenshot_boundary.jpg", "screenshot_2.png", "screenshot_1.jpg"])
+        order = ("screenshot_boundary.jpg", "screenshot_2.png", "screenshot_1.jpg")
+        self.assertEqual(filenames, [_pub(self.screens_dir / n) for n in order])
 
     def test_requirement_4_old_images_pruned_without_new_ones(self) -> None:
         """4. Старые изображения удаляются из следующей публикации даже без появления новых скриншотов."""
@@ -189,7 +195,8 @@ class ScreenshotTests(unittest.TestCase):
             screens_dir=self.screens_dir,
             generated_at=t1.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
-        self.assertTrue((self.published_dir / "screenshots/screen_a.jpg").is_file())
+        pub_a = self.published_dir / "screenshots" / _pub(self.screens_dir / "screen_a.jpg")
+        self.assertTrue(pub_a.is_file())
 
         # Публикация 2 (3 ноября: 26 октября стало > 7 дней; новых файлов НЕТ)
         t2 = datetime(2026, 11, 3, 10, 0, 0, tzinfo=timezone.utc)
@@ -202,8 +209,8 @@ class ScreenshotTests(unittest.TestCase):
             generated_at=t2.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
-        # screen_a.jpg должен быть удален из published/screenshots!
-        self.assertFalse((self.published_dir / "screenshots/screen_a.jpg").exists())
+        # Кадр должен быть удален из published/screenshots!
+        self.assertFalse(pub_a.exists())
         idx_data = read_json((self.published_dir / "screenshots/index.json").read_bytes())
         self.assertEqual(idx_data["count"], 0)
 
@@ -287,7 +294,8 @@ class ScreenshotTests(unittest.TestCase):
             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         prev_manifest = (self.published_dir / "manifest.json").read_bytes()
-        prev_screen = (self.published_dir / "screenshots/screenshot_init.jpg").read_bytes()
+        init_screen = self.published_dir / "screenshots" / _pub(self.screens_dir / "screenshot_init.jpg")
+        prev_screen = init_screen.read_bytes()
 
         # 2. Несуществующий каталог
         bad_dir = self.root / "non_existent_screens"
@@ -302,7 +310,7 @@ class ScreenshotTests(unittest.TestCase):
 
         # Предыдущая публикация сохранена нетронутой!
         self.assertEqual((self.published_dir / "manifest.json").read_bytes(), prev_manifest)
-        self.assertEqual((self.published_dir / "screenshots/screenshot_init.jpg").read_bytes(), prev_screen)
+        self.assertEqual(init_screen.read_bytes(), prev_screen)
 
     def test_requirement_9_index_structure_order_and_urls(self) -> None:
         """9. Индекс содержит корректные ссылки, хеши и хронологический порядок."""
@@ -330,20 +338,23 @@ class ScreenshotTests(unittest.TestCase):
         self.assertEqual(len(items), 2)
         # b_earlier.jpg был раньше, значит order 1
         self.assertEqual(items[0]["order"], 1)
-        self.assertEqual(items[0]["filename"], "b_earlier.jpg")
-        self.assertEqual(items[0]["path"], "screenshots/b_earlier.jpg")
-        self.assertIn("https://raw.githubusercontent.com/", items[0]["url_raw"])
-        self.assertIn("https://github.com/", items[0]["url_blob"])
-        self.assertEqual(items[0]["sha256"], compute_file_sha256(self.published_dir / "screenshots/b_earlier.jpg"))
+        b_name, a_name = _pub(self.screens_dir / "b_earlier.jpg"), _pub(self.screens_dir / "a_later.jpg")
+        self.assertEqual(items[0]["filename"], b_name)
+        self.assertEqual(items[0]["path"], f"screenshots/{b_name}")
+        self.assertTrue(items[0]["is_keyframe"])
+        self.assertEqual(items[0]["source_sha256"], compute_file_sha256(self.screens_dir / "b_earlier.jpg"))
+        self.assertIn("https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/", items[0]["url_raw"])
+        self.assertIn("https://github.com/asaf1n/Kenshi-Compain/", items[0]["url_blob"])
+        self.assertEqual(items[0]["sha256"], compute_file_sha256(self.published_dir / "screenshots" / b_name))
 
         self.assertEqual(items[1]["order"], 2)
-        self.assertEqual(items[1]["filename"], "a_later.jpg")
+        self.assertEqual(items[1]["filename"], a_name)
 
         # Проверка Markdown-галереи
         gallery_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
-        self.assertIn("### 1. b_earlier.jpg", gallery_text)
-        self.assertIn("### 2. a_later.jpg", gallery_text)
-        self.assertIn("![b_earlier.jpg](b_earlier.jpg)", gallery_text)
+        self.assertIn(f"### 1. {b_name}", gallery_text)
+        self.assertIn(f"### 2. {a_name}", gallery_text)
+        self.assertIn(f"![{b_name}]({b_name})", gallery_text)
 
     def test_requirement_10_compatibility_and_validation(self) -> None:
         """10. Публикация скриншотов полностью удовлетворяет validate_publication."""
@@ -408,7 +419,8 @@ class ScreenshotTests(unittest.TestCase):
             screens_dir=self.screens_dir,
             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
-        self.assertTrue((self.published_dir / "screenshots/screen_to_remove.jpg").is_file())
+        removed = self.published_dir / "screenshots" / _pub(self.screens_dir / "screen_to_remove.jpg")
+        self.assertTrue(removed.is_file())
 
         # 2. Очищаем исходный каталог (теперь он доступен, но пуст)
         (self.screens_dir / "screen_to_remove.jpg").unlink()
@@ -423,11 +435,39 @@ class ScreenshotTests(unittest.TestCase):
         )
 
         # screen_to_remove.jpg удален
-        self.assertFalse((self.published_dir / "screenshots/screen_to_remove.jpg").exists())
+        self.assertFalse(removed.exists())
         idx_data = read_json((self.published_dir / "screenshots/index.json").read_bytes())
         self.assertEqual(idx_data["count"], 0)
         gallery_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
         self.assertIn("новые скриншоты не зафиксированы", gallery_text)
+
+
+    def test_keyframes_are_limited_downscaled_and_archived(self) -> None:
+        """13. В выпуск идут не более 30 ключевых кадров не шире 1600 px; весь набор окна сохранён в архиве."""
+        import av
+
+        now = datetime(2026, 11, 3, 12, 0, 0, tzinfo=timezone.utc)
+        for n in range(45):
+            size = (3200, 2000) if n == 0 else (64, 48)
+            write_test_image(
+                self.screens_dir / f"screenshot_{n}.jpg", f"frame{n}".encode(), size=size,
+                mtime=now.timestamp() - 86400 * 3 + n * 600,
+            )
+        snap_id = "snap-keyframes"
+        _create_sample_snapshot(self.snapshots_dir, snap_id)
+        publish(
+            snapshot_id=snap_id, snapshots_dir=self.snapshots_dir, diffs_dir=self.diffs_dir,
+            published_dir=self.published_dir, screens_dir=self.screens_dir,
+            generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        idx_data = read_json((self.published_dir / "screenshots/index.json").read_bytes())
+        self.assertEqual(idx_data["count"], 30)
+        self.assertEqual(len(list((self.root / "archive").glob("*.jpg"))), 45)
+        first = idx_data["screenshots"][0]
+        self.assertEqual(first["filename"], _pub(self.screens_dir / "screenshot_0.jpg"))
+        with av.open(str(self.published_dir / "screenshots" / first["filename"])) as container:
+            frame = next(container.decode(video=0))
+        self.assertEqual((frame.width, frame.height), (1600, 1000))
 
 
 if __name__ == "__main__":
