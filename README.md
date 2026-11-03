@@ -22,6 +22,8 @@ python -m tools.campaign build-world
 python -m tools.campaign check-world --world-ref <world_ref_id_or_path>
 python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main
 python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
+# Дифференциальный анализ за произвольный интервал дней (P0 #4):
+python -m tools.campaign period-diff --from-day 107 --to-day 127 --branch-id main [--campaign-id hot-lon]
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
 python -m tools.campaign publish --snapshot-id <snapshot_id> [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>]
@@ -33,6 +35,8 @@ python -m tools.campaign branch switch <branch_id> [--create] [--name <name>]
 python -m tools.campaign branch tree
 
 # Работа с таймлайном и подтверждёнными событиями; авторские заметки не затираются:
+# Быстрая фиксация подтверждённого события (P0 #5):
+python -m tools.campaign timeline record --summary "Штурм лаборатории завершён" --day 128 --status confirmed
 python -m tools.campaign timeline session --session-id session-001 --snapshot-id <id1> --snapshot-id <id2>
 python -m tools.campaign timeline append <event.json>
 python -m tools.campaign timeline import <events.jsonl>
