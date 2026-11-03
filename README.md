@@ -6,7 +6,7 @@
 
 ## Быстрый старт в PowerShell
 
-Инициализация одной командой: [scripts/Initialize-Pipeline.ps1](scripts/Initialize-Pipeline.ps1) находит каталог игры и сохранения, проверяет Python, `jsonschema`, схемы и справочник мира, выбирает самое свежее сохранение и печатает готовую команду `pipeline`. Ключи: `-Run` (выполнить; после прогона проверяется `validation.status == passed`), `-DryRun`, `-Source <имя или путь>`, `-BuildWorld`, `-Deliver` (после успешной публикации выполнить `deliver-companion`, без push). Чтобы переменные окружения остались в текущей сессии, запускайте через dot-sourcing:
+Инициализация одной командой: [scripts/Initialize-Pipeline.ps1](scripts/Initialize-Pipeline.ps1) находит каталог игры и сохранения, проверяет Python, `jsonschema`, схемы и справочник мира, выбирает самое свежее сохранение и печатает готовую команду `pipeline`. Ключи: `-Run` (выполнить; после прогона проверяется `validation.status == passed`), `-DryRun`, `-Source <имя или путь>`, `-BuildWorld`, `-Deliver` (после успешной публикации доставить в Kenshi-Compain через `--deliver-to`, без push). Чтобы переменные окружения остались в текущей сессии, запускайте через dot-sourcing:
 
 ```powershell
 . .\scripts\Initialize-Pipeline.ps1            # проверки и команда запуска

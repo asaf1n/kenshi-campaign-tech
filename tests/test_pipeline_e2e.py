@@ -1,6 +1,7 @@
 """Сквозной интеграционный тест вертикального среза: extract -> diff -> validate -> render -> publish."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -122,3 +123,32 @@ class PipelineE2ETests(unittest.TestCase):
             val = validate_publication(published_dir)
             self.assertEqual(val["status"], "passed")
             self.assertTrue((published_dir / ".gitkeep").is_file())
+
+    def test_cli_pipeline_deliver_to(self) -> None:
+        """--deliver-to доставляет published/ только после реальной публикации; при --dry-run пропускается."""
+        if not REAL_EXPORT.is_file():
+            self.skipTest(f"Реальный экспорт не найден: {REAL_EXPORT}")
+
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            companion = tmp / "companion"
+            companion.mkdir()
+            published_dir = tmp / "published"
+            published_dir.mkdir()
+            base = [
+                sys.executable, "-m", "tools.campaign", "pipeline",
+                "--source-kind", "export", "--source", str(REAL_EXPORT),
+                "--output", str(tmp / "snapshots"), "--diffs-dir", str(tmp / "diffs"),
+                "--published-dir", str(published_dir),
+                "--campaign-id", "cli-test", "--branch-id", "main",
+                "--deliver-to", str(companion),
+            ]
+            dry = subprocess.run([*base, "--dry-run"], cwd=ROOT, capture_output=True)
+            self.assertEqual(dry.returncode, 0, dry.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(json.loads(dry.stdout)["companion_delivery"]["status"], "skipped")
+            self.assertFalse((companion / "published").exists())
+
+            real = subprocess.run(base, cwd=ROOT, capture_output=True)
+            self.assertEqual(real.returncode, 0, real.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(json.loads(real.stdout)["companion_delivery"]["status"], "delivered")
+            self.assertTrue((companion / "published" / "manifest.json").is_file())

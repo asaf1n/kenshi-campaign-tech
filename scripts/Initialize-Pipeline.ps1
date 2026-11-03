@@ -28,9 +28,8 @@
     каталог "Kenshi Compain", если он существует. Используется только с -Deliver.
 
 .PARAMETER Deliver
-    После успешной публикации выполнить deliver-companion (commit в Kenshi-Compain, без push).
-    Отдельный шаг, а не --deliver-to у pipeline: условие доставки в pipeline читает ключ
-    validation верхнего уровня результата, которого run_pipeline не возвращает.
+    После успешной публикации доставить published/ в Kenshi-Compain (--deliver-to у pipeline:
+    commit в Kenshi-Compain, без push). С -DryRun доставка пропускается.
 
 .PARAMETER Run
     Выполнить pipeline (по умолчанию только подготовка и проверки).
@@ -169,7 +168,10 @@ try {
 
     $pipelineArgs = @('pipeline', '--source-kind', 'save', '--source', $Source,
         '--campaign-id', $CampaignId, '--branch-id', $BranchId)
-    if ($Deliver -and -not $DeliverTo) { throw 'Каталог Kenshi-Compain не найден: задайте -DeliverTo или KENSHI_COMPANION_DIR.' }
+    if ($Deliver) {
+        if (-not $DeliverTo) { throw 'Каталог Kenshi-Compain не найден: задайте -DeliverTo или KENSHI_COMPANION_DIR.' }
+        $pipelineArgs += @('--deliver-to', $DeliverTo)
+    }
     if ($DryRun) { $pipelineArgs += '--dry-run' }
 
     $quoted = ($pipelineArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
@@ -191,10 +193,7 @@ try {
         Write-Info "game_time=$($manifest.game_time), generated_at=$($manifest.generated_at)"
         if ($manifest.validation.warnings) { $manifest.validation.warnings | ForEach-Object { Write-Warn $_ } }
         Write-Info 'validation.status=passed.'
-        if ($Deliver) {
-            Write-Step 'Доставка в Kenshi-Compain'
-            Invoke-Campaign @('deliver-companion', '--companion-dir', $DeliverTo)
-        } else {
+        if (-not $Deliver) {
             Write-Info 'Дальше: проверить git diff published/, commit и push; доставка в Kenshi-Compain: -Deliver.'
         }
     }
