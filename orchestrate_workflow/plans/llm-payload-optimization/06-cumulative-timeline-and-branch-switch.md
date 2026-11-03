@@ -1,31 +1,54 @@
 # 06-cumulative-timeline-and-branch-switch: Накопительная хронология и детектор смены веток
 
 ## Цель
-Решить проблему пустого артефакта `published/timeline.jsonl` и отсутствия фиксации развилок кампании. Реализовать накопительную запись событий таймлайна по цепочке снимков на основе `changes.json`, а также встроить детектор смены ветки сохранения, регистрирующий объект `branch_switch` в манифесте публикации.
+Решить проблему пустой хронологии `published/timeline.jsonl` и отсутствия регистрации развилок кампании. Обеспечить детерминированную сборку цепочки событий таймлайна по дереву снимков с соблюдением контракта `kenshi-event/1`, а также встроить детектор смены ветки сохранения, регистрирующий объект `branch_switch` в манифесте публикации.
 
 ## Решения
-- 2026-11-03. Накопительная модель `timeline.jsonl`: файл не перетирается заново при каждом снимке, а дописывается (append-only) событиями текущего среза относительно `parent_snapshot_id`.
-- 2026-11-03. Схема события `timeline.jsonl` (`contracts/timeline-event.schema.json`):
-  - `game_time` (строка, канонический формат `Day N HH:MM`);
-  - `snapshot_id` (строка, sha256 снимка);
-  - `parent_snapshot_id` (строка или null);
-  - `branch_id` (строка, идентификатор ветки);
-  - `type` (enum: `combat`, `travel`, `recruitment`, `building`, `status_change`, `branch_switch`);
-  - `subjects` (массив идентификаторов или имен затронутых сущностей);
-  - `summary` (строка, лаконичное описание события на русском языке);
-  - `source` (строка, `changes` / `save` / `inferred`).
-- 2026-11-03. События автоматически синтезируются из расчетных дельт `changes.json` (изменения локаций, состава отряда, нокдауны, постройки, смена баланса).
-- 2026-11-03. Детектор смены ветки:
-  - Условие срабатывания: `game_time` текущего снимка меньше `game_time` предыдущего снимка (откат сохранения / reload) ЛИБО `parent_snapshot_id` не совпадает с последним опубликованным снимком целевой ветки.
-  - Поведение: публикатор регистрирует в `manifest.json` блок `branch_switch: {"from_branch": "...", "to_branch": "...", "from_snapshot": "...", "to_snapshot": "...", "reason": "time_rollback|parent_mismatch"}` и генерирует специальное событие типа `branch_switch` в `timeline.jsonl`.
-- 2026-11-03. Синхронно обновляются `docs/data-contract.md` и `contracts/manifest.schema.json`.
+- 2026-11-03. **Детерминированная модель генерации `timeline.jsonl`**:
+  - Таймлайн формируется не через мутабельную дозапись в `published/`, а детерминированно восстанавливается публикатором из индекса снимков ветки (`data/snapshots/` и цепочки `parent_snapshot_id`).
+  - Повторный запуск конвейера на тех же исходных данных гарантированно дает идентичный побайтовый файл `published/timeline.jsonl`.
+- 2026-11-03. **Соблюдение контракта `contracts/timeline-event.schema.json` (`kenshi-event/1`)**:
+  - События, синтезируемые публикатором из дельт `changes.json`, оформляются строго по действующей схеме:
+    - `format`: `"kenshi-event/1"`;
+    - `event_id`: детерминированный ID события;
+    - `snapshot_id`: sha256 текущего среза;
+    - `session_id`: идентификатор сессии;
+    - `recorded_at`: ISO timestamp;
+    - `game_day`: числовой день из среза;
+    - `kind`: тип события (`state_delta`, `location_change`, `squad_change`, `branch_switch`);
+    - `status`: `"inferred"` для автоматических расчетных дельт diff; `"confirmed"` для подтвержденных летописных событий;
+    - `summary`: лаконичное описание на русском языке;
+    - `evidence`: массив подтверждений `[{"kind": "diff", "ref": snapshot_id}]`.
+  - В схему `contracts/timeline-event.schema.json` опционально добавляются свойства `game_time` (строка формата `Day N HH:MM`) и `branch_id` (строка) для сохранения точной хронологической шкалы без нарушения обратной совместимости.
+- 2026-11-03. **Детектор смены ветки (`branch_switch`)**:
+  - Условие фиксации смены ветки:
+    1. Игровое время `game_time` текущего снимка меньше `game_time` предыдущего снимка в цепочке (откат сохранения / reload).
+    2. ИЛИ `parent_snapshot_id` не совпадает с последним зарегистрированным снимком текущей активной ветки.
+  - В `contracts/manifest.schema.json` регистрируется опциональный объект:
+    ```json
+    "branch_switch": {
+      "type": "object",
+      "required": ["from_branch", "to_branch", "reason"],
+      "properties": {
+        "from_branch": {"type": "string"},
+        "to_branch": {"type": "string"},
+        "from_snapshot": {"type": "string"},
+        "to_snapshot": {"type": "string"},
+        "reason": {"type": "string", "enum": ["time_rollback", "parent_mismatch"]}
+      },
+      "additionalProperties": false
+    }
+    ```
+  - При обнаружении смены ветки публикатор записывает объект `branch_switch` в `manifest.json` и генерирует специальное событие с `kind: "branch_switch"` в `timeline.jsonl`.
+- 2026-11-03. Синхронно обновляются `docs/data-contract.md` и `docs/architecture.md`.
 
 ## Этапы задачи
 
-1. **Контракт события таймлайна (`contracts/timeline-event.schema.json`, `docs/data-contract.md`)**. Формализовать схему событий `timeline.jsonl` и расширить схему манифеста объектом `branch_switch`.
-2. **Генератор событий из changes (`tools/timeline.py`, `tools/changes.py`)**. Реализовать трансляцию структурированных изменений `changes.json` в цепочку событий `timeline.jsonl` с сохранением порядка игрового времени.
-3. **Детектор смены веток и накопительная дозапись (`tools/publisher.py`)**. Реализовать проверку отката игрового времени и разрыва `parent_snapshot_id`. Дописывать новые события в `published/timeline.jsonl` без перезаписи исторической цепочки. Формировать метаданные `branch_switch` в манифесте.
-4. **Тесты сценариев цепочки событий (`tests/test_timeline.py`)**.
-   - Тест линейной цепочки (последовательные снимки наращивают таймлайн).
-   - Тест пропуска выпуска (восстановление цепочки по `parent_snapshot_id`).
-   - Тест reload с откатом игрового времени (генерация `branch_switch` и фиксация в манифесте).
+1. **Расширение схемы и контракта (`contracts/timeline-event.schema.json`, `contracts/manifest.schema.json`, `docs/data-contract.md`)**. Добавить опциональные поля `game_time`, `branch_id` в `timeline-event.schema.json`. Зарегистрировать объект `branch_switch` в схеме манифеста.
+2. **Генератор событий таймлайна из дельт diff (`tools/timeline.py`)**. Реализовать детерминированное извлечение значимых изменений из `changes.json` в формате `kenshi-event/1` со статусом `inferred` и ссылкой `evidence`.
+3. **Детектор смены веток и детерминированная сборка (`tools/publisher.py`)**. Встроить проверку отката времени и несовпадения `parent_snapshot_id`. Формировать `branch_switch` в манифесте и собирать непрерывную цепочку `timeline.jsonl` по истории ветки.
+4. **Тесты и верификация (`tests/test_timeline.py`)**.
+   - Тест линейной цепочки (сборка непрерывной истории снимков).
+   - Тест пропуска снимка (корректная привязка по дереву родителей).
+   - Тест отката игрового времени / reload (генерация `branch_switch` и события в таймлайне).
+   - Тест идемпотентности (повторный прогон конвейера выдает идентичный `timeline.jsonl`).
