@@ -26,7 +26,7 @@ python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
 python -m tools.campaign period-diff --from-day 107 --to-day 127 --branch-id main [--campaign-id hot-lon]
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
-python -m tools.campaign publish --snapshot-id <snapshot_id> [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>]
+python -m tools.campaign publish [--snapshot-id <snapshot_id>] [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>] [--screens-dir <screens_dir>]
 python -m tools.campaign index show
 python -m tools.campaign index rebuild [--snapshots-dir data/snapshots]
 python -m tools.campaign index validate
@@ -48,13 +48,24 @@ python -m tools.campaign timeline validate
 
 Параметры окружения имеют предсказуемые значения по умолчанию: автопоиск в реестре и AppData, стандартные каталоги Steam Kenshi и Workshop `233860`. `KENSHI_SAVE_DIRS` поддерживает разделение через `;` для нескольких путей сохранений. `--faction-sid` переопределяет переменную окружения `KENSHI_FACTION_SID`, по умолчанию `204-gamedata.base`. Выходные каталоги не могут перекрываться с защищёнными источниками данных игры.
 
-Артефакты: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (разницы), `data/world_references/<world_ref_id>.json` (справочники мира), `data/locations/<loc_id>.json` (разрешения локаций) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `locations.json`, `world_reference.json`, `timeline.jsonl`, `brief.md`, `squad.md`). При ошибках конвейер возвращает ненулевой exit code `1`, изменения откатываются; сообщения об ошибках выводятся в stderr. Снимки сохранений и справочники мира неизменяемы.
+Артефакты: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (разницы), `data/world_references/<world_ref_id>.json` (справочники мира), `data/locations/<loc_id>.json` (разрешения локаций) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `locations.json`, `world_reference.json`, `timeline.jsonl`, `brief.md`, `squad.md`, `screenshots/` с `index.json`, `index.md` и изображениями за последние 7 суток). При ошибках конвейер возвращает ненулевой exit code `1`, изменения откатываются; сообщения об ошибках выводятся в stderr. Снимки сохранений и справочники мира неизменяемы.
 
 Таймлайн `timeline` (или `event`) ведётся append-only в `timeline/events.jsonl`; `--root` позволяет направить события в отдельную ветку или сессию. `append` добавляет одно JSON-событие, `import` импортирует JSONL с проверкой схемы каждого события. Формат задаётся схемой `contracts/timeline-event.schema.json`; валидный пример в `examples/timeline-event.example.json`; схема требует устойчивый ID и источник с уровнем подтверждения. `observed` фиксирует данные сейва/diff, `confirmed` — проверенные человеком действия/решения, `inferred` — гипотезы модели. Факты не перезаписываются, события ветвятся. `timeline session --notes <notes.md>` регистрирует границы игровой сессии; текст заметок сохраняется. Игровые события получают источник; вывод модели не считается фактом без подтверждения человеком.
 
 Коррекции событий регистрируются с `kind="correction"`, `corrects_event_id=<целевой_ID>`. Они не мутируют исторические строки append-only журнала; целевой ID, тип коррекции и обоснование явно валидируются и отображаются в истории. Команда `timeline list --resolved` выполняет свёртку цепочек коррекций. Конвейеры `publish` и `pipeline` поддерживают прямую интеграцию: проверенные события таймлайна автоматически попадают в публикуемый бандл. Пустые строки и некорректные ID блокируются валидатором. Порядок оформления описан в [контракте данных](docs/data-contract.md#таймлайн-и-события).
 
 Интеграция таймлайна в `publish`/`pipeline` выполняется через `--timeline <events.jsonl>` и `--sessions-root <каталог_сессий>`. Экспорт подтверждённых событий для текущей ветки выполняется в `published/timeline.jsonl` с валидацией схемы, а `render --timeline published/timeline.jsonl` встраивает события в `brief.md` наряду с `current`, `changes` и `locations`. Публикация детерминированна и строго привязана к `snapshot_id`: при отсутствии изменений `generated_at` и SHA-256 сохраняются в `artifacts.timeline`. Попытка публикации некорректного таймлайна прерывает конвейер.
+
+## Визуальная лента скриншотов (`published/screenshots/`)
+
+Конвейер публикации автоматически формирует визуальную ленту скриншотов игры для предоставления контекста чат-моделям (ChatGPT, Claude, Gemini):
+- **Источник**: стандартная папка `<KENSHI_DIR>/_screens` (например, `C:\Program Files (x86)\Steam\steamapps\common\Kenshi\_screens`) либо каталог из переменной `KENSHI_SCREENS_DIR` / флага `--screens-dir`. Каталог всегда используется в режиме **read-only**, оригинальные скриншоты никогда не изменяются и не удаляются.
+- **Окно 7 суток**: публикуются все изображения (`.jpg`, `.jpeg`, `.png`), возраст которых не превышает 7 суток от момента публикации (`now - 7d`). Старые изображения автоматически исключаются из релиза и удаляются из рабочего дерева Git.
+- **Артефакты**:
+  - `published/screenshots/index.json` — машиночитаемый хронологический индекс (`kenshi-screenshots-index/1`) с метаданными, хешами SHA-256 и прямыми Raw/Blob URL.
+  - `published/screenshots/index.md` — галерея изображений с превью `![filename](filename)` для просмотра непосредственно на GitHub.
+  - `published/screenshots/*.jpg` — оригинальные файлы изображений без ухудшения качества и изменения разрешения.
+- **Доступ чат-моделей**: модели обращаются к изображениям по прямым Raw-ссылкам GitHub (`https://raw.githubusercontent.com/...`) либо через нативные инструменты мультимодального анализа (Gemini `read_file`, ChatGPT Python interpreter, просмотр галереи Claude).
 
 ## Постоянные авторские документы кампаний
 
