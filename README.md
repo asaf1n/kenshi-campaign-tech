@@ -15,12 +15,12 @@ $env:KENSHI_SAVE_DIRS = (Join-Path $env:LOCALAPPDATA 'kenshi\save') + ';' + (Joi
 $env:KENSHI_FACTION_SID = '204-gamedata.base'
 
 # Единый конвейер одной командой: extract -> diff -> locate -> validate -> render -> publish
-python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id hot-lon --branch-id main
+python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main
 
 # Либо по отдельным шагам:
 python -m tools.campaign build-world
 python -m tools.campaign check-world --world-ref <world_ref_id_or_path>
-python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id hot-lon --branch-id main
+python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main
 python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
@@ -52,17 +52,17 @@ python -m tools.campaign timeline validate
 
 Интеграция таймлайна в `publish`/`pipeline` выполняется через `--timeline <events.jsonl>` и `--sessions-root <каталог_сессий>`. Экспорт подтверждённых событий для текущей ветки выполняется в `published/timeline.jsonl` с валидацией схемы, а `render --timeline published/timeline.jsonl` встраивает события в `brief.md` наряду с `current`, `changes` и `locations`. Публикация детерминированна и строго привязана к `snapshot_id`: при отсутствии изменений `generated_at` и SHA-256 сохраняются в `artifacts.timeline`. Попытка публикации некорректного таймлайна прерывает конвейер.
 
-## Постоянные авторские документы кампании
+## Постоянные авторские документы кампаний
 
-Для межсессионного хранения подтверждённой истории, ролей, планов и методики используется `Campaign/Хроники Хот Лон/` с файлами `Kenshi_Хроника.md`, `Kenshi_Отряд.md`, `Kenshi_Текущая_арка.md`, `Kenshi_Режимы_и_методика.md`. Это авторские файлы, не часть автоматически создаваемого `published/`; `pipeline` их не переписывает.
+Подтверждённая история, роли, билды, планы и методика каждой кампании хранятся в GitHub под `Campaign/<campaign_name>/`. Общая документация не содержит сюжетных фактов, текущего состояния и решений отдельных прохождений. Авторские файлы не входят в автоматически генерируемый `published/`; `pipeline` их не переписывает.
 
-В новом сеансе чат-ИИ модели при необходимости считывай актуальные четыре файла из одного Git-коммита. Для текущих числовых данных независимо проверяй `published/manifest.json` и используй артефакты его выпуска. При подтверждённом обновлении авторских данных меняй существующие имена без параллельных копий, проверяй diff, обычный commit и удалённое чтение. Запись в GitHub сама по себе не меняет локальные файлы `Kenshi Compain` или Project Sources.
+Чат-ИИ ассистент читает авторские файлы нужной кампании из актуального Git-коммита. Для числового состояния отдельно проверяет `published/manifest.json`, принадлежность выпуска выбранной кампании и данные соответствующего коммита. По подтверждению пользователя авторские документы меняются прямо в GitHub под прежними именами, с проверкой diff и удалённого коммита. GitHub каноничен; Project Sources, Library и вложения чатов автоматически не синхронизируются.
 
 ## Доставка и интеграция с чат-ИИ моделями (AC-13)
 
 Конвейер готовит проверенное игровое состояние для чат-ИИ моделей (LLM ассистентов) в виде release bundle в каталоге `published/`, доставляемого через GitHub.
 
-Постоянные файлы отдельных кампаний хранятся в Git сервиса в `\Campaign\<campaign_name>\`. Это обеспечивает локальный запуск конвейера на ПК игрока, в то время как снимок и история прохождения доступны чат-ИИ ассистенту из любой среды через GitHub в реальном времени.
+Авторские документы отдельных кампаний хранятся непосредственно в GitHub по пути `Campaign/<campaign_name>/`. Локальная среда требуется для чтения исходных сейвов, но не для работы с авторскими документами через GitHub.
 
 ### Состав release bundle
 
@@ -79,7 +79,7 @@ python -m tools.campaign timeline validate
 ### Регламент доставки и верификации
 
 1. **Локальный конвейер**: запустить конвейер обновления (`pipeline`). Убедиться, что код возврата `0`, а `validation.status` в `manifest.json` равен `"passed"`.
-2. **Доставка в GitHub**: после успешной верификации локальный коммит проверенного состояния `published/` и данных кампании фиксируется в репозитории, и выполняется `git push` в удалённый репозиторий `asaf1n/kenshi-campaign-tech` всегда сразу без повторного запроса. Команда `pipeline` сама Git не вызывает; доставка выполняется сразу после проверки.
+2. **Доставка в GitHub**: после успешной верификации локально сформированного `published/` выполняются обычные commit и push без повторного запроса; `pipeline` сам Git не вызывает. Подтверждённые авторские документы редактируются напрямую в GitHub; удалённый коммит уже является доставкой и не требует локального push.
 3. **Проверка удалённого выпуска**: проверить коммит и публикацию `published/manifest.json` в репозитории на GitHub; убедиться, что удалённый хеш коммита соответствует локальному.
 4. **Сверка свежести (freshness test)**: чат-ИИ ассистент считывает актуальные `snapshot_id`, `generated_at` и `world_ref_id` из `manifest.json` и `brief.md` через подключённый проект или веб-интерфейс, подтверждая актуальность игрового дня и времени.
 
