@@ -4,21 +4,22 @@
 
 ## Цель плана
 Оптимизировать артефакты выпуска `published/` технического конвертера `kenshi-campaign-tech` для эффективного потребления моделями в чат-интерфейсах (ChatGPT, Gemini, Claude) и автономными агентами (Codex, Claude Code, Antigravity).
-Устранить критические блокеры: сократить общий размер репозитория со 189 МБ до <30 МБ (лимит импорта Gemini: 100 МБ), подавить генерацию пустых OCR-артефактов (экономия ~235 тыс. токенов), очистить `current.json` от дублирующих `items[].raw` и навыков на 1.0 (−22%), вынести тяжелый RLE-растр из `world_reference.json`, очистить технические sha256-заголовки из Markdown-сводок и настроить валидатор на предупреждение при пустом `timeline.jsonl`.
+Устранить критические блокеры: сократить общий размер репозитория со 189 МБ до <70 МБ (с гарантией соблюдения лимита импорта Gemini 100 МБ), подавить генерацию пустых OCR-артефактов (экономия ~235 тыс. токенов), очистить `current.json` от дублирующих `items[].raw` и дефолтных навыков со значением строго 1.0 (−22%), вынести тяжелый RLE-растр и исходные хеши из публикуемого `world_reference.json` (сокращение с 650k до ~203k символов, −68%), очистить технические sha256-заголовки из Markdown-сводок и настроить валидатор на передачу предупреждений (`validation.warnings`) при пустом `timeline.jsonl` с сохранением статуса `passed` для доставки.
 
 ## Инварианты и архитектурные границы
 1. **Строгий read-only для оригинальных сейвов и скриншотов**: входной каталог `_screens` и файлы сохранений игры не изменяются.
 2. **Детерминированность вывода**: повторный прогон конвейера на тех же входных данных не приводит к искажению числовых показателей отряда.
-3. **Обратная совместимость контрактов**: обязательные поля манифеста `kenshi-publication/1` и схемы `contracts/` сохраняются. Несовместимые изменения изолируются версионированием.
+3. **Обратная совместимость контрактов**: обязательные поля манифеста `kenshi-publication/1` и схемы `contracts/` сохраняются. Несовместимые изменения изолируются версионированием и синхронным обновлением схем.
 4. **Служебные данные за кадром**: читаемые человеком и LLM документы (`brief.md`, `squad.md`) не содержат сырых sha256-хэшей в заголовках.
-5. **Обязательные проверки**: каждый этап валидируется локальными unit-тестами, `python tests/check_seed.py` и полным прогоном `python tests/run_evidence.py`.
+5. **Синхронность документации**: при расширении схем и публикации обновляются `docs/data-contract.md`, `docs/architecture.md`, `AGENTS.md` и `README.md`.
+6. **Обязательные проверки**: каждый этап валидируется локальными unit-тестами, `python tests/check_seed.py` и полным прогоном `python tests/run_evidence.py`.
 
 ## Очередь задач
 
 | Задача | Состояние очереди | Назначение |
 |---|---|---|
-| [01-screenshot-optimization-and-clustering](01-screenshot-optimization-and-clustering.md) | открыта | Сжатие кадров до 1600 px q80, временная кластеризация сессий и отбор ключевых кадров (сокращение объема с 187 МБ до <10 МБ) |
-| [02-ocr-suppression-and-cleanup](02-ocr-suppression-and-cleanup.md) | в очереди | Подавление публикации `feed.md`, `index.md`, `annotations.jsonl` при отсутствии распознанного OCR (экономия 235k токенов) |
-| [03-release-sharding-and-payload-reduction](03-release-sharding-and-payload-reduction.md) | в очереди | Очистка `current.json` (удаление `items[].raw`, `hidden_stats_raw`, default 1.0 skills), шардирование L0/L1/L2 и подготовка `chat-pack/` |
-| [04-world-reference-slimming](04-world-reference-slimming.md) | в очереди | Вынос RLE-растра `regions_map` (420 КБ) и `source_hashes` (81 КБ) в технический файл геометрии, облегчение семантического справочника |
-| [05-validation-and-headers](05-validation-and-headers.md) | в очереди | Очистка sha256-заголовков в `brief.md`/`squad.md`, обработка пустого `timeline.jsonl` (warning вместо passed), сквозная приемка |
+| [01-screenshot-optimization-and-clustering](01-screenshot-optimization-and-clustering.md) | открыта | Сжатие кадров до 1600 px q80 (<60 МБ суммарно), временная кластеризация сессий (`dt <= 180s`), отбор keyframes и обновление схемы индекса |
+| [02-ocr-suppression-and-cleanup](02-ocr-suppression-and-cleanup.md) | в очереди | Подавление публикации `feed.md`, `index.md`, `annotations.jsonl` при отсутствии содержательного OCR (экономия 235k токенов) и очистка при доставке |
+| [03-release-sharding-and-payload-reduction](03-release-sharding-and-payload-reduction.md) | в очереди | Очистка `current.json` (удаление `items[].raw`, `hidden_stats_raw`, навыков строго 1.0), шардирование L0/L1/L2, доставка `current/` и `chat-pack/` |
+| [04-world-reference-slimming](04-world-reference-slimming.md) | в очереди | Публикационная проекция `world_reference.json` без `regions_map` и `source_hashes` (<220k символов), сохранение полного кэша в `data/world` |
+| [05-validation-and-headers](05-validation-and-headers.md) | в очереди | Очистка sha256-заголовков в `brief.md`/`squad.md`, передача `validation.warnings` (с префиксом `artifact:`) при пустом `timeline.jsonl`, сквозная доставка |
