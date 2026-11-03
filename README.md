@@ -6,6 +6,13 @@
 
 ## Быстрый старт в PowerShell
 
+Инициализация одной командой: [scripts/Initialize-Pipeline.ps1](scripts/Initialize-Pipeline.ps1) находит каталог игры и сохранения, проверяет Python, `jsonschema`, схемы и справочник мира, выбирает самое свежее сохранение и печатает готовую команду `pipeline`. Ключи: `-Run` (выполнить; после прогона проверяется `validation.status == passed`), `-DryRun`, `-Source <имя или путь>`, `-BuildWorld`, `-Deliver` (после успешной публикации выполнить `deliver-companion`, без push). Чтобы переменные окружения остались в текущей сессии, запускайте через dot-sourcing:
+
+```powershell
+. .\scripts\Initialize-Pipeline.ps1            # проверки и команда запуска
+.\scripts\Initialize-Pipeline.ps1 -Run          # проверки и конвейер
+```
+
 Все переменные окружения опциональны. `.env.example` содержит значения; `.env` читается при наличии. Канонический запуск на локальной машине пользователя:
 
 ```powershell
@@ -218,6 +225,7 @@ python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 
 ## Структура репозитория
 
+- `scripts/`: PowerShell-обёртки для локального запуска (`Initialize-Pipeline.ps1`).
 - `tools/`: нативный изолированный движок (бинарный парсер GameData, индексатор GameDB, SaveReader, расчет характеристик экипировки, расчет протезов, экспорт сессий, diff, географический локатор, публикатор, таймлайн, доставщик в Kenshi-Compain).
 - `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и валидные примеры.
 - `tests/`: модульные и интеграционные тесты; `tests/.evidence/` содержит доказательства прогонов для аудита.
