@@ -1,9 +1,9 @@
 # Техническая лента скриншотов Kenshi
 
-- **Сформировано**: `2026-11-03T06:02:36Z`
-- **Окно выборки**: последние 7 суток (с `2026-10-27T06:02:36Z` по `2026-11-03T06:02:36Z`)
-- **Всего скриншотов в окне**: 338
-- **Сгруппировано серий/кадров**: 312
+- **Сформировано**: `2026-11-03T06:53:17Z`
+- **Окно выборки**: последние 7 суток (с `2026-10-27T06:53:17Z` по `2026-11-03T06:53:17Z`)
+- **Всего скриншотов в окне**: 343
+- **Сгруппировано серий/кадров**: 316
 
 Техническая лента сгруппированных по сходству кадров с извлеченным текстом интерфейса (OCR). Интерпретация происходящего в игре полностью принадлежит LLM-компаньону по оригинальным изображениям.
 
@@ -4377,7 +4377,7 @@
 
 ### Серия 311 (1 кадр)
 
-- **Файловое время**: с `2026-11-03T04:09:00Z` по `2026-11-03T04:09:00Z`
+- **Файловое время**: с `2026-11-03T03:57:33Z` по `2026-11-03T03:57:33Z`
 - **Игровое время (OCR)**: `Не зафиксировано в UI`
 - **Локация (OCR)**: Не зафиксирована в UI
 - **Персонажи в UI (OCR)**: Не зафиксированы в UI
@@ -4391,7 +4391,7 @@
 
 ### Серия 312 (1 кадр)
 
-- **Файловое время**: с `2026-11-03T04:09:00Z` по `2026-11-03T04:09:00Z`
+- **Файловое время**: с `2026-11-03T04:06:25Z` по `2026-11-03T04:06:25Z`
 - **Игровое время (OCR)**: `Не зафиксировано в UI`
 - **Локация (OCR)**: Не зафиксирована в UI
 - **Персонажи в UI (OCR)**: Не зафиксированы в UI
@@ -4400,5 +4400,62 @@
 - [screenshot_420.jpg](screenshot_420.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_420.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_420.jpg))
 
 ![screenshot_420.jpg](screenshot_420.jpg)
+
+---
+
+### Серия 313 (1 кадр)
+
+- **Файловое время**: с `2026-11-03T06:38:17Z` по `2026-11-03T06:38:17Z`
+- **Игровое время (OCR)**: `Не зафиксировано в UI`
+- **Локация (OCR)**: Не зафиксирована в UI
+- **Персонажи в UI (OCR)**: Не зафиксированы в UI
+
+**Кадры серии:**
+- [screenshot_421.jpg](screenshot_421.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_421.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_421.jpg))
+
+![screenshot_421.jpg](screenshot_421.jpg)
+
+---
+
+### Серия 314 (1 кадр)
+
+- **Файловое время**: с `2026-11-03T06:38:58Z` по `2026-11-03T06:38:58Z`
+- **Игровое время (OCR)**: `Не зафиксировано в UI`
+- **Локация (OCR)**: Не зафиксирована в UI
+- **Персонажи в UI (OCR)**: Не зафиксированы в UI
+
+**Кадры серии:**
+- [screenshot_422.jpg](screenshot_422.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_422.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_422.jpg))
+
+![screenshot_422.jpg](screenshot_422.jpg)
+
+---
+
+### Серия 315 (2 кадра)
+
+- **Файловое время**: с `2026-11-03T06:40:05Z` по `2026-11-03T06:40:43Z`
+- **Игровое время (OCR)**: `Не зафиксировано в UI`
+- **Локация (OCR)**: Не зафиксирована в UI
+- **Персонажи в UI (OCR)**: Не зафиксированы в UI
+
+**Кадры серии:**
+- [screenshot_423.jpg](screenshot_423.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_423.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_423.jpg))
+- [screenshot_424.jpg](screenshot_424.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_424.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_424.jpg))
+
+![screenshot_423.jpg](screenshot_423.jpg)
+
+---
+
+### Серия 316 (1 кадр)
+
+- **Файловое время**: с `2026-11-03T06:49:05Z` по `2026-11-03T06:49:05Z`
+- **Игровое время (OCR)**: `Не зафиксировано в UI`
+- **Локация (OCR)**: Не зафиксирована в UI
+- **Персонажи в UI (OCR)**: Не зафиксированы в UI
+
+**Кадры серии:**
+- [screenshot_425.jpg](screenshot_425.jpg) ([GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_425.jpg) | [Raw](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_425.jpg))
+
+![screenshot_425.jpg](screenshot_425.jpg)
 
 ---

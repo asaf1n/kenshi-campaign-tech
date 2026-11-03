@@ -1,8 +1,8 @@
-# Краткая сводка: sha256-2181214367f6719019d37694239a7766365e00fdcb75091656279051ca7a5203
+# Краткая сводка: sha256-d6c01ae2b72c982e2f138b0726cb8ac60ee39e5e2b7ebfac6497a4336f100bd3
 
 ## Игровой мир
-- **Время:** День 130, время 21:31
-- **Баланс:** 35 719 кат.
+- **Время:** День 131, время 06:34
+- **Баланс:** 37 543 кат.
 
 ## Состав отряда
 - **Всего персонажей:** 30 (гуманоидов: 27, животных: 3)
@@ -55,7 +55,7 @@
 - **Сводка:** 2 союзников, 5 дружественных, 59 нейтральных, 26 враждебных
 
 ## Состояние мира (World States)
-- **Уникальные NPC:** Тень (dead_or_captured (player involved)), Баян (active_world), Sword for hire revenge (active_world), Лорд Широ (active_world), Орон (active_world), Шрайк (active_world), Туз Эл (dead_or_captured (player involved)), Хоббс (active_world), Skeleton recruit 2500 swamp 2 (active_world), Молл (active_world), Туз Темнобров (unaffected), Сэто (captured (carried by squad) — несёт Хоббс), Sword for hire 10 (Empire) (active_world), Гаррет (active_world), Чад (active_world), Зелёный палец (active_world), Великий шаман (dead_or_captured (player involved)), Крошка Джон (active_world), Мью (active_world), Конь (active_world), Вынос мозга (active_world), Лорд Инаба (active_world), Горрилло (dead_or_captured (player involved)), Каменный Голем Эсата (active_world), Леди Суги (active_world), Territorial Thug (unaffected), Король (dead_or_captured (player involved)), Инквизитор Валтэна (active_world), Самоцвет (active_world), Хамут (active_world), Рева (active_world), Рука (active_world), Изуми (active_world), Король Доспехов (active_world), hire engineer wall man (active_world), Бард (active_world), Синеглазка (active_world), Бузан (unaffected), Пон (dead_or_captured (player involved)), Димак (unaffected), Живоглотья башка (active_world), Инквизитор Сэта (active_world), Большой белый горилло (unaffected), Стабс момусо (unaffected), Зелёный (active_world), Ложный крикун (dead_or_captured (player involved)), Вечный Суньвынь (active_world), Пиа (active_world), Туз Серый (unaffected), Главарь (unaffected), Призрак (active_world), Раб Гаррета (active_world), Королева (active_world), Гигант Ранэ (active_world), Они (active_world), Летящий Бык (unaffected), Дина (active_world), Рэй (active_world), Мани (active_world), Ожог (active_world), Кан (active_world), Соман (active_world), Йо (active_world), Седая тень (active_world), Финч (active_world), Бип (active_world), Святой Лорд Феникс (dead_or_captured (player involved)), Туз Злюка (unaffected), Дуга (active_world), Хозяин рынка (active_world), Ридли (active_world), Бритва (active_world), Туз Клык (active_world), Гриффин (active_world), Бесстрашная Тора (dead_or_captured (player involved)), Мрачный Нил (active_world), Доктор Чон (active_world), Кот (active_world), Финка (active_world), Ану (active_world)
+- **Уникальные NPC:** Финка (active_world), Мрачный Нил (active_world), Гриффин (active_world), Бритва (active_world), Ридли (active_world), Хозяин рынка (active_world), Дуга (active_world), Туз Злюка (unaffected), Святой Лорд Феникс (dead_or_captured (player involved)), Бип (active_world), Финч (active_world), Йо (active_world), Соман (active_world), Ожог (active_world), Кан (active_world), Рэй (active_world), Туз Клык (active_world), Летящий Бык (unaffected), Они (active_world), Гигант Ранэ (active_world), Раб Гаррета (active_world), Стабс момусо (unaffected), Инквизитор Сэта (active_world), Туз Серый (unaffected), Живоглотья башка (active_world), Пон (dead_or_captured (player involved)), Бузан (unaffected), Бард (active_world), Димак (unaffected), Дина (active_world), hire engineer wall man (active_world), Королева (active_world), Рева (active_world), Хамут (active_world), Леди Суги (active_world), Доктор Чон (active_world), Бесстрашная Тора (dead_or_captured (player involved)), Конь (active_world), Великий шаман (dead_or_captured (player involved)), Главарь (unaffected), Крошка Джон (active_world), Зелёный палец (active_world), Чад (captured (carried by squad) — несёт Флик), Мью (active_world), Гаррет (active_world), Сэто (captured (carried by squad) — несёт Хоббс), Король (dead_or_captured (player involved)), Горрилло (dead_or_captured (player involved)), Рука (active_world), Туз Темнобров (unaffected), Изуми (active_world), Skeleton recruit 2500 swamp 2 (active_world), Хоббс (active_world), Большой белый горилло (unaffected), Седая тень (active_world), Лорд Инаба (active_world), Шрайк (active_world), Вечный Суньвынь (active_world), Пиа (active_world), Синеглазка (active_world), Орон (active_world), Sword for hire 10 (Empire) (active_world), Sword for hire revenge (active_world), Баян (active_world), Тень (dead_or_captured (player involved)), Ложный крикун (dead_or_captured (player involved)), Мани (active_world), Territorial Thug (unaffected), Король Доспехов (active_world), Зелёный (active_world), Молл (active_world), Самоцвет (active_world), Призрак (active_world), Лорд Широ (active_world), Каменный Голем Эсата (active_world), Инквизитор Валтэна (active_world), Вынос мозга (active_world), Кот (active_world), Ану (active_world)
 - **Переопределённые города:** Акула (41162-Dialogue.mod), Бугристый Холм (1083-gamedata.base), Гниль (51331-rebirth.mod), Деревня Серодёров (41162-Dialogue.mod), Кулак Окрана (1083-gamedata.base), Новая Кралия (51357-rebirth.mod), Плохие Зубы (1083-gamedata.base), Святая военная база (18893-rebirth.mod), Святая военная база (18893-rebirth.mod)
 
 ## Складской баланс по базам и поселениям
@@ -63,13 +63,13 @@
 - **16.37** (5 зданий, 6 ед. хранения): 42334-changes_otto.mod: 6 шт.
 - **17.31** (2 зданий, 0 ед. хранения): склады пусты
 - **18.34** (1 зданий, 0 ед. хранения): склады пусты
-- **18.35** (77 зданий, 431 ед. хранения): 42164-gamedata.base: 60 шт., 42159-gamedata.base: 53 шт., 43395-changes_otto.mod: 26 шт., 42158-gamedata.base: 22 шт., 2288-gamedata.base: 19 шт. (ещё 78 поз.)
+- **18.35** (77 зданий, 427 ед. хранения): 42164-gamedata.base: 60 шт., 42159-gamedata.base: 53 шт., 43395-changes_otto.mod: 26 шт., 42158-gamedata.base: 22 шт., 2288-gamedata.base: 19 шт. (ещё 81 поз.)
 - **19.35** (1 зданий, 0 ед. хранения): склады пусты
 - **20.13** (1 зданий, 0 ед. хранения): склады пусты
 - **20.32** (12 зданий, 13 ед. хранения): 96014-rebirth.mod: 3 шт., 42334-changes_otto.mod: 1 шт., 43959-rebirth.mod: 1 шт., 43957-rebirth.mod: 1 шт., 1359-gamedata.base: 1 шт. (ещё 6 поз.)
 - **21.31** (6 зданий, 10 ед. хранения): 42334-changes_otto.mod: 9 шт., 42243-rebirth.mod: 1 шт.
 - **24.13** (2 зданий, 0 ед. хранения): склады пусты
-- **24.40** (22 зданий, 435 ед. хранения): 1965-gamedata.base: 390 шт., 515-gamedata.base: 8 шт., 43957-rebirth.mod: 6 шт., 42158-gamedata.base: 6 шт., 42159-gamedata.base: 5 шт. (ещё 10 поз.)
+- **24.40** (22 зданий, 522 ед. хранения): 1965-gamedata.base: 436 шт., 42307-changes_otto.mod: 46 шт., 515-gamedata.base: 8 шт., 43957-rebirth.mod: 6 шт., 42158-gamedata.base: 6 шт. (ещё 11 поз.)
 - **25.49** (9 зданий, 0 ед. хранения): склады пусты
 - **35.42** (11 зданий, 120 ед. хранения): 1965-gamedata.base: 72 шт., 43959-rebirth.mod: 9 шт., 1914-gamedata.base: 8 шт., 42159-gamedata.base: 4 шт., 43960-rebirth.mod: 4 шт. (ещё 9 поз.)
 - **Деревня Серодёров** (3 зданий, 0 ед. хранения): склады пусты
@@ -80,10 +80,10 @@
 
 ## Доступные местоположения
 ### Расположение групп отряда
-- **Скуин** (`in_location`): 22 участников [fx (`ps:-843917568`), Ану (`ps:1359130880`), Бип (`ps:-1572677376`), Вечный Суньвынь (`ps:398315424`), Вынос мозга (`ps:1464721664`), Вьючный бык (`ps:35522460`), Гигант Ранэ (`ps:1671874944`), Гриффин (`ps:145629888`), Доктор Чон (`ps:175903328`), Зелёный (`ps:1758056704`), Кан (`ps:-1346969344`), Кот (`ps:1006225600`), Крошка Джон (`ps:-383834368`), Мрачный Нил (`ps:-456466432`), Ожог (`ps:1441040000`), Пиа (`ps:-2041915648`), Ридли (`ps:1665649408`), Рука (`ps:-1715743744`), Флик (`ps:1106567424`), Хамут (`ps:1223510784`), Хот Лон (`ps:827270528`), Шрайк (`ps:-476241664`)]
-- **Окрестности Деревня Серодёров** (`near_location`): 4 участников [Вик (`ps:-941451776`), Вьючный бык (`ps:1856201216`), Мью (`ps:2093017600`), Седая тень (`ps:706176768`)]
-- **Окрестности Скуин** (`near_location`): 2 участников [Сэто (`ps:-474044416`), Хоббс (`ps:-1002242560`)]
-- **Регион Болото** (`in_region`): 2 участников [Зелёный палец (`ps:621948224`), Чад (`ps:2077026304`)]
+- **Скуин** (`in_location`): 23 участников [fx (`ps:-843917568`), Ану (`ps:1359130880`), Бип (`ps:-1572677376`), Вечный Суньвынь (`ps:398315424`), Вынос мозга (`ps:1464721664`), Вьючный бык (`ps:35522460`), Гигант Ранэ (`ps:1671874944`), Гриффин (`ps:145629888`), Доктор Чон (`ps:175903328`), Зелёный (`ps:1758056704`), Кан (`ps:-1346969344`), Кот (`ps:1006225600`), Крошка Джон (`ps:-383834368`), Мрачный Нил (`ps:-456466432`), Ожог (`ps:1441040000`), Пиа (`ps:-2041915648`), Ридли (`ps:1665649408`), Рука (`ps:-1715743744`), Сэто (`ps:-474044416`), Хамут (`ps:1223510784`), Хоббс (`ps:-1002242560`), Хот Лон (`ps:827270528`), Шрайк (`ps:-476241664`)]
+- **Окрестности Деревня Серодёров** (`near_location`): 3 участников [Вик (`ps:-941451776`), Зелёный палец (`ps:621948224`), Седая тень (`ps:706176768`)]
+- **Регион Болото** (`in_region`): 2 участников [Вьючный бык (`ps:1856201216`), Мью (`ps:2093017600`)]
+- **Регион Пограничная зона** (`in_region`): 2 участников [Флик (`ps:1106567424`), Чад (`ps:2077026304`)]
 
 ### Собственность и базы
 - `14.2:7405-zone14.2-INGAME`: регион **Берег левиафанов** (`in_region`)
@@ -134,86 +134,59 @@
 - `35.42:46-Newwworld-INGAME`: город **Ровная лагуна** (`in_location`, d = 916.7 м)
 
 ### Перемещения между снимками
-- **Ану** (`ps:1359130880`): South Wetlands -> Squin (прямолинейное смещение: 53809.6 м)
-- **Бип** (`ps:-1572677376`): Squin -> Squin (прямолинейное смещение: 49.3 м)
-- **Вик** (`ps:-941451776`): The Swamp -> The Swamp (прямолинейное смещение: 22394.8 м)
-- **Вынос мозга** (`ps:1464721664`): Squin -> Squin (прямолинейное смещение: 1.5 м)
-- **Вьючный бык** (`ps:1856201216`): The Swamp -> The Swamp (прямолинейное смещение: 22337.8 м)
-- **Вьючный бык** (`ps:35522460`): South Wetlands -> Squin (прямолинейное смещение: 54107.6 м)
-- **Гигант Ранэ** (`ps:1671874944`): Squin -> Squin (прямолинейное смещение: 20.3 м)
-- **Гриффин** (`ps:145629888`): Squin -> Squin (прямолинейное смещение: 76.2 м)
-- **Доктор Чон** (`ps:175903328`): Squin -> Squin (прямолинейное смещение: 61.5 м)
-- **Зелёный палец** (`ps:621948224`): The Swamp -> The Swamp (прямолинейное смещение: 22006.9 м)
-- **Кан** (`ps:-1346969344`): South Wetlands -> Squin (прямолинейное смещение: 54181.0 м)
-- **Кот** (`ps:1006225600`): Squin -> Squin (прямолинейное смещение: 158.9 м)
-- **Крошка Джон** (`ps:-383834368`): Squin -> Squin (прямолинейное смещение: 48.9 м)
-- **Мрачный Нил** (`ps:-456466432`): South Wetlands -> Squin (прямолинейное смещение: 54233.8 м)
-- **Мью** (`ps:2093017600`): The Swamp -> The Swamp (прямолинейное смещение: 162.3 м)
-- **Ожог** (`ps:1441040000`): South Wetlands -> Squin (прямолинейное смещение: 54282.6 м)
-- **Пиа** (`ps:-2041915648`): The Swamp -> Squin (прямолинейное смещение: 13975.6 м)
-- **Ридли** (`ps:1665649408`): South Wetlands -> Squin (прямолинейное смещение: 54227.6 м)
-- **Рука** (`ps:-1715743744`): South Wetlands -> Squin (прямолинейное смещение: 54200.8 м)
-- **Седая тень** (`ps:706176768`): The Swamp -> The Swamp (прямолинейное смещение: 21994.1 м)
-- **Сэто** (`ps:-474044416`): Border Zone -> Border Zone (прямолинейное смещение: 11204.9 м)
-- **Флик** (`ps:1106567424`): The Swamp -> Squin (прямолинейное смещение: 13952.9 м)
-- **Хамут** (`ps:1223510784`): Squin -> Squin (прямолинейное смещение: 71.7 м)
-- **Хоббс** (`ps:-1002242560`): The Swamp -> Border Zone (прямолинейное смещение: 12982.5 м)
-- **Хот Лон** (`ps:827270528`): South Wetlands -> Squin (прямолинейное смещение: 53812.3 м)
-- **Чад** (`ps:2077026304`): The Swamp -> The Swamp (прямолинейное смещение: 9110.5 м)
-- **Шрайк** (`ps:-476241664`): The Swamp -> Squin (прямолинейное смещение: 13966.5 м)
+- **Ану** (`ps:1359130880`): Squin -> Squin (прямолинейное смещение: 983.2 м)
+- **Вечный Суньвынь** (`ps:398315424`): Squin -> Squin (прямолинейное смещение: 66.9 м)
+- **Вик** (`ps:-941451776`): The Swamp -> The Swamp (прямолинейное смещение: 212.1 м)
+- **Вьючный бык** (`ps:1856201216`): The Swamp -> The Swamp (прямолинейное смещение: 9529.5 м)
+- **Гигант Ранэ** (`ps:1671874944`): Squin -> Squin (прямолинейное смещение: 393.3 м)
+- **Зелёный палец** (`ps:621948224`): The Swamp -> The Swamp (прямолинейное смещение: 319.1 м)
+- **Кот** (`ps:1006225600`): Squin -> Squin (прямолинейное смещение: 141.9 м)
+- **Мью** (`ps:2093017600`): The Swamp -> The Swamp (прямолинейное смещение: 632.9 м)
+- **Пиа** (`ps:-2041915648`): Squin -> Squin (прямолинейное смещение: 1283.7 м)
+- **Рука** (`ps:-1715743744`): Squin -> Squin (прямолинейное смещение: 0.6 м)
+- **Седая тень** (`ps:706176768`): The Swamp -> The Swamp (прямолинейное смещение: 482.1 м)
+- **Сэто** (`ps:-474044416`): Border Zone -> Squin (прямолинейное смещение: 2379.9 м)
+- **Флик** (`ps:1106567424`): Squin -> Border Zone (прямолинейное смещение: 5812.1 м)
+- **Хоббс** (`ps:-1002242560`): Border Zone -> Squin (прямолинейное смещение: 2379.9 м)
+- **Хот Лон** (`ps:827270528`): Squin -> Squin (прямолинейное смещение: 1291.1 м)
+- **Чад** (`ps:2077026304`): The Swamp -> Border Zone (прямолинейное смещение: 20171.9 м)
+- **Шрайк** (`ps:-476241664`): Squin -> Squin (прямолинейное смещение: 1284.6 м)
 
 ## Ключевые изменения
-- **Смена отряда (1):** Вик (`ps:-941451776`: Безымянные_3 -> Безымянные_5)
-- **Смена статуса (7):** Вьючный бык (`ps:1856201216`: unconscious=True), Зелёный палец (`ps:621948224`: coma=False), Зелёный палец (`ps:621948224`: unconscious=False), Мью (`ps:2093017600`: coma=False), Мью (`ps:2093017600`: unconscious=False), Седая тень (`ps:706176768`: coma=False), Седая тень (`ps:706176768`: unconscious=False)
-- **Перемещения предметов (4):**
-  - `Хорошая аптечка`: от [Мрачный Нил (-1)] к [Флик (+2)]
-  - `Сухой паёк`: от [Мью (-1)] к [Зелёный палец (+2)]
-  - `Шаурма`: от [Чад (-1)] к [Флик (+5)]
-  - `Стандартная аптечка`: от [Ану (-1)] к [Мью (+1)]
-- **Изменения навыков:** у 21 участников
-  - Ану (`ps:1359130880`): Athletics: 85.11 -> 85.39, Dexterity: 47.07 -> 47.29, Dodge: 41.42 -> 41.54, Field Medic: 17.12 -> 17.47, Martial Arts: 41.67 -> 41.93, Robotics: 35.81 -> 35.9, Swimming: 37.32 -> 38.58, Toughness: 47.63 -> 47.71
-  - Бип (`ps:-1572677376`): Field Medic: 16.69 -> 16.7, Robotics: 9.57 -> 9.58
-  - Вик (`ps:-941451776`): Athletics: 66.61 -> 67.12, Dexterity: 19.26 -> 19.79, Dodge: 24.87 -> 26.69, Engineering: 43.99 -> 44.02, Field Medic: 15.0 -> 15.92, Martial Arts: 7.78 -> 8.24, Melee Attack: 32.41 -> 32.66, Melee Defence: 43.31 -> 43.41, Polearms: 27.12 -> 27.53, Robotics: 41.13 -> 41.65, Strength: 31.85 -> 31.86, Swimming: 17.84 -> 17.85, Toughness: 44.67 -> 45.5, mass combat: 28.53 -> 28.72
-  - Вьючный бык (`ps:1856201216`): Athletics: 57.46 -> 58.17, Dexterity: 32.84 -> 33.69, Martial Arts: 19.46 -> 20.91, Melee Attack: 23.54 -> 24.87, Melee Defence: 32.6 -> 33.76, Strength: 26.29 -> 26.36, Swimming: 11.63 -> 17.16, Toughness: 27.81 -> 29.72, mass combat: 1.78 -> 1.82
-  - Вьючный бык (`ps:35522460`): Athletics: 86.61 -> 86.8, Dexterity: 56.15 -> 56.51, Martial Arts: 52.33 -> 52.8, Melee Attack: 54.96 -> 55.42, Melee Defence: 55.91 -> 56.58, Strength: 32.94 -> 33.0, Swimming: 38.83 -> 39.5, Toughness: 53.98 -> 54.07
-  - Гриффин (`ps:145629888`): Robotics: 1.55 -> 1.56
-  - Зелёный палец (`ps:621948224`): Athletics: 25.67 -> 28.39, Dexterity: 1.62 -> 2.4, Dodge: 6.74 -> 7.25, Engineering: 25.63 -> 26.14, Field Medic: 5.2 -> 5.7, Katanas: 1.05 -> 1.39, Lockpicking: 14.61 -> 15.49, Martial Arts: 1.0 -> 1.47, Melee Attack: 14.99 -> 15.18, Melee Defence: 4.57 -> 5.88, Robotics: 1.01 -> 1.93, Swimming: 10.05 -> 16.46, Toughness: 8.92 -> 10.22
-  - Кан (`ps:-1346969344`): Athletics: 82.63 -> 82.91, Dexterity: 50.88 -> 51.06, Dodge: 17.86 -> 18.46, Field Medic: 41.52 -> 41.6, Melee Attack: 64.63 -> 64.78, Melee Defence: 52.94 -> 53.23, Robotics: 16.63 -> 16.7, Sabres: 55.1 -> 55.26, Strength: 45.04 -> 45.11, Swimming: 43.99 -> 44.54, Toughness: 58.18 -> 58.24, mass combat: 191.53 -> 192.43
-  - Мрачный Нил (`ps:-456466432`): Athletics: 83.78 -> 84.11, Dexterity: 44.65 -> 44.74, Field Medic: 26.46 -> 26.61, Melee Attack: 55.55 -> 55.64, Polearms: 52.95 -> 53.05, Robotics: 40.81 -> 40.92, Strength: 38.12 -> 38.16, Swimming: 45.51 -> 45.86, mass combat: 135.13 -> 135.69
-  - Мью (`ps:2093017600`): Athletics: 32.83 -> 32.94, Dexterity: 19.52 -> 19.83, Engineering: 23.38 -> 23.41, Field Medic: 12.99 -> 14.01, Labouring: 41.73 -> 41.74, Melee Attack: 25.23 -> 25.55, Melee Defence: 37.35 -> 37.49, Polearms: 20.51 -> 20.96, Robotics: 4.54 -> 4.55, Strength: 10.34 -> 10.4, Toughness: 34.17 -> 34.57
-  - Ожог (`ps:1441040000`): Athletics: 86.28 -> 86.52, Dexterity: 48.97 -> 49.13, Dodge: 19.09 -> 19.98, Field Medic: 35.71 -> 35.76, Heavy Weapons: 56.17 -> 56.33, Katanas: 16.29 -> 18.83, Melee Attack: 61.27 -> 61.42, Melee Defence: 62.11 -> 62.13, Robotics: 54.15 -> 54.33, Strength: 49.82 -> 49.87, Swimming: 53.22 -> 53.38, Toughness: 58.79 -> 58.98, mass combat: 193.03 -> 194.23
-  - Пиа (`ps:-2041915648`): Athletics: 80.66 -> 81.11, Dexterity: 50.19 -> 50.42, Dodge: 11.41 -> 11.9, Field Medic: 16.53 -> 16.99, Katanas: 44.09 -> 44.41, Melee Attack: 42.18 -> 42.48, Melee Defence: 43.04 -> 43.13, Robotics: 11.41 -> 11.67, Strength: 27.87 -> 27.91, Swimming: 40.13 -> 40.63, Toughness: 45.15 -> 45.74, mass combat: 25.7 -> 26.93
-  - Ридли (`ps:1665649408`): Assassination: 4.0 -> 8.15, Athletics: 86.7 -> 86.87, Dexterity: 50.43 -> 50.56, Dodge: 16.19 -> 17.09, Field Medic: 39.2 -> 39.36, Melee Attack: 54.48 -> 54.62, Melee Defence: 50.86 -> 50.91, Robotics: 24.15 -> 24.28, Sabres: 51.48 -> 51.64, Strength: 35.87 -> 35.94, Swimming: 44.83 -> 45.34, Toughness: 50.33 -> 50.41, mass combat: 74.02 -> 74.05
-  - Рука (`ps:-1715743744`): Athletics: 82.22 -> 82.5, Dexterity: 31.96 -> 32.21, Dodge: 17.11 -> 17.25, Field Medic: 29.31 -> 29.65, Hackers: 48.92 -> 49.23, Melee Attack: 52.42 -> 52.75, Melee Defence: 52.79 -> 53.25, Robotics: 13.59 -> 13.76, Strength: 45.84 -> 45.9, Swimming: 32.29 -> 32.89, Toughness: 55.77 -> 55.93, mass combat: 92.43 -> 92.8
-  - Седая тень (`ps:706176768`): Athletics: 47.85 -> 48.31, Dexterity: 12.09 -> 12.58, Dodge: 1.98 -> 2.89, Field Medic: 4.83 -> 4.94, Martial Arts: 1.0 -> 1.52, Toughness: 6.96 -> 8.55, mass combat: 10.19 -> 10.23
-  - Сэто (`ps:-474044416`): Athletics: 32.21 -> 33.77, Dexterity: 21.77 -> 22.14, Dodge: 9.81 -> 11.09, Hackers: 27.81 -> 28.66, Melee Attack: 30.98 -> 31.79, Melee Defence: 36.89 -> 39.12, Strength: 25.6 -> 25.82, Swimming: 25.49 -> 28.6, Toughness: 38.45 -> 39.04, mass combat: 3.86 -> 15.3
-  - Флик (`ps:1106567424`): Athletics: 88.84 -> 88.95, Dexterity: 70.6 -> 70.64, Field Medic: 25.72 -> 26.19, Katanas: 44.59 -> 44.68, Melee Attack: 43.86 -> 43.97, Melee Defence: 50.08 -> 50.4, Perception: 79.99 -> 80.0, Robotics: 22.59 -> 22.6, Strength: 33.32 -> 33.61, Swimming: 54.3 -> 55.01, Toughness: 59.39 -> 59.73, mass combat: 63.48 -> 63.52
-  - Хоббс (`ps:-1002242560`): Athletics: 85.39 -> 85.5, Dexterity: 41.62 -> 41.72, Field Medic: 32.69 -> 33.17, Hackers: 49.14 -> 49.21, Melee Attack: 52.57 -> 52.71, Melee Defence: 53.14 -> 53.35, Strength: 42.53 -> 44.25, Swimming: 44.07 -> 50.08, Toughness: 59.9 -> 59.94, mass combat: 82.94 -> 86.35
-  - Хот Лон (`ps:827270528`): Assassination: 0.5 -> 4.96, Athletics: 86.71 -> 86.87, Dexterity: 47.67 -> 47.76, Dodge: 18.14 -> 19.03, Field Medic: 33.29 -> 33.42, Katanas: 52.77 -> 52.8, Lockpicking: 50.44 -> 51.04, Melee Attack: 50.87 -> 50.97, Melee Defence: 52.28 -> 52.34, Polearms: 28.85 -> 29.57, Robotics: 24.85 -> 24.93, Strength: 38.93 -> 39.29, Swimming: 38.91 -> 40.04, Toughness: 53.09 -> 53.16
-  - Чад (`ps:2077026304`): Athletics: 87.83 -> 88.07, Dexterity: 51.29 -> 51.31, Dodge: 46.4 -> 46.42, Field Medic: 33.18 -> 33.25, Martial Arts: 48.04 -> 48.06, Robotics: 19.22 -> 20.78, Swimming: 65.47 -> 65.5, Toughness: 53.6 -> 53.64
-  - Шрайк (`ps:-476241664`): Athletics: 78.86 -> 79.51, Dexterity: 35.95 -> 36.13, Dodge: 12.75 -> 12.95, Melee Attack: 39.53 -> 39.7, Melee Defence: 41.53 -> 41.7, Polearms: 34.43 -> 34.77, Strength: 23.49 -> 23.51, Swimming: 34.04 -> 35.22, Toughness: 39.49 -> 39.91, mass combat: 22.11 -> 22.19
-- **Смена экипировки:** у 3 участников
-- **Изменения здоровья:** у 30 участников
+- **Смена статуса (1):** Вьючный бык (`ps:1856201216`: unconscious=False)
+- **Перемещения предметов (2):**
+  - `Сухой паёк`: от [Кан (-1), Ридли (-1), Хот Лон (-1)] к [Вьючный бык [ps:1856201216] (+1)]
+  - `Шаурма`: от [Флик (-1)] к [Вьючный бык [ps:1856201216] (+1), Хот Лон (+1)]
+- **Изменения навыков:** у 11 участников
+  - Вик (`ps:-941451776`): Athletics: 67.12 -> 67.15, Engineering: 44.02 -> 44.23, Labouring: 17.81 -> 20.36, Strength: 31.86 -> 31.87
+  - Вьючный бык (`ps:1856201216`): Athletics: 58.17 -> 58.41, Dexterity: 33.69 -> 33.77, Martial Arts: 20.91 -> 21.05, Melee Attack: 24.87 -> 24.99, Strength: 26.36 -> 26.37
+  - Гигант Ранэ (`ps:1671874944`): Strength: 48.37 -> 48.38
+  - Зелёный палец (`ps:621948224`): Athletics: 28.39 -> 28.48, Engineering: 26.14 -> 26.29, Farming: 40.0 -> 40.83
+  - Мью (`ps:2093017600`): Athletics: 32.94 -> 33.04, Engineering: 23.41 -> 23.76, Farming: 67.33 -> 67.49, Strength: 10.4 -> 10.41
+  - Пиа (`ps:-2041915648`): Athletics: 81.11 -> 81.12
+  - Седая тень (`ps:706176768`): Athletics: 48.31 -> 48.35, Farming: 3.22 -> 4.27, Strength: 12.37 -> 12.39
+  - Флик (`ps:1106567424`): Athletics: 88.95 -> 88.99, Crossbows: 82.08 -> 82.09, Dexterity: 70.64 -> 70.65, Strength: 33.61 -> 33.82
+  - Хоббс (`ps:-1002242560`): Athletics: 85.5 -> 85.51, Strength: 44.25 -> 44.41
+  - Чад (`ps:2077026304`): Athletics: 88.07 -> 88.11, Dexterity: 51.31 -> 51.6, Dodge: 46.42 -> 47.41, Field Medic: 33.25 -> 33.52, Martial Arts: 48.06 -> 48.36, Toughness: 53.64 -> 57.13, mass combat: 70.54 -> 73.16
+  - Шрайк (`ps:-476241664`): Athletics: 79.51 -> 79.54
+- **Смена экипировки:** у 1 участников
+- **Изменения здоровья:** у 26 участников
 - **События мира (World States):**
-  - Лидер `Туз Эл`: статус сменился на dead_or_captured
-- **Изменения очереди работ:** у 10 участников
+  - Лидер `Туз Эл`: статус сменился на None
+- **Изменения очереди работ:** у 6 участников
   - `Вик`: обновлены назначенные работы
-  - `Вьючный бык`: обновлены назначенные работы
   - `Зелёный палец`: обновлены назначенные работы
   - `Мью`: обновлены назначенные работы
-  - `Пиа`: обновлены назначенные работы
-  - `Сэто`: обновлены назначенные работы
+  - `Седая тень`: обновлены назначенные работы
   - `Флик`: обновлены назначенные работы
-  - `Хоббс`: обновлены назначенные работы
   - `Чад`: обновлены назначенные работы
-  - `Шрайк`: обновлены назначенные работы
-- **Изменения складских запасов на базах:** 17 позиций
-  - `Складской сундук`: Ремкомплект скелета -4
-  - `Складской сундук`: Электродетали -8
-  - `Складской сундук`: Ткани -2
-  - `Складской сундук`: Хорошая аптечка -2
-  - `Складской сундук`: Маска Болотного Ниндзя -1
-  - ... и ещё 12 складских изменений
+- **Изменения складских запасов на базах:** 28 позиций
+  - `Хранение: доспехи`: Обноски ниндзя +1
+  - `Хранение: доспехи`: Кожаная рубашка -1
+  - `Хранение: доспехи`: Латные штаны скитальца +1
+  - `Хранение: доспехи`: Доспех наёмника -1
+  - `Хранение: доспехи`: Пальто +2
+  - ... и ещё 23 складских изменений
 
 ## Несравниваемые категории
 - position: географические координаты подключаются профильным артефактом в задаче 02

@@ -1,8 +1,8 @@
 # Визуальная лента скриншотов Kenshi
 
-- **Обновлено**: `2026-11-03T04:08:38Z`
-- **Окно выборки**: последние 7 суток (с `2026-10-27T04:08:38Z` по `2026-11-03T04:08:38Z`)
-- **Количество скриншотов**: 338
+- **Обновлено**: `2026-11-03T06:53:17Z`
+- **Окно выборки**: последние 7 суток (с `2026-10-27T06:53:17Z` по `2026-11-03T06:53:17Z`)
+- **Количество скриншотов**: 343
 
 Визуальная лента игрового процесса в хронологическом порядке для контекста чат-моделей (ChatGPT, Claude, Gemini). Изображения сохраняются в оригинальном разрешении и качестве.
 
@@ -3723,5 +3723,60 @@
 - **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_420.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_420.jpg)
 
 ![screenshot_420.jpg](screenshot_420.jpg)
+
+---
+
+### 339. screenshot_421.jpg
+
+- **Время записи (UTC)**: `2026-11-03T06:38:17Z`
+- **Размер**: 489.4 КБ
+- **SHA-256**: `2b56bbf7de7df190d64b16438049c76cc5d528c519e4d7b70b335b62824ecf1b`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_421.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_421.jpg)
+
+![screenshot_421.jpg](screenshot_421.jpg)
+
+---
+
+### 340. screenshot_422.jpg
+
+- **Время записи (UTC)**: `2026-11-03T06:38:58Z`
+- **Размер**: 500.0 КБ
+- **SHA-256**: `8ce9038d1754aed71095c56e97d54e586626410610fa54284e969385b22af6a6`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_422.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_422.jpg)
+
+![screenshot_422.jpg](screenshot_422.jpg)
+
+---
+
+### 341. screenshot_423.jpg
+
+- **Время записи (UTC)**: `2026-11-03T06:40:05Z`
+- **Размер**: 336.1 КБ
+- **SHA-256**: `044ef2f1ad2236460046e7b63eb18dae5090a3ffec7629708a12cb33e319def2`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_423.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_423.jpg)
+
+![screenshot_423.jpg](screenshot_423.jpg)
+
+---
+
+### 342. screenshot_424.jpg
+
+- **Время записи (UTC)**: `2026-11-03T06:40:43Z`
+- **Размер**: 366.1 КБ
+- **SHA-256**: `9c554522a5ce228115f506118e73336f18a5f83561a3aea8944227e3650f56de`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_424.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_424.jpg)
+
+![screenshot_424.jpg](screenshot_424.jpg)
+
+---
+
+### 343. screenshot_425.jpg
+
+- **Время записи (UTC)**: `2026-11-03T06:49:05Z`
+- **Размер**: 483.0 КБ
+- **SHA-256**: `ce8b7b027511a41f3cdc402dba2946bd205f441c4aff0eafbbed2330687cee9c`
+- **Ссылки**: [Просмотр в GitHub](https://github.com/asaf1n/kenshi-campaign-tech/blob/main/published/screenshots/screenshot_425.jpg) | [Прямой Raw URL](https://raw.githubusercontent.com/asaf1n/kenshi-campaign-tech/main/published/screenshots/screenshot_425.jpg)
+
+![screenshot_425.jpg](screenshot_425.jpg)
 
 ---
