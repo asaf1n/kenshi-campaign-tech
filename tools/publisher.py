@@ -202,6 +202,8 @@ def publish(
                 effective_parent = snap_entry.get("parent_snapshot_id") or effective_parent
             if not campaign_id:
                 effective_campaign = snap_entry.get("campaign_id") or effective_campaign
+            if not world_ref_id:
+                world_ref_id = snap_entry.get("world_ref_id")
 
         active_branch = idx_data.get("active_branch_id")
         if effective_branch and active_branch and effective_branch != active_branch and branch_id is None:
