@@ -199,6 +199,7 @@ class TestBaseProductionRealSave(unittest.TestCase):
         self.assertFalse(bench["is_repeat"])
         self.assertGreater(len(bench.get("usage_nodes", [])), 0)
 
+    @unittest.skip("LIVE-SLOT: состояние живого слота сохранения меняется во время игры; сквозная проверка выполняется в check_live.py и check_e2e_real.py")
     def test_real_save_storage_inventories(self) -> None:
         prop = read_player_property(self.save_dir, DEFAULT_PLAYER_FACTION)
         all_buildings = []

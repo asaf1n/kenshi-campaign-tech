@@ -54,12 +54,20 @@ try {
     $campaignId = if ($previous.campaign_id) { $previous.campaign_id } else { 'default' }
     $branchId = if ($previous.branch_id) { $previous.branch_id } else { 'main' }
 
+    # Родитель снимка задаётся явно (он входит в идентичность снимка): берём голову ветки из индекса.
+    $parentArgs = @()
+    $indexPath = Join-Path $Root 'data\index.json'
+    if (Test-Path -LiteralPath $indexPath) {
+        $head = (Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json).branches.$branchId.head_snapshot_id
+        if ($head) { $parentArgs = @('--parent-snapshot-id', $head) }
+    }
+
     $companion = if ($env:KENSHI_COMPANION_DIR) { $env:KENSHI_COMPANION_DIR } else { Join-Path (Split-Path -Parent $Root) 'Kenshi Compain' }
     if (-not (Test-Path -LiteralPath $companion)) { throw "Каталог Kenshi Compain не найден: $companion (задайте KENSHI_COMPANION_DIR)." }
 
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
     Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
-    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId --deliver-to $companion --deliver-push
+    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs --deliver-to $companion --deliver-push
     if ($LASTEXITCODE -ne 0) { throw "pipeline завершился с кодом $LASTEXITCODE" }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json

@@ -105,9 +105,11 @@ class GameDataTests(unittest.TestCase):
                 self.assertTrue(reader.eof())
         reader = Reader(struct.pack("<ifB", -2147483648, 1.25, 255))
         self.assertEqual((reader.i32(), reader.f32(), reader.u8()), (-2147483648, 1.25, 255))
-        for raw in [integer(-1), integer(2147483647), integer(2) + b"a", string(b"\x98")]:
+        for raw in [integer(-1), integer(2147483647), integer(2) + b"a"]:
             with self.subTest(invalid_string=raw), self.assertRaises(ValueError):
                 Reader(raw).s()
+        # Байт, не читаемый ни как utf-8, ни как cp1251, заменяется, а не обрывает чтение сохранения.
+        self.assertEqual(Reader(string(b"\x98")).s(), "�")
         for offset in (-1, 1, 5):
             for method in ("i32", "f32", "u8", "eof"):
                 reader = Reader(b"" if offset == 1 else b"\x00" * 4)

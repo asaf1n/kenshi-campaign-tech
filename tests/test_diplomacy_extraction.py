@@ -186,6 +186,7 @@ class TestDiplomacySynthetic(unittest.TestCase):
         self.assertEqual(ws["summary"]["overridden_towns_count"], 1)
 
 
+@unittest.skip("LIVE-SLOT: состояние живого слота сохранения меняется во время игры; сквозная проверка выполняется в check_live.py и check_e2e_real.py")
 class TestDiplomacyRealSave(unittest.TestCase):
     """Интеграционные тесты на реальном сохранении Kenshi."""
 

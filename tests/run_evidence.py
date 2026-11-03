@@ -5,11 +5,17 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_DIR = ROOT / "tests" / ".evidence"
+
+# Реестр допустимых пропусков: тест зависит от внешнего окружения (игра, сохранения, снимки)
+# либо помечен LIVE-SLOT. Любой другой пропуск считается дефектом и роняет evidence.
+SKIP_LINE = re.compile(r"\.\.\. skipped (['\"])(.*?)\1")
+ALLOWED_SKIP = re.compile(r"^LIVE-SLOT|не найден|отсутствует")
 
 
 def run_command(
@@ -31,6 +37,8 @@ def run_command(
         text=True,
         encoding="utf-8",
         errors="replace",
+        # Дочерний Python пишет в кодировке консоли (cp1251 на Windows): без UTF-8 причины пропусков нечитаемы.
+        env={**os.environ, "PYTHONUTF8": "1"},
     )
     ended = datetime.now(timezone.utc).isoformat()
 
@@ -248,6 +256,14 @@ def main() -> int:
 
     for name, exec_args, display_cmd, log_name, run_name in commands:
         run_command(name, exec_args, display_cmd, log_name, run_name)
+
+    unit_log = (EVIDENCE_DIR / "unit.log").read_text(encoding="utf-8")
+    skipped = [reason for _, reason in SKIP_LINE.findall(unit_log)]
+    unexpected = [reason for reason in skipped if not ALLOWED_SKIP.search(reason)]
+    print(f"unit: {unit_log.count(' ... ok')} ok, {len(skipped)} skipped")
+    if unexpected:
+        print(f"FAILED: unit: пропуски вне реестра допустимых: {unexpected}", file=sys.stderr)
+        return 1
 
     print("All evidence collected successfully.")
     return 0

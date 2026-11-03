@@ -256,6 +256,7 @@ class TestCharacterJobsAndCarryingSynthetic(unittest.TestCase):
 class TestCharacterJobsAndCarryingRealSave(unittest.TestCase):
     """Интеграционные тесты на реальных сохранениях Kenshi."""
 
+    @unittest.skip("LIVE-SLOT: состояние живого слота сохранения меняется во время игры; сквозная проверка выполняется в check_live.py и check_e2e_real.py")
     def test_real_save_autosave0_jobs_and_modes(self) -> None:
         local_appdata = os.environ.get("LOCALAPPDATA", "")
         save_dir = Path(local_appdata) / "kenshi" / "save" / "autosave0"
@@ -298,6 +299,7 @@ class TestCharacterJobsAndCarryingRealSave(unittest.TestCase):
         self.assertTrue(green["combat_modes"]["ranged"])
         self.assertIsInstance(green["combat_modes"]["taunt"], bool)
 
+    @unittest.skip("LIVE-SLOT: состояние живого слота сохранения меняется во время игры; сквозная проверка выполняется в check_live.py и check_e2e_real.py")
     def test_real_save_quicksave_hobbs_carrying(self) -> None:
         local_appdata = os.environ.get("LOCALAPPDATA", "")
         save_dir = Path(local_appdata) / "kenshi" / "save" / "quicksave"
