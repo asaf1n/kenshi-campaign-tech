@@ -85,7 +85,7 @@ published/
   timeline.jsonl
   screenshots/
     index.json
-    index.md
+    index.md            # только при содержательном OCR
     screenshot_*.jpg
   .gitkeep
 ```
@@ -119,13 +119,15 @@ published/
   - `url_raw`: прямой Raw-URL GitHub для программного скачивания чат-моделями (`https://raw.githubusercontent.com/...`).
   - `url_blob`: ссылка на просмотр страницы изображения в GitHub Web UI (`https://github.com/...`).
 
-Галерея `published/screenshots/index.md` генерируется синхронно и предоставляет Markdown-представление со встроенными превью `![filename](filename)` для просмотра непосредственно в GitHub UI. Инварианты:
+Галерея `published/screenshots/index.md` генерируется синхронно (только при содержательном OCR) и предоставляет Markdown-представление со встроенными превью `![filename](filename)` для просмотра непосредственно в GitHub UI. Инварианты:
 - Исходный каталог игры `<KENSHI_DIR>/_screens` (или `KENSHI_SCREENS_DIR`) строго read-only.
 - Скользящее 7-дневное окно: изображения старше 7 суток исключаются из актуальной публикации и удаляются из рабочего дерева Git; пограничное время ровно 7 суток включается. Из кадров окна публикуются 20–30 ключевых, уменьшенных до 1600 px по длинной стороне; полный уменьшенный набор хранится в `data/screenshots_archive/` вне git.
 - Защита от поврежденных файлов: пустые (0 байт) файлы, файлы с невалидными сигнатурами (magic bytes) и файлы, модифицируемые игрой во время чтения, отбрасываются.
 - Идемпотентность: повторный запуск без изменений состава изображений сохраняет метки времени и не порождает диффов.
 
 ## Контракт технического экстракта скриншотов: `kenshi-screenshot-annotation/1`
+
+Ключи `screenshot_annotations` и `screenshot_feed` в `manifest.json` необязательны: при пустом OCR во всех кадрах аннотации, лента и галерея `index.md` не публикуются, `index.json` публикуется всегда.
 
 Проектный контракт `contracts/screenshot-annotations.schema.json` (JSON Schema Draft 2020-12) фиксирует структуру машиночитаемого технического экстракта в `published/screenshots/annotations.jsonl` (один JSON-объект на строку) для контекстного поиска игровым компаньоном:
 - `format`: `"kenshi-screenshot-annotation/1"`.

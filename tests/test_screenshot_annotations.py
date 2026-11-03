@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tools.io_utils import read_json
 from tools.publisher import publish
 from tools.screenshot_clustering import cluster_screenshots, compute_dhash, hamming_distance
 from tools.screenshot_extractor import (
@@ -39,6 +40,10 @@ class ScreenshotExtractorTests(unittest.TestCase):
         self.diffs_dir = self.tmp_path / "diffs"
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
         self.diffs_dir.mkdir(parents=True, exist_ok=True)
+        # Реестр снимков теста изолирован: публикация не должна менять реальный data/index.json.
+        index_patcher = patch("tools.publisher.DEFAULT_INDEX_PATH", self.tmp_path / "index.json")
+        index_patcher.start()
+        self.addCleanup(index_patcher.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -210,8 +215,57 @@ class ScreenshotExtractorTests(unittest.TestCase):
         self.assertNotIn("Краткое описание", md)
         self.assertNotIn("Тип сцены", md)
 
-    def test_publish_pipeline_generates_annotations_and_feed(self) -> None:
-        """7. Публикация автоматически создает технический annotations.jsonl и feed.md, валидация проходит."""
+    def test_ocr_content_criterion(self) -> None:
+        """8. OCR содержателен, если непусто любое поле контракта (даже один game_day); иначе выпуск без OCR-артефактов."""
+        from tools.screenshot_publish import OCR_FIELDS, has_ocr_content
+
+        empty = {"dialogues": [], "characters": [], "location": None, "game_day": None,
+                 "game_time": None, "notifications": [], "items_or_tasks": []}
+        self.assertFalse(has_ocr_content([]))
+        self.assertFalse(has_ocr_content([{"ocr": dict(empty)}, {"ocr": dict(empty, location="")}]))
+        for field in OCR_FIELDS:
+            value = [{"text": "x"}] if empty[field] == [] else (12 if field == "game_day" else "x")
+            with self.subTest(field=field):
+                self.assertTrue(has_ocr_content([{"ocr": dict(empty)}, {"ocr": dict(empty, **{field: value})}]))
+
+    def test_publish_keeps_artifacts_for_single_ocr_field(self) -> None:
+        """9. Даже один распознанный game_day или game_time сохраняет аннотации, ленту и галерею в выпуске."""
+        from tests.image_fixtures import write_test_image
+        from tests.test_screenshots import _create_sample_snapshot
+        from tools import screenshot_extractor, screenshot_publish
+
+        real_extract = screenshot_extractor.extract_screenshots_batch
+        for field, value in (("game_day", 12), ("game_time", "15:06")):
+            with self.subTest(field=field):
+                root = self.tmp_path / field
+                screens, published = root / "screens", root / "published"
+                snapshots, diffs = root / "snapshots", root / "diffs"
+                for directory in (screens, published, snapshots, diffs):
+                    directory.mkdir(parents=True)
+                _create_sample_snapshot(snapshots, f"snap_{field}", day=50)
+                now = datetime.now(timezone.utc)
+                write_test_image(screens / "shot.jpg", field.encode(), mtime=now.timestamp() - 3600)
+
+                def fake_extract(**kwargs):
+                    records = real_extract(**kwargs)
+                    records[0]["ocr"][field] = value
+                    return records
+
+                with patch.object(screenshot_publish, "ARCHIVE_DIR", root / "archive"), \
+                        patch.object(screenshot_extractor, "extract_screenshots_batch", fake_extract):
+                    publish(snapshot_id=f"snap_{field}", snapshots_dir=snapshots, diffs_dir=diffs,
+                            published_dir=published, screens_dir=screens,
+                            generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+                names = sorted(path.name for path in (published / "screenshots").iterdir() if path.suffix != ".jpg")
+                self.assertEqual(names, ["annotations.jsonl", "feed.md", "index.json", "index.md"])
+                artifacts = read_json((published / "manifest.json").read_bytes())["artifacts"]
+                self.assertEqual(artifacts["screenshot_annotations"], "screenshots/annotations.jsonl")
+                self.assertEqual(artifacts["screenshot_feed"], "screenshots/feed.md")
+                self.assertEqual(validate_publication(published)["status"], "passed")
+
+    def test_publish_pipeline_omits_empty_ocr_artifacts(self) -> None:
+        """7. Публикация кадра без распознанного текста не создаёт annotations.jsonl, feed.md и index.md; валидация проходит."""
         from tests.test_screenshots import _create_sample_snapshot
         now = datetime.now(timezone.utc)
         snap_id = "test_snap_ann"
@@ -234,9 +288,12 @@ class ScreenshotExtractorTests(unittest.TestCase):
             screens_dir=self.screens_dir,
             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
-        self.assertTrue((self.published_dir / "screenshots/annotations.jsonl").is_file())
-        self.assertTrue((self.published_dir / "screenshots/feed.md").is_file())
+        # Реальный кадр без распознанного текста: аннотации, лента и галерея не публикуются, index.json остаётся.
+        pub_screens = self.published_dir / "screenshots"
+        self.assertTrue((pub_screens / "index.json").is_file())
+        for name in ("annotations.jsonl", "feed.md", "index.md"):
+            self.assertFalse((pub_screens / name).exists())
 
         summary = validate_publication(self.published_dir)
         self.assertEqual(summary["status"], "passed")
-        self.assertIn("screenshot_annotations", summary["checks"])
+        self.assertNotIn("screenshot_annotations", summary["checks"])

@@ -53,6 +53,17 @@ def downscale_jpeg(src: Path, dst: Path, max_side: int = MAX_SIDE, qscale: int =
     os.replace(tmp, dst)
 
 
+OCR_FIELDS = ("dialogues", "characters", "location", "game_day", "game_time", "notifications", "items_or_tasks")
+
+
+def has_ocr_content(records: list[dict[str, Any]]) -> bool:
+    """Есть ли в каком-либо кадре хотя бы одно непустое поле OCR (`None`, `[]`, `""` считаются пустыми)."""
+    return any(
+        any(record.get("ocr", {}).get(field) not in (None, [], "") for field in OCR_FIELDS)
+        for record in records
+    )
+
+
 def published_name(item: dict[str, Any]) -> str:
     """Имя файла в архиве и выпуске: исходное имя и префикс sha256 оригинала (устойчиво к переиспользованию номеров)."""
     return f"{Path(item['filename']).stem}-{item['sha256'][:8]}.jpg"

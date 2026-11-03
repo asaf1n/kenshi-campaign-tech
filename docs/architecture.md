@@ -15,7 +15,7 @@ locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,current.json,changes.json,locations.json,
            world_reference.json,timeline.jsonl,brief.md,squad.md,
-           screenshots/{index.json,index.md,*.jpg}}
+           screenshots/{index.json,*.jpg; index.md, annotations.jsonl, feed.md при содержательном OCR}}
         |
 verified GitHub delivery / manual transport fallback
         |
@@ -50,7 +50,7 @@ LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose 
 - Выходной bundle должен быть небольшим, самодостаточным и пригодным для чтения как в GitHub, так и после ручной загрузки в чат.
 - В запросах чат-ИИ моделей всегда указывать идентификатор и дату опубликованного снимка. Если загрузка не удалась — явная ошибка актуальности.
 - Запись обратно в репозиторий — отдельная опциональная функция, не предполагать её наличие по факту чтения.
-- **Визуальный контекст скриншотов**: доступен через прямые Raw-ссылки GitHub (`https://raw.githubusercontent.com/...`), ссылки на просмотр в GitHub blob, а также инлайн-галерею `screenshots/index.md` и программный реестр `screenshots/index.json`. Модели анализируют визуальный ряд автономно без OCR и классификации.
+- **Визуальный контекст скриншотов**: доступен через прямые Raw-ссылки GitHub (`https://raw.githubusercontent.com/...`), ссылки на просмотр в GitHub blob, а также программный реестр `screenshots/index.json` (инлайн-галерея `screenshots/index.md` публикуется только при содержательном OCR). Модели анализируют визуальный ряд автономно без OCR и классификации.
 
 ## Выбор инструментов
 

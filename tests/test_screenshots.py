@@ -164,7 +164,8 @@ class ScreenshotTests(unittest.TestCase):
 
         pub_screens = self.published_dir / "screenshots"
         self.assertTrue((pub_screens / "index.json").is_file())
-        self.assertTrue((pub_screens / "index.md").is_file())
+        # Пустой OCR: галерея index.md не публикуется, машиночитаемый index.json остаётся.
+        self.assertFalse((pub_screens / "index.md").exists())
         for name in ("screenshot_1.jpg", "screenshot_2.png", "screenshot_boundary.jpg"):
             self.assertTrue((pub_screens / _pub(self.screens_dir / name)).is_file())
         self.assertFalse((pub_screens / _pub(self.screens_dir / "screenshot_old.jpg")).exists())
@@ -351,7 +352,8 @@ class ScreenshotTests(unittest.TestCase):
         self.assertEqual(items[1]["filename"], a_name)
 
         # Проверка Markdown-галереи
-        gallery_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
+        self.assertFalse((self.published_dir / "screenshots/index.md").exists())
+        gallery_text = render_screenshots_gallery(idx_data)
         self.assertIn(f"### 1. {b_name}", gallery_text)
         self.assertIn(f"### 2. {a_name}", gallery_text)
         self.assertIn(f"![{b_name}]({b_name})", gallery_text)
@@ -438,8 +440,8 @@ class ScreenshotTests(unittest.TestCase):
         self.assertFalse(removed.exists())
         idx_data = read_json((self.published_dir / "screenshots/index.json").read_bytes())
         self.assertEqual(idx_data["count"], 0)
-        gallery_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
-        self.assertIn("новые скриншоты не зафиксированы", gallery_text)
+        self.assertFalse((self.published_dir / "screenshots/index.md").exists())
+        self.assertIn("новые скриншоты не зафиксированы", render_screenshots_gallery(idx_data))
 
 
     def test_keyframes_are_limited_downscaled_and_archived(self) -> None:
@@ -468,6 +470,27 @@ class ScreenshotTests(unittest.TestCase):
         with av.open(str(self.published_dir / "screenshots" / first["filename"])) as container:
             frame = next(container.decode(video=0))
         self.assertEqual((frame.width, frame.height), (1600, 1000))
+
+    def test_delivery_removes_stale_files_only_inside_screenshots(self) -> None:
+        """14. Доставка удаляет устаревшие файлы строго внутри published/screenshots/ целевого репозитория."""
+        from tools.deliver_companion import deliver_to_companion
+
+        src = self.root / "src_published"
+        (src / "screenshots").mkdir(parents=True)
+        (src / "manifest.json").write_bytes(canonical({"validation": {"status": "passed"}}))
+        (src / "screenshots" / "new.jpg").write_bytes(b"new")
+        target = self.root / "companion"
+        (target / "published" / "screenshots").mkdir(parents=True)
+        (target / "published" / "screenshots" / "old.jpg").write_bytes(b"old")
+        (target / "published" / "screenshots" / "feed.md").write_text("stale", encoding="utf-8")
+        (target / "Campaign").mkdir()
+        (target / "Campaign" / "keep.md").write_text("canon", encoding="utf-8")
+
+        deliver_to_companion(published_dir=src, companion_dir=target, auto_commit=False)
+
+        names = sorted(p.name for p in (target / "published" / "screenshots").iterdir())
+        self.assertEqual(names, ["new.jpg"])
+        self.assertEqual((target / "Campaign" / "keep.md").read_text(encoding="utf-8"), "canon")
 
 
 if __name__ == "__main__":

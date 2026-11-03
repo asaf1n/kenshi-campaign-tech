@@ -491,20 +491,24 @@ def publish(
                 cache_path=prev_ann_path if prev_ann_path.is_file() else None,
                 now_iso=screenshots_index_data["generated_at"],
             )
-            screenshots_annotations_bytes = serialize_annotations_jsonl(annotated_records)
-            screenshots_feed_md = render_screenshot_feed(
-                annotations=annotated_records,
-                episodes=episodes_summary,
-                generated_at=screenshots_index_data["generated_at"],
-                window_days=screenshots_index_data["window_days"],
-                window_start=screenshots_index_data["window_start"],
-                window_end=screenshots_index_data["window_end"],
-            )
+            if not screenshot_publish.has_ocr_content(annotated_records):
+                # Пустой OCR: аннотации, лента и галерея не несут информации и не публикуются; index.json остаётся.
+                screenshots_gallery_md = None
+            else:
+                screenshots_annotations_bytes = serialize_annotations_jsonl(annotated_records)
+                screenshots_feed_md = render_screenshot_feed(
+                    annotations=annotated_records,
+                    episodes=episodes_summary,
+                    generated_at=screenshots_index_data["generated_at"],
+                    window_days=screenshots_index_data["window_days"],
+                    window_start=screenshots_index_data["window_start"],
+                    window_end=screenshots_index_data["window_end"],
+                )
 
-            manifest_data["artifacts"]["screenshot_annotations"] = "screenshots/annotations.jsonl"
-            manifest_data["artifacts"]["screenshot_feed"] = "screenshots/feed.md"
-            if "screenshot_annotations" not in manifest_data["validation"]["checks"]:
-                manifest_data["validation"]["checks"].append("screenshot_annotations")
+                manifest_data["artifacts"]["screenshot_annotations"] = "screenshots/annotations.jsonl"
+                manifest_data["artifacts"]["screenshot_feed"] = "screenshots/feed.md"
+                if "screenshot_annotations" not in manifest_data["validation"]["checks"]:
+                    manifest_data["validation"]["checks"].append("screenshot_annotations")
         except Exception:
             # Изоляция сбоев: ошибка разметки не блокирует публикацию
             screenshots_annotations_bytes = None
@@ -543,7 +547,8 @@ def publish(
                 sc_staging = staging_dir / "screenshots"
                 sc_staging.mkdir(parents=True, exist_ok=True)
                 (sc_staging / "index.json").write_bytes(canonical(screenshots_index_data))
-                (sc_staging / "index.md").write_text(screenshots_gallery_md, encoding="utf-8")
+                if screenshots_gallery_md is not None:
+                    (sc_staging / "index.md").write_text(screenshots_gallery_md, encoding="utf-8")
                 if screenshots_annotations_bytes is not None:
                     (sc_staging / "annotations.jsonl").write_bytes(screenshots_annotations_bytes)
                 if screenshots_feed_md is not None:

@@ -72,9 +72,15 @@ def deliver_to_companion(
     dst_screens = target_published / "screenshots"
     if src_screens.is_dir():
         dst_screens.mkdir(parents=True, exist_ok=True)
+        source_names = set()
         for item in src_screens.iterdir():
             if item.is_file():
+                source_names.add(item.name)
                 shutil.copy2(item, dst_screens / item.name)
+        # Файлы, которых нет в текущей публикации, удаляются строго внутри screenshots/.
+        for stale in dst_screens.iterdir():
+            if stale.is_file() and stale.name not in source_names:
+                stale.unlink()
 
     committed = False
     pushed = False
