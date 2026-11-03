@@ -331,47 +331,88 @@ def _diff_jobs(a: dict[str, Any], b: dict[str, Any], counter: Counter) -> dict[s
 
 
 def _diff_base_storage(prev: dict[str, Any], cur: dict[str, Any], counter: Counter) -> list[dict[str, Any]]:
-    bld_a = {str(b.get("id")): b for b in prev.get("property", {}).get("buildings", []) if isinstance(b, dict) and "id" in b}
-    bld_b = {str(b.get("id")): b for b in cur.get("property", {}).get("buildings", []) if isinstance(b, dict) and "id" in b}
+    def _flatten(b_list: list[dict[str, Any]], default_zone: str = "") -> dict[tuple[str, str], dict[str, Any]]:
+        result: dict[tuple[str, str], dict[str, Any]] = {}
+        for b in b_list:
+            if not isinstance(b, dict) or "id" not in b:
+                continue
+            zone = str(b.get("zone") or default_zone or "")
+            bid = str(b["id"])
+            key = (zone, bid)
+            result[key] = b
+            interior = b.get("interior")
+            if isinstance(interior, list):
+                result.update(_flatten(interior, zone))
+        return result
 
-    storage_a: dict[tuple[str, str], int] = Counter()
-    storage_b: dict[tuple[str, str], int] = Counter()
+    bld_a = _flatten(prev.get("property", {}).get("buildings", []))
+    bld_b = _flatten(cur.get("property", {}).get("buildings", []))
+
+    storage_a: dict[tuple[tuple[str, str], str], int] = Counter()
+    storage_b: dict[tuple[tuple[str, str], str], int] = Counter()
     item_names: dict[str, str] = {}
-    building_names: dict[str, str] = {}
-    building_zones: dict[str, str] = {}
+    building_names: dict[tuple[str, str], str] = {}
+    building_zones: dict[tuple[str, str], str] = {}
+    raw_bids: dict[tuple[str, str], Any] = {}
 
-    for bid, b in bld_a.items():
-        building_names[bid] = b.get("name") or b.get("template_name") or bid
-        building_zones[bid] = b.get("zone") or ""
-        for it in b.get("storage", []):
-            if isinstance(it, dict) and it.get("sid"):
-                sid = it["sid"]
-                storage_a[(bid, sid)] += it.get("quantity", 1)
-                if it.get("name"):
-                    item_names[sid] = it["name"]
+    for key, b in bld_a.items():
+        bid = b.get("id")
+        raw_bids[key] = bid
+        building_names[key] = b.get("name") or b.get("template_name") or str(bid)
+        building_zones[key] = key[0]
+        items = b.get("storage") or []
+        if not items and b.get("storage_items"):
+            for it in b.get("storage_items", []):
+                if isinstance(it, dict):
+                    sid = it.get("sid") or it.get("base_data_sid") or it.get("item_sid")
+                    if sid:
+                        storage_a[(key, sid)] += it.get("quantity") or 1
+                        if it.get("name"):
+                            item_names[sid] = it["name"]
+        else:
+            for it in items:
+                if isinstance(it, dict):
+                    sid = it.get("sid") or it.get("base_data_sid") or it.get("item_sid")
+                    if sid:
+                        storage_a[(key, sid)] += it.get("quantity") or 1
+                        if it.get("name"):
+                            item_names[sid] = it["name"]
 
-    for bid, b in bld_b.items():
-        building_names[bid] = b.get("name") or b.get("template_name") or bid
-        building_zones[bid] = b.get("zone") or ""
-        for it in b.get("storage", []):
-            if isinstance(it, dict) and it.get("sid"):
-                sid = it["sid"]
-                storage_b[(bid, sid)] += it.get("quantity", 1)
-                if it.get("name"):
-                    item_names[sid] = it["name"]
+    for key, b in bld_b.items():
+        bid = b.get("id")
+        raw_bids[key] = bid
+        building_names[key] = b.get("name") or b.get("template_name") or str(bid)
+        building_zones[key] = key[0]
+        items = b.get("storage") or []
+        if not items and b.get("storage_items"):
+            for it in b.get("storage_items", []):
+                if isinstance(it, dict):
+                    sid = it.get("sid") or it.get("base_data_sid") or it.get("item_sid")
+                    if sid:
+                        storage_b[(key, sid)] += it.get("quantity") or 1
+                        if it.get("name"):
+                            item_names[sid] = it["name"]
+        else:
+            for it in items:
+                if isinstance(it, dict):
+                    sid = it.get("sid") or it.get("base_data_sid") or it.get("item_sid")
+                    if sid:
+                        storage_b[(key, sid)] += it.get("quantity") or 1
+                        if it.get("name"):
+                            item_names[sid] = it["name"]
 
-    all_keys = sorted(storage_a.keys() | storage_b.keys())
+    all_keys = sorted(storage_a.keys() | storage_b.keys(), key=lambda x: (x[0][0], x[0][1], x[1]))
     out: list[dict[str, Any]] = []
-    for bid, sid in all_keys:
+    for key, sid in all_keys:
         counter["base_storage"] += 1
-        qa = storage_a.get((bid, sid), 0)
-        qb = storage_b.get((bid, sid), 0)
+        qa = storage_a.get((key, sid), 0)
+        qb = storage_b.get((key, sid), 0)
         d = qb - qa
         if d != 0:
             out.append({
-                "building_id": bid,
-                "building_name": building_names.get(bid),
-                "zone": building_zones.get(bid),
+                "building_id": raw_bids.get(key, key[1]),
+                "building_name": building_names.get(key),
+                "zone": building_zones.get(key),
                 "sid": sid,
                 "item_name": item_names.get(sid, sid),
                 "from": qa,

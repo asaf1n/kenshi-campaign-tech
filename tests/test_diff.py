@@ -362,3 +362,43 @@ class DiffTests(unittest.TestCase):
         d1 = diff(snap1, snap2, prev_id="s1", cur_id="s2")
         d2 = diff(snap1, snap2, prev_id="s1", cur_id="s2")
         self.assertEqual(canonical(d1), canonical(d2))
+
+    def test_recursive_interior_storage_diff(self) -> None:
+        """Рекурсивный diff складов: учитывает предметы в interior[] с составным ключом (zone, id)."""
+        c = {"id": "ps:1", "name": "Хоббс", "squad_id": "sq_1"}
+        snap1 = _make_snapshot([c], fmt="kenshi-session/11")
+        snap1["property"] = {
+            "buildings": [
+                {
+                    "id": "bldg_main",
+                    "zone": "zone_hub",
+                    "name": "Дом L-формы",
+                    "storage": [],
+                    "interior": [
+                        {
+                            "id": "chest_1",
+                            "name": "Ящик для аптечек",
+                            "storage": [],
+                            "storage_items": [
+                                {"sid": "medkit", "name": "Аптечка", "quantity": 10, "level": 1}
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        snap2 = copy.deepcopy(snap1)
+        snap2["world"]["day"] = 12
+        snap2["property"]["buildings"][0]["interior"][0]["storage_items"][0]["quantity"] = 25
+
+        d = diff(snap1, snap2, prev_id="s1", cur_id="s2")
+        self.assertTrue(d["valid"])
+        self.assertIn("base_storage", d)
+        self.assertEqual(len(d["base_storage"]), 1)
+        item_diff = d["base_storage"][0]
+        self.assertEqual(item_diff["sid"], "medkit")
+        self.assertEqual(item_diff["from"], 10)
+        self.assertEqual(item_diff["to"], 25)
+        self.assertEqual(item_diff["delta"], 15)
+        self.assertEqual(item_diff["zone"], "zone_hub")
+        self.assertEqual(item_diff["building_id"], "chest_1")

@@ -502,6 +502,7 @@ def collect_items(
         seen.add(sid)
         s, f, i, b = it.get("string", {}), it.get("float", {}), it.get("int", {}), it.get("bool", {})
         item_entry = {
+            "instance_id": str(inst.get("id")) if inst.get("id") is not None else None,
             "item_sid": sid,
             "container": container_label,
             "section": s.get("section", ""),

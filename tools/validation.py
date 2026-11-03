@@ -478,6 +478,14 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     except (ValidationError, Exception) as error:
         raise PublicationValidationError(f"Ошибка валидации схемы manifest.json: {error}") from error
 
+    canonical_pub_dir = (ROOT / "published").resolve()
+    if package_dir == canonical_pub_dir:
+        if manifest.get("campaign_id") != "hot-lon":
+            raise PublicationValidationError(
+                f"Канонический published/ обязан принадлежать campaign_id='hot-lon', "
+                f"получено: '{manifest.get('campaign_id')}'"
+            )
+
     # 1. Проверка артефактов
     artifacts = manifest.get("artifacts", {})
     required_artifacts = {"current", "changes", "brief", "squad"}
@@ -671,6 +679,11 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
                 raise PublicationValidationError(
                     f"Несовпадение branch_id между manifest '{manifest.get('branch_id')}' "
                     f"и data/index.json '{idx_entry.get('branch_id')}'"
+                )
+            if idx_entry.get("campaign_id") is not None and manifest.get("campaign_id") != idx_entry.get("campaign_id"):
+                raise PublicationValidationError(
+                    f"Несовпадение campaign_id между manifest '{manifest.get('campaign_id')}' "
+                    f"и data/index.json '{idx_entry.get('campaign_id')}'"
                 )
             if idx_entry.get("world_ref_id") and manifest.get("world_ref_id") != idx_entry.get("world_ref_id"):
                 raise PublicationValidationError(

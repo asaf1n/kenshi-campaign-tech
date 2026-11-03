@@ -71,7 +71,30 @@
         "chase": true,
         "stealth": false,
         "non_combat": false
-      }
+      },
+      "items": [
+        {
+          "instance_id": "0",
+          "item_sid": "1001-weapon-meitou",
+          "container": "inventory",
+          "section": "weapon_back",
+          "base_data_sid": "katana_meitou",
+          "material_sid": "Meitou",
+          "color_sid": "",
+          "company_sid": "Cross",
+          "quality": 100.0,
+          "charges": null,
+          "wear": null,
+          "dam": null,
+          "stun": null,
+          "level": 100,
+          "quantity": 1,
+          "inventory_xy": [0, 0],
+          "item_function": 0,
+          "unique": true,
+          "owned_by": null
+        }
+      ]
     },
     {
       "id": "ps:1002",

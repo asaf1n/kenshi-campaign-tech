@@ -29,6 +29,7 @@
     },
     "parent_snapshot_id": {"type": ["string", "null"]},
     "branch_id": {"type": ["string", "null"]},
+    "campaign_id": {"type": ["string", "null"]},
     "game_time": {"type": ["string", "number", "null"]},
     "world_ref_id": {"type": ["string", "null"]},
     "source_format": {

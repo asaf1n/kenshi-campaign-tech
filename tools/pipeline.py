@@ -32,13 +32,14 @@ def run_pipeline(
     diffs_dir = output_diffs or ROOT / "data/diffs"
     pub_dir = published_dir or ROOT / "published"
     idx_path = index_path or (snapshots_dir.parent / "index.json")
+    effective_campaign = campaign_id or "hot-lon"
 
     extract_res = extract(
         source=source,
         source_kind=source_kind,
         config=config,
         output=snapshots_dir,
-        campaign_id=campaign_id,
+        campaign_id=effective_campaign,
         branch_id=branch_id,
         parent_snapshot_id=parent_snapshot_id,
     )
@@ -50,7 +51,7 @@ def run_pipeline(
         snapshot_id=snapshot_id,
         parent_snapshot_id=parent_snapshot_id or prov.get("parent_snapshot_id"),
         branch_id=branch_id or prov.get("branch_id"),
-        campaign_id=campaign_id or prov.get("campaign_id"),
+        campaign_id=effective_campaign or prov.get("campaign_id"),
         game_time=prov.get("game_time"),
         world_ref_id=world_ref_id or prov.get("world_ref_id"),
         source_kind=source_kind,
@@ -65,7 +66,7 @@ def run_pipeline(
         published_dir=pub_dir,
         parent_snapshot_id=parent_snapshot_id,
         branch_id=branch_id,
-        campaign_id=campaign_id,
+        campaign_id=effective_campaign,
         world_ref_id=world_ref_id,
         world_dir=world_dir,
         index_path=idx_path,

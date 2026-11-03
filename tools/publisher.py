@@ -164,6 +164,7 @@ def publish(
 
     effective_parent = parent_snapshot_id or prov.get("parent_snapshot_id")
     effective_branch = branch_id or prov.get("branch_id")
+    effective_campaign = campaign_id or prov.get("campaign_id")
     source_kind = prov.get("source_kind", "save")
     source_format = prov.get("source_format", "kenshi-session/10")
     source_sha256 = prov.get("source_sha256")
@@ -197,6 +198,8 @@ def publish(
                 effective_branch = snap_entry.get("branch_id") or effective_branch
             if not parent_snapshot_id:
                 effective_parent = snap_entry.get("parent_snapshot_id") or effective_parent
+            if not campaign_id:
+                effective_campaign = snap_entry.get("campaign_id") or effective_campaign
 
         active_branch = idx_data.get("active_branch_id")
         if effective_branch and active_branch and effective_branch != active_branch and branch_id is None:
@@ -213,6 +216,15 @@ def publish(
                     f"Несовместимый родитель {effective_parent} для снимка {snapshot_id}: {branch_reason}"
                 )
 
+    # Защита канонического каталога published/
+    canonical_pub_dir = (ROOT / "published").resolve()
+    if published_dir.resolve() == canonical_pub_dir:
+        if effective_campaign != "hot-lon":
+            raise PublisherError(
+                f"Публикация в канонический published/ разрешена только для campaign_id='hot-lon', "
+                f"получено: '{effective_campaign}'"
+            )
+
     # Проверка против существующей публикации
     pub_manifest_file = published_dir / "manifest.json"
     if pub_manifest_file.is_file():
@@ -220,6 +232,13 @@ def publish(
             pub_manifest = read_json(pub_manifest_file.read_bytes())
             pub_snap = pub_manifest.get("snapshot_id")
             pub_branch = pub_manifest.get("branch_id")
+            pub_campaign = pub_manifest.get("campaign_id")
+            if pub_campaign and effective_campaign and pub_campaign != effective_campaign and campaign_id is None:
+                raise PublisherError(
+                    f"Снимок {snapshot_id} принадлежит кампании '{effective_campaign}', "
+                    f"а текущая публикация — кампании '{pub_campaign}'. "
+                    f"Для смены кампании публикации укажите явный campaign_id."
+                )
             if pub_branch and effective_branch and pub_branch != effective_branch and branch_id is None:
                 raise PublisherError(
                     f"Снимок {snapshot_id} принадлежит ветке '{effective_branch}', "
@@ -334,6 +353,7 @@ def publish(
         "snapshot_id": snapshot_id,
         "parent_snapshot_id": effective_parent,
         "branch_id": effective_branch,
+        "campaign_id": effective_campaign,
         "game_time": game_time,
         "world_ref_id": effective_wref_id,
         "source_kind": source_kind,

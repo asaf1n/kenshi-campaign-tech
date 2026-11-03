@@ -47,6 +47,8 @@ class ContractTests(unittest.TestCase):
             ("session", session | {"world_state": {"unique_npcs": [{"sid": "npc1"}], "town_overrides": [], "summary": {}}}),
             ("session", session | {"characters": [{"id": "ps:1", "carrying": {"target_handle": None}}]}),
             ("session", session | {"characters": [{"id": "ps:1", "bounties": {"entries": []}}]}),
+            ("manifest", manifest | {"campaign_id": 123}),
+            ("session", session | {"characters": [{"id": "ps:1", "items": "not-a-list"}]}),
         ]
         for path in ("../escape.json", "C:/private.json", "/absolute.json", "folder/../../escape.json"):
             bad = copy.deepcopy(manifest)

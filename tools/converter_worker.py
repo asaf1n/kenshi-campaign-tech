@@ -60,7 +60,7 @@ def build_native_snapshot(save: Path, faction_sid: str, game_index: dict[str, li
     """Сохраняет представление v10 и дополняет его нативными полями v11."""
     original_character = session_export.character
     original_compact = session_export.compact_character
-    fields = ("jobs", "carrying", "bounties", "combat_modes")
+    fields = ("jobs", "carrying", "bounties", "combat_modes", "items")
 
     def character(inst: dict[str, Any], by: dict[str, Any], names: Any) -> dict[str, Any]:
         result = original_character(inst, by, names)

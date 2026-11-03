@@ -313,3 +313,54 @@ class PublishTests(unittest.TestCase):
         (self.published_dir / "brief.md").write_text("Secret leak: C:/Users/artem/private.txt\n", encoding="utf-8")
         with self.assertRaises(PublicationValidationError):
             validate_publication(self.published_dir)
+
+    def test_canonical_published_guard_and_campaign_validation(self) -> None:
+        """Проверка привязки к campaign_id: защита канонического published/ и сверка с index.json."""
+        snap_id = "sha256-sample-campaign-test"
+        _create_sample_snapshot(self.snapshots_dir, snap_id, day=10)
+
+        # 1. Попытка публикации не-hot-lon в канонический published/ вызывает отказ
+        with self.assertRaises(PublisherError) as ctx:
+            publish(
+                snapshot_id=snap_id,
+                snapshots_dir=self.snapshots_dir,
+                diffs_dir=self.diffs_dir,
+                published_dir=ROOT / "published",
+                campaign_id="foreign-campaign",
+            )
+        self.assertIn("hot-lon", str(ctx.exception))
+
+        # 2. Успешная публикация в тестовый каталог с campaign_id
+        publish(
+            snapshot_id=snap_id,
+            snapshots_dir=self.snapshots_dir,
+            diffs_dir=self.diffs_dir,
+            published_dir=self.published_dir,
+            campaign_id="test-campaign",
+        )
+        manifest = read_json((self.published_dir / "manifest.json").read_bytes())
+        self.assertEqual(manifest.get("campaign_id"), "test-campaign")
+
+        # 3. Валидация отвергает пакет при расхождении с index.json
+        mismatched_index = {
+            "format": "kenshi-index/1",
+            "updated_at": "2026-11-01T00:00:00Z",
+            "active_branch_id": "main",
+            "branches": {},
+            "snapshots": {
+                snap_id: {
+                    "snapshot_id": snap_id,
+                    "parent_snapshot_id": None,
+                    "branch_id": "main",
+                    "campaign_id": "expected-index-campaign",
+                    "game_time": {"day": 10, "time": "14:30"},
+                    "world_ref_id": None,
+                    "source_kind": "save",
+                    "source_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                    "registered_at": "2026-11-01T00:00:00Z",
+                }
+            },
+        }
+        with self.assertRaises(PublicationValidationError) as ctx_val:
+            validate_publication(self.published_dir, index_data=mismatched_index)
+        self.assertIn("campaign_id", str(ctx_val.exception))

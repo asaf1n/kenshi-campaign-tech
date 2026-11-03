@@ -4,6 +4,7 @@
   "snapshot_id": "example-snapshot-a",
   "parent_snapshot_id": null,
   "branch_id": "example-branch",
+  "campaign_id": "example-campaign",
   "game_time": null,
   "world_ref_id": null,
   "source_kind": "export",

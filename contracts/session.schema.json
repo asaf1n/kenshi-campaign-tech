@@ -179,6 +179,36 @@
                     "stealth": {"type": ["boolean", "null"]},
                     "non_combat": {"type": ["boolean", "null"]}
                   }
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "instance_id": {"type": ["string", "null"]},
+                      "item_sid": {"type": "string"},
+                      "container": {"type": "string"},
+                      "section": {"type": "string"},
+                      "base_data_sid": {"type": "string"},
+                      "material_sid": {"type": "string"},
+                      "color_sid": {"type": "string"},
+                      "company_sid": {"type": "string"},
+                      "quality": {"type": ["number", "null"]},
+                      "charges": {"type": ["number", "null"]},
+                      "wear": {"type": ["number", "null"]},
+                      "dam": {"type": ["number", "null"]},
+                      "stun": {"type": ["number", "null"]},
+                      "level": {"type": ["integer", "null"]},
+                      "quantity": {"type": ["integer", "null"]},
+                      "inventory_xy": {
+                        "type": ["array", "null"],
+                        "items": {"type": ["integer", "null"]}
+                      },
+                      "item_function": {"type": ["integer", "null"]},
+                      "unique": {"type": ["boolean", "null"]},
+                      "owned_by": {"type": ["array", "null"]}
+                    }
+                  }
                 }
               }
             }
