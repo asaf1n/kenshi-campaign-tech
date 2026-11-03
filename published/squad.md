@@ -62,6 +62,7 @@
 - **Местоположение:** регион Болото (граница) (`in_region`)
 - **Состояние:** кровь 50.0, сытость 2.5222
 - **Боевые режимы:** chase, ranged
+- **Переноска:** несёт цель [1, 924, -1076705536, 2, 528564448]
 - **Атрибуты:** Dexterity: 70.6, Perception: 79.99, Strength: 33.32, Toughness: 59.39
 - **Навыки:** Armour Smithing: 0.02, Assassination: 1.0, Athletics: 88.84, Blunt: 1.3, Cooking: 0.8, Crossbow Smithing: 1.0, Crossbows: 82.08, Dodge: 20.65, Engineering: 60.83, Farming: 1.2, Field Medic: 25.72, Hackers: 1.72, Heavy Weapons: 1.33, Katanas: 44.59, Labouring: 36.01, Lockpicking: 14.57, Martial Arts: 1.73, Melee Attack: 43.86, Melee Defence: 50.08, Polearms: 0.54, Precision Shooting: 84.42, Robotics: 22.59, Sabres: 1.74, Science: 0.8, Stealth: 12.98, Swimming: 54.3, Thievery: 10.84, Turrets: 0.66, Weapon Smithing: 0.55
 - **Оружие:** weapon_back: Старый балет MкII (None 80), weapon_hip: Клинок ниндзя (Мейто 100)
@@ -88,6 +89,7 @@
 - **Состояние:** кровь 97.86, сытость 2.6808
 - **Боевые режимы:** chase
 - **Работы:** JOB_MEDIC, JOB_REPAIR_ROBOT
+- **Переноска:** несёт цель [1, 924, 1734985344, 4, 528564448]
 - **Награда за голову:** 3 327 кат.
 - **Атрибуты:** Dexterity: 51.29, Perception: 1.0, Strength: 30.48, Toughness: 53.6
 - **Навыки:** Armour Smithing: 1.2, Assassination: 24.09, Athletics: 87.83, Blunt: 15.0, Cooking: 0.8, Crossbow Smithing: 1.0, Crossbows: 1.0, Dodge: 46.4, Engineering: 2.72, Farming: 0.8, Field Medic: 33.18, Hackers: 15.0, Heavy Weapons: 15.0, Katanas: 15.0, Labouring: 0.8, Lockpicking: 40.04, Martial Arts: 48.04, Melee Attack: 18.05, Melee Defence: 22.96, Polearms: 18.55, Precision Shooting: 15.0, Robotics: 19.22, Sabres: 15.0, Science: 1.0, Stealth: 22.35, Swimming: 65.47, Thievery: 27.11, Turrets: 15.0, Weapon Smithing: 1.2
@@ -134,9 +136,9 @@
 - **Инвентарь:** Деревянный рюкзак x1, Набор шин x1, Настоящий ремкомплект x1, Слитки стали (рюкзак) x1, Сухой паёк (рюкзак) x1, Хорошая аптечка x1
 
 ## Отряд `Безымянные_4`: Secundus
-Количество участников: 8
+Количество участников: 8 (гуманоидов: 7, животных: 1)
 
-### fx (`ps:-843917568`)
+### fx (`ps:-843917568`) [Животное]
 - **Раса:** Костепёс
 - **Местоположение:** Скуин (`in_location`, 359.4 м от центра)
 - **Состояние:** кровь 228.01, сытость 2.3612
@@ -236,9 +238,9 @@
 - **Инвентарь:** Ремкомплект скелета x1, Ремкомплект скелета (рюкзак) x1, Стандартная аптечка (рюкзак) x2, Хорошая аптечка x1, Хороший набор шин (рюкзак) x1
 
 ## Отряд `Безымянные_5`: Cooperate
-Количество участников: 4
+Количество участников: 4 (гуманоидов: 3, животных: 1)
 
-### Вьючный бык (`ps:1856201216`)
+### Вьючный бык (`ps:1856201216`) [Животное]
 - **Раса:** Бык
 - **Местоположение:** регион Болото (граница) (`in_region`)
 - **Состояние:** кровь 251.52, сытость 1.6172
@@ -256,6 +258,7 @@
 - **Статусы:** coma, unconscious
 - **Боевые режимы:** chase, ranged
 - **Работы:** _SLAVE_OBEDIENCE
+- **Переноска:** на плече у персонаж [1, 2, 717041024, 7, 1171997056]
 - **Атрибуты:** Dexterity: 1.62, Perception: 1.0, Strength: 18.49, Toughness: 8.92
 - **Навыки:** Armour Smithing: 1.2, Assassination: 1.0, Athletics: 25.67, Blunt: 1.0, Cooking: 0.8, Crossbow Smithing: 1.0, Crossbows: 1.0, Dodge: 6.74, Engineering: 25.63, Farming: 40.0, Field Medic: 5.2, Hackers: 1.0, Heavy Weapons: 1.0, Katanas: 1.05, Labouring: 41.51, Lockpicking: 14.61, Martial Arts: 1.0, Melee Attack: 14.99, Melee Defence: 4.57, Polearms: 1.68, Precision Shooting: 1.0, Robotics: 1.01, Sabres: 1.0, Science: 1.0, Stealth: 1.2, Swimming: 10.05, Thievery: 1.0, Turrets: 1.0, Weapon Smithing: 1.2
 - **Броня:** body: Косуха скитальца (ур. 80), head: Латная маска (ур. 60), legs: Капри [стёганые] (ур. 60), shirt: Рубаха тёмной кожи (ур. 40)
@@ -281,25 +284,27 @@
 - **Состояние:** кровь 50.0, сытость 2.5861
 - **Статусы:** coma, unconscious
 - **Боевые режимы:** chase
+- **Переноска:** на плече у персонаж [1, 2, -1929854976, 1, 1171997056]
 - **Атрибуты:** Dexterity: 12.09, Perception: 12.0, Strength: 12.37, Toughness: 6.96
 - **Навыки:** Armour Smithing: 1.0, Assassination: 1.0, Athletics: 47.85, Blunt: 10.0, Cooking: 1.0, Crossbow Smithing: 1.0, Crossbows: 1.0, Dodge: 1.98, Engineering: 3.67, Farming: 3.22, Field Medic: 4.83, Hackers: 10.0, Heavy Weapons: 10.0, Katanas: 10.0, Labouring: 0.07, Lockpicking: 1.2, Martial Arts: 1.0, Melee Attack: 10.14, Melee Defence: 12.95, Polearms: 1.18, Precision Shooting: 1.0, Robotics: 1.0, Science: 9.99, Stealth: 12.33, Swimming: 59.77, Thievery: 12.83, Turrets: 1.0, Weapon Smithing: 1.0
 - **Броня:** body: Куртка с латами (ур. 60), head: Латный капюшон (ур. 60), legs: Штаны самурая (ур. 60), shirt: Кольчуга Роев (ур. 40)
 - **Инвентарь:** Стандартная аптечка (рюкзак) x1, Хорошая аптечка (рюкзак) x1, Хороший набор шин (рюкзак) x1
 
 ## Отряд `Безымянные_6`: White Armor
-Количество участников: 8
+Количество участников: 8 (гуманоидов: 7, животных: 1)
 
 ### Ану (`ps:1359130880`)
 - **Раса:** Солдабот
 - **Местоположение:** регион Южные болота (`in_region`)
 - **Состояние:** кровь 100.0, сытость 3.0
 - **Работы (отключены):** JOB_MEDIC, JOB_REPAIR_ROBOT, FIND_AND_RESCUE_IF_THERES_BEDS, FIND_BED_AND_PUT_IN
+- **Переноска:** несёт цель [1, 1762, -852584448, 1, 1465209984]
 - **Атрибуты:** Dexterity: 47.07, Perception: 1.2, Strength: 50.24, Toughness: 47.63
 - **Навыки:** Armour Smithing: 1.0, Assassination: 1.31, Athletics: 85.11, Blunt: 1.0, Cooking: 1.0, Crossbow Smithing: 1.0, Crossbows: 1.0, Dodge: 41.42, Engineering: 3.71, Farming: 1.0, Field Medic: 17.12, Hackers: 1.0, Heavy Weapons: 1.0, Katanas: 1.0, Labouring: 1.0, Lockpicking: 4.21, Martial Arts: 41.67, Melee Attack: 18.39, Melee Defence: 20.69, Polearms: 1.0, Precision Shooting: 1.0, Robotics: 35.81, Sabres: 17.92, Science: 1.0, Stealth: 2.11, Swimming: 37.32, Thievery: 0.8, Turrets: 1.0, Weapon Smithing: 1.0
 - **Броня:** body: Пыльник (ур. 95), legs: Латная рваная юбка (цветная) (ур. 80)
 - **Инвентарь:** Кожаная водолазка (рюкзак) x1, Набор шин (рюкзак) x1, Ремкомплект скелета (рюкзак) x2, Стандартная аптечка (рюкзак) x2, Хорошая аптечка (рюкзак) x1
 
-### Вьючный бык (`ps:35522460`)
+### Вьючный бык (`ps:35522460`) [Животное]
 - **Раса:** Бык
 - **Местоположение:** регион Южные болота (`in_region`)
 - **Состояние:** кровь 211.8, сытость 2.3453
