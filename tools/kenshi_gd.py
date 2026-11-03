@@ -1,6 +1,5 @@
 """Чтение бинарного GameData Kenshi без файловых побочных эффектов.
 
-Формат записей перенесён из kenshi-platoon-export/tools/kenshi_gd.py.
 read_file читает заголовок 15 (.save, .platoon, .zone), read_mod — 16/17
 (.base, .mod). Неразобранный хвост сейва сохраняется через consumed/size:
 достижение конца списка записей не означает разбор всего файла.
