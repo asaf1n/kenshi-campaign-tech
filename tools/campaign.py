@@ -384,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
             clustered, episodes = cluster_screenshots(collected)
             prev_ann_p = pub_dir / "screenshots/annotations.jsonl"
             now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            hud_rows = update_hud_index(collected, now_iso=now_iso)
+            hud_rows, hud_warning = update_hud_index(collected, now_iso=now_iso)
             annotated = extract_screenshots_batch(
                 clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso, hud_rows=hud_rows,
             )
@@ -399,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
                 encoding="utf-8"
             )
             result = {"annotated_count": len(annotated), "episodes_count": len(episodes)}
+            if hud_warning:
+                result["warning"] = hud_warning
 
         elif args.command == "screenshots-index":
             from datetime import datetime, timezone, timedelta
@@ -408,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
             now_dt = datetime.now(timezone.utc)
             cutoff_dt = datetime.fromtimestamp(0, timezone.utc) if args.all else now_dt - timedelta(days=7)
             collected = collect_recent_screenshots(args.screens_dir or Config.from_env().screens, cutoff_dt, now_dt)
-            rows = update_hud_index(collected)
+            rows, hud_warning = update_hud_index(collected)
             frames = [rows[item["sha256"]] for item in collected if item["sha256"] in rows]
             result = {
                 "frames": len(collected),
@@ -417,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
                 "with_time": sum(row["game_time"] is not None for row in frames),
                 "with_selected": sum(row["selected"] is not None for row in frames),
             }
+            if hud_warning:
+                result["warning"] = hud_warning
 
         elif args.command == "screenshots-find":
             from tools.screenshot_hud import find_frames, load_hud_index
@@ -542,6 +546,8 @@ def main(argv: list[str] | None = None) -> int:
 
         sys.stdout.buffer.write(canonical(result))
         if args.command == "sync-drive" and result.get("status") != "synced":
+            return 1
+        if args.command == "screenshots-index" and result["indexed"] < result["frames"]:
             return 1
         delivery = result.get("companion_delivery") if args.command == "pipeline" else result
         if args.command in ("pipeline", "deliver-companion") and delivery and delivery.get("status") == "partial":

@@ -445,6 +445,7 @@ def publish(
             target_screens_dir = Config.from_env().screens
 
     screenshots_index_data = None
+    hud_warning: str | None = None
     screenshots_index_md = None
     screenshots_section = None
     pdf_frames: list[dict[str, Any]] = []
@@ -485,10 +486,10 @@ def publish(
 
         try:
             # Распознаётся оригинал: на кадре 1600 px цифры интерфейса искажаются.
-            hud_rows = update_hud_index(window_screenshots, now_iso=gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
-        except Exception:
-            # Изоляция сбоев: ошибка разметки не блокирует публикацию
-            hud_rows = {}
+            hud_rows, hud_warning = update_hud_index(window_screenshots, now_iso=gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        except Exception as hud_error:
+            # Изоляция сбоев: ошибка разметки не блокирует публикацию, но попадает в предупреждения
+            hud_rows, hud_warning = {}, f"OCR: индекс недоступен: {hud_error}"
         snapshot_entries = screenshot_delta.snapshot_chain(idx_data, snapshot_id)
         new_originals = screenshot_delta.new_frame_names(
             archived.values(), screenshot_delta.delta_boundary(idx_data, snapshot_id, effective_parent)
@@ -612,7 +613,7 @@ def publish(
         publication={**manifest_data, "generated_at": GENERATED_AT_TOKEN}, screenshots_section=screenshots_section,
     )
 
-    publication_warnings: list[str] = []
+    publication_warnings: list[str] = [hud_warning] if hud_warning else []
     lock_file = Path(tempfile.gettempdir()) / f"kenshi_{published_dir.name}.lock"
     staging_dir = published_dir.parent / f"{published_dir.name}.staging"
     backup_dir = published_dir.parent / f"{published_dir.name}.backup"

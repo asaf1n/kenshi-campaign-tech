@@ -126,11 +126,27 @@ def to_ocr(row: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-def run_winocr(paths: list[Path]) -> dict[str, dict[str, Any]]:
-    """Один процесс PowerShell на пакет; при недоступности Windows OCR результат пуст и публикация идёт без разметки."""
+def _read_records(path: Path) -> list[dict[str, Any]]:
+    """Готовые строки вывода; последняя может быть обрезана, если процесс упал или был остановлен."""
+    if not path.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
+def run_winocr(paths: list[Path]) -> tuple[dict[str, dict[str, Any]], str | None]:
+    """Один процесс PowerShell на пакет. Возвращает распознанные кадры и причину сбоя; готовые кадры при сбое сохраняются."""
+    if not paths:
+        return {}, None
     powershell = shutil.which("powershell")
-    if not paths or not powershell:
-        return {}
+    if not powershell:
+        return {}, "PowerShell не найден"
+    error: str | None = None
     with tempfile.TemporaryDirectory(prefix="kenshi_winocr_") as temp:
         list_file, out_file = Path(temp) / "list.txt", Path(temp) / "out.jsonl"
         list_file.write_text("\n".join(str(path) for path in paths), encoding="utf-8")
@@ -141,10 +157,16 @@ def run_winocr(paths: list[Path]) -> dict[str, dict[str, Any]]:
                 stdin=subprocess.DEVNULL, capture_output=True, check=True,
                 timeout=TIMEOUT_BASE_SECONDS + TIMEOUT_PER_FRAME_SECONDS * len(paths),
             )
-        except (OSError, subprocess.SubprocessError):
-            return {}
-        records = [json.loads(line) for line in out_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    return {record["path"]: record for record in records if not record.get("error") and "regions" in record}
+        except subprocess.CalledProcessError as failure:
+            # Windows PowerShell пишет ошибки в кодировке OEM.
+            error = (failure.stderr or b"").decode("cp866", "replace").strip()[-300:] or f"код {failure.returncode}"
+        except subprocess.TimeoutExpired:
+            error = "превышено время ожидания пакета"
+        except OSError as failure:
+            error = str(failure)
+        records = _read_records(out_file)
+    error = error or next((record["error"] for record in records if record.get("error")), None)
+    return {record["path"]: record for record in records if not record.get("error") and "regions" in record}, error
 
 
 def index_path(archive_dir: Path | None = None) -> Path:
@@ -157,10 +179,13 @@ def load_hud_index(path: Path | None = None) -> dict[str, dict[str, Any]]:
     if not path.is_file():
         return {}
     rows: dict[str, dict[str, Any]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
             row = json.loads(line)
             rows[row["sha256"]] = {**row, **parse_hud(row.get("regions") or {}, row.get("height") or 0)}
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Испорченная строка не отключает индекс: кадр будет распознан заново.
+            continue
     return rows
 
 
@@ -175,8 +200,8 @@ def _save(rows: dict[str, dict[str, Any]], path: Path) -> None:
 
 def update_hud_index(
     items: Iterable[dict[str, Any]], path: Path | None = None, now_iso: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Дополняет индекс кадрами, которых в нём нет (по sha256 оригинала), и возвращает его целиком."""
+) -> tuple[dict[str, dict[str, Any]], str | None]:
+    """Дополняет индекс кадрами, которых в нём нет (по sha256 оригинала). Возвращает индекс и предупреждение о сбое."""
     path = path or index_path()
     rows = load_hud_index(path)
     pending: dict[str, dict[str, Any]] = {}
@@ -184,10 +209,12 @@ def update_hud_index(
         if item["sha256"] not in rows:
             pending.setdefault(item["sha256"], item)
     if not pending:
-        return rows
-    recognized = run_winocr([Path(item["source_path"]) for item in pending.values()])
+        return rows, None
+    recognized, error = run_winocr([Path(item["source_path"]) for item in pending.values()])
+    missing = sum(str(item["source_path"]) not in recognized for item in pending.values())
+    warning = f"OCR: без разметки осталось кадров: {missing}; причина: {error or 'неизвестна'}" if missing else None
     if not recognized:
-        return rows
+        return rows, warning
     stamp = now_iso or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for sha256, item in pending.items():
         record = recognized.get(str(item["source_path"]))
@@ -205,7 +232,7 @@ def update_hud_index(
             **parse_hud(record["regions"], height),
         }
     _save(rows, path)
-    return rows
+    return rows, warning
 
 
 def raw_text(row: dict[str, Any]) -> str:

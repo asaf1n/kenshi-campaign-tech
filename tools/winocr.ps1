@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Распознавание текста интерфейса Kenshi штатным Windows OCR (WinRT), без внешних зависимостей.
+    Распознавание текста интерфейса Kenshi штатным Windows OCR (WinRT), без внешних пакетов; нужны языки Windows ru и en-US.
 
 .DESCRIPTION
     Читает пути кадров из ListFile (UTF-8, по одному в строке), пишет в OutFile JSONL:
@@ -22,9 +22,11 @@ $null = [Windows.Globalization.Language, Windows.Foundation, ContentType = Windo
 $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
         $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
     })[0]
+$FrameTimeoutMs = 30000
 function Wait-Async($operation, [type]$type) {
     $task = $asTask.MakeGenericMethod($type).Invoke($null, @($operation))
-    $task.Wait()
+    # Без предела один зависший кадр остановил бы весь пакет.
+    if (-not $task.Wait($FrameTimeoutMs)) { throw 'Windows OCR: превышено время ожидания кадра.' }
     $task.Result
 }
 
@@ -79,6 +81,8 @@ function Read-Pixels([Drawing.Bitmap]$bitmap, [int]$x, [int]$y, [int]$w, [int]$h
 
 $encoding = New-Object Text.UTF8Encoding($false)
 $writer = New-Object IO.StreamWriter($OutFile, $false, $encoding)
+# Готовые строки должны пережить падение процесса: вызывающий код принимает частичный результат.
+$writer.AutoFlush = $true
 try {
     foreach ($path in [IO.File]::ReadAllLines($ListFile, $encoding)) {
         if (-not $path) { continue }
@@ -94,7 +98,7 @@ try {
                     $found[$name] = Read-Pixels $bitmap ($bitmap.Width * $box[0]) ($bitmap.Height * $box[1]) ($bitmap.Width * $box[2]) ($bitmap.Height * $box[3]) $scale $engine
                 }
                 $label = @($found.hud | Where-Object { $_.text -match $DayLabel }) | Select-Object -First 1
-                if ($digitEngine -and $label -and -not (@($found.hud | ForEach-Object { $_.text }) -join ' ' -match $DayValue)) {
+                if ($digitEngine -and $label -and $label.text -notmatch $DayValue) {
                     $top = $label.y - [int]($bitmap.Height * 0.0045)
                     foreach ($zoom in 2, 4) {
                         $strip = Read-Pixels $bitmap $label.x $top ($bitmap.Width * $StripWidth) ($bitmap.Height * $StripHeight) $zoom $digitEngine

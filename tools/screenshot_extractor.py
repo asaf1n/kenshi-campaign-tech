@@ -152,7 +152,32 @@ def extract_single_screenshot(
     duplicate_of = item.get("duplicate_of")
     current_time_iso = now_iso or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # 1. Проверка персистентного кэша по SHA-256
+    # 1. Машинный индекс важнее кэша: исправленный разбор должен доходить до публикации. Ключ индекса — sha256
+    # оригинала, публикуемый кадр уменьшен и хэшируется иначе. Запись другого источника (Gemini) не вытесняется.
+    hud_row = (hud_rows or {}).get(item.get("source_sha256") or sha256)
+    if hud_row and cache.get(sha256, {}).get("provenance", {}).get("source") in (None, "ocr", "cache"):
+        cache.pop(sha256, None)
+    hud_ocr = to_ocr(hud_row)
+    if hud_ocr:
+        rec = {
+            "format": "kenshi-screenshot-annotation/1",
+            "sha256": sha256,
+            "filename": fn,
+            "order": order,
+            "modified_at": modified_at,
+            "meta": {
+                "dhash": dhash,
+                "scene_group_id": scene_group_id,
+                "is_exact_duplicate": is_exact_duplicate,
+                "duplicate_of": duplicate_of,
+            },
+            "ocr": hud_ocr,
+            "provenance": {"source": "ocr", "confidence": None, "extracted_at": hud_row["extracted_at"]},
+        }
+        cache[sha256] = rec
+        return rec
+
+    # 2. Проверка персистентного кэша по SHA-256
     if sha256 in cache:
         cached = dict(cache[sha256])
         cached["order"] = order
@@ -163,7 +188,7 @@ def extract_single_screenshot(
         cached["meta"]["duplicate_of"] = duplicate_of
         return cached
 
-    # 2. Если точный дубликат и оригинал уже в кэше
+    # 3. Если точный дубликат и оригинал уже в кэше
     if is_exact_duplicate and duplicate_of and duplicate_of in cache:
         orig = cache[duplicate_of]
         dup_rec = {
@@ -190,28 +215,6 @@ def extract_single_screenshot(
         }
         cache[sha256] = dup_rec
         return dup_rec
-
-    # 3. Машинный индекс интерфейса: ключ — sha256 оригинала, публикуемый кадр уменьшен и хэшируется иначе.
-    hud_row = (hud_rows or {}).get(item.get("source_sha256") or sha256)
-    hud_ocr = to_ocr(hud_row)
-    if hud_ocr:
-        rec = {
-            "format": "kenshi-screenshot-annotation/1",
-            "sha256": sha256,
-            "filename": fn,
-            "order": order,
-            "modified_at": modified_at,
-            "meta": {
-                "dhash": dhash,
-                "scene_group_id": scene_group_id,
-                "is_exact_duplicate": is_exact_duplicate,
-                "duplicate_of": duplicate_of,
-            },
-            "ocr": hud_ocr,
-            "provenance": {"source": "ocr", "confidence": None, "extracted_at": hud_row["extracted_at"]},
-        }
-        cache[sha256] = rec
-        return rec
 
     # 4. Попытка OCR интерфейса через VLM (только при явном включении и неразомкнутом Circuit Breaker)
     ocr_data = None

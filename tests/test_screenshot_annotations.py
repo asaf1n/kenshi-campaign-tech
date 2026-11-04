@@ -193,10 +193,33 @@ class ScreenshotExtractorTests(unittest.TestCase):
                 "modified_at": "2026-10-30T12:00:00Z", "dhash": "0123456789abcdef", "scene_group_id": "seq_001"}
         hud_rows = {sha: {"game_day": 130, "game_time": "21:30", "selected": "Бип", "tasks": ["Медик"],
                           "extracted_at": "2026-11-01T00:00:00Z"}}
-        record = extract_single_screenshot(item, cache={}, hud_rows=hud_rows)
-        self.assertEqual(record["provenance"]["source"], "ocr")
-        self.assertEqual(record["ocr"]["game_day"], 130)
-        validate(record, "screenshot-annotations")
+        stale = {"b" * 64: {"sha256": "b" * 64, "meta": {}, "ocr": {"game_day": 1}, "provenance": {"source": "ocr"}}}
+        for cache in ({}, stale):  # Исправленный разбор индекса важнее записи прошлой публикации.
+            record = extract_single_screenshot(item, cache=cache, hud_rows=hud_rows)
+            self.assertEqual(record["provenance"]["source"], "ocr")
+            self.assertEqual(record["ocr"]["game_day"], 130)
+            validate(record, "screenshot-annotations")
+
+    def test_ocr_failure_keeps_finished_frames_and_warns(self) -> None:
+        """Сбой пакета не теряет готовые кадры и даёт предупреждение; обрезанная последняя строка пропускается."""
+        import subprocess
+        from tools import screenshot_hud
+
+        items = [{"sha256": str(n) * 64, "filename": f"s{n}.jpg", "modified_at": "2026-11-01T00:00:00Z",
+                  "source_path": self.tmp_path / f"s{n}.jpg"} for n in (1, 2, 3)]
+        done = json.dumps({"path": str(items[0]["source_path"]), "width": 2880, "height": 1800,
+                           "regions": {"hud": [{"text": "День: 7", "x": 1, "y": 1, "w": 9, "h": 9}]}})
+        failures = (subprocess.TimeoutExpired("ps", 1), subprocess.CalledProcessError(1, "ps", stderr=b"boom"))
+        for number, failure in enumerate(failures):
+            with self.subTest(type(failure).__name__):
+                def fake_run(command, **_kwargs):
+                    Path(command[command.index("-OutFile") + 1]).write_text(done + '\n{"path": "обрез', encoding="utf-8")
+                    raise failure
+
+                with patch.object(screenshot_hud.subprocess, "run", fake_run):
+                    rows, warning = screenshot_hud.update_hud_index(items, self.tmp_path / f"index{number}.jsonl")
+                self.assertEqual([row["game_day"] for row in rows.values()], [7])
+                self.assertIn("кадров: 2", warning)
 
     def test_hud_parsing_by_labels(self) -> None:
         """Поля читаются по подписям в обоих оформлениях; нечитаемое остаётся None, значения не съезжают по строкам."""
