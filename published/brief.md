@@ -1,10 +1,10 @@
 # Краткая сводка: День 132, 11:15
 
-- **snapshot_id:** `sha256-b06c8cdb67bfe062ba6b5b7e1a0723ab227b867ce7dc98c927f93848f934f384`
-- **previous_snapshot_id:** `sha256-31ce3e1ccaf4811388b559b28791de266cdbba34500086a089a029befd5ebacd`
+- **snapshot_id:** `sha256-b598bf852613e87bf83511832b70a549da5145a11c75de1deff2d44c74ab3383`
+- **previous_snapshot_id:** `sha256-b06c8cdb67bfe062ba6b5b7e1a0723ab227b867ce7dc98c927f93848f934f384`
 - **branch_id:** `hot-lon-chapter-x-final`
 - **game_time:** `Day 132, 11:15`
-- **generated_at:** `2026-11-04T11:53:24Z`
+- **generated_at:** `2026-11-04T12:07:21Z`
 
 ## Игровой мир
 - **Время:** День 132, время 11:15
@@ -146,7 +146,7 @@
 
 Новых кадров текущего снимка: 6. Их визуальный анализ обязателен на шаге `[ход]`. Первичная разметка — автоматические ориентиры по файловому времени, а не подтверждённые события; содержание кадра определяется только по изображению.
 
-| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Google Диск |
+| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь (GitHub и Google Диск) |
 |---|---|---|---|---|---|---|---|
 | `screenshot_430` | `screenshot_430-0b9d0d64.jpg` | `7716eb01` `7716eb01ecb8d73ee1133c5b0829421d090e8038a718bbc8c14d04d842d90415` | `2026-11-04T08:43:01Z` | Day 132, 06:03 (sha256-0a634e20) → Day 132, 11:15 (sha256-31ce3e1c) | группы на Day 132, 11:15: Скуин (24), Регион Болото (4), Окрестности Деревня Серодёров (1) · дельта интервала: Изменены конечности и протезы: Зелёный палец: left_leg None -> lost; Казна: 61953 -> 58866 (-3087); Смена статуса: Зелёный палец incapacitated=True | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_430-0b9d0d64.jpg) | `published/screenshots/screenshot_430-0b9d0d64.jpg` |
 | `screenshot_431` | `screenshot_431-f31f45c9.jpg` | `0a29f05a` `0a29f05a9eb8decac86318a1b128232c16f1064b6d61c50e8a74c5a402b8ecc5` | `2026-11-04T08:43:53Z` | Day 132, 06:03 (sha256-0a634e20) → Day 132, 11:15 (sha256-31ce3e1c) | группы на Day 132, 11:15: Скуин (24), Регион Болото (4), Окрестности Деревня Серодёров (1) · дельта интервала: Изменены конечности и протезы: Зелёный палец: left_leg None -> lost; Казна: 61953 -> 58866 (-3087); Смена статуса: Зелёный палец incapacitated=True | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_431-f31f45c9.jpg) | `published/screenshots/screenshot_431-f31f45c9.jpg` |

@@ -3,13 +3,13 @@
 - **Обновлено:** `2026-11-04T11:53:24Z`
 - **Окно выборки:** 7 суток (с `2026-10-28T11:53:24Z` по `2026-11-04T11:53:24Z`)
 - **Кадров в выпуске:** 30
-- **Пакет для просмотра на Google Диске:** `published/screenshots_latest.pdf`
+- **Пакет для просмотра на Google Диске:** `published/screenshots/screenshots_latest.pdf`
 
 Первичная разметка — автоматические ориентиры по файловому времени, а не подтверждённые события; содержание кадра определяется только по изображению.
 
 ## А. Новые кадры текущего снимка
 
-| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Google Диск |
+| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь (GitHub и Google Диск) |
 |---|---|---|---|---|---|---|---|
 | `screenshot_430` | `screenshot_430-0b9d0d64.jpg` | `7716eb01` `7716eb01ecb8d73ee1133c5b0829421d090e8038a718bbc8c14d04d842d90415` | `2026-11-04T08:43:01Z` | Day 132, 06:03 (sha256-0a634e20) → Day 132, 11:15 (sha256-31ce3e1c) | группы на Day 132, 11:15: Скуин (24), Регион Болото (4), Окрестности Деревня Серодёров (1) · дельта интервала: Изменены конечности и протезы: Зелёный палец: left_leg None -> lost; Казна: 61953 -> 58866 (-3087); Смена статуса: Зелёный палец incapacitated=True | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_430-0b9d0d64.jpg) | `published/screenshots/screenshot_430-0b9d0d64.jpg` |
 | `screenshot_431` | `screenshot_431-f31f45c9.jpg` | `0a29f05a` `0a29f05a9eb8decac86318a1b128232c16f1064b6d61c50e8a74c5a402b8ecc5` | `2026-11-04T08:43:53Z` | Day 132, 06:03 (sha256-0a634e20) → Day 132, 11:15 (sha256-31ce3e1c) | группы на Day 132, 11:15: Скуин (24), Регион Болото (4), Окрестности Деревня Серодёров (1) · дельта интервала: Изменены конечности и протезы: Зелёный палец: left_leg None -> lost; Казна: 61953 -> 58866 (-3087); Смена статуса: Зелёный палец incapacitated=True | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_431-f31f45c9.jpg) | `published/screenshots/screenshot_431-f31f45c9.jpg` |
@@ -20,7 +20,7 @@
 
 ## Б. Архивный хвост
 
-| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Google Диск |
+| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь (GitHub и Google Диск) |
 |---|---|---|---|---|---|---|---|
 | `screenshot_280` | `screenshot_280-75909b67.jpg` | `c0114d3d` `c0114d3d5855178979aa12f079b3114379bf4bd376235edb6e9376638f6cfc49` | `2026-11-01T09:44:52Z` | до Day 131, 15:06 (sha256-1de8a2d8) | группы на Day 131, 15:06: Скуин (25), Окрестности Деревня Серодёров (3), Окрестности Ровная лагуна (1) | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_280-75909b67.jpg) | `published/screenshots/screenshot_280-75909b67.jpg` |
 | `screenshot_291` | `screenshot_291-8ca5d942.jpg` | `4dcad3e0` `4dcad3e0caa778abc40b4ec641a8954eb16a332b2c497b912e47793734cfb3dd` | `2026-11-01T10:29:21Z` | до Day 131, 15:06 (sha256-1de8a2d8) | группы на Day 131, 15:06: Скуин (25), Окрестности Деревня Серодёров (3), Окрестности Ровная лагуна (1) | [raw](https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/published/screenshots/screenshot_291-8ca5d942.jpg) | `published/screenshots/screenshot_291-8ca5d942.jpg` |
