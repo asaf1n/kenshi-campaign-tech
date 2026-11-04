@@ -11,7 +11,7 @@
 | Каталог | Содержимое |
 |---|---|
 | `published/` | `manifest.json`, `brief.md`, `squad.md`, `changes.md`, `changes.json`, `timeline.jsonl` |
-| `published/screenshots/` | `index.md`, `index.json`, `screenshots_latest.pdf`, кадры выпуска и кадры дельты, не вошедшие в выпуск; кадры не удаляются при выходе из окна 7 суток |
+| `published/screenshots/` | `index.md`, `index.json`, `feed.md` (при содержательном OCR), `screenshots_latest.pdf`, кадры выпуска и кадры дельты, не вошедшие в выпуск; кадры не удаляются при выходе из окна 7 суток |
 | `Campaign/<кампания>/` | зеркало зафиксированных `*.md` каталогов кампаний: рабочие документы, `archive/`, `archive/sessions/`, `archive/povest/`. Файлы с незакоммиченными правками пропускаются и перечисляются в отчёте, удалённые в репозитории на Диске остаются |
 | `tmp/inbox/` | пакеты `[итог]`, сохранённые из LLM, когда прямая запись в GitHub недоступна |
 | `tmp/checkpoints/` | контрольные точки `CP-n.md` незавершённой сессии; конвертер их не читает |

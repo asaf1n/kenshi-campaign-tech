@@ -35,6 +35,7 @@ SESSION_FILES = (
     "timeline.jsonl",
     "screenshots/index.md",
     "screenshots/index.json",
+    "screenshots/feed.md",
     f"screenshots/{PDF_NAME}",
 )
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}

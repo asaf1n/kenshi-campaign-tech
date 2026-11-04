@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/kenshi/screenshot-annotations.schema.json",
   "title": "Kenshi screenshot technical extraction record (kenshi-screenshot-annotation/1)",
-  "description": "Технический экстракт кадра для контекстного поиска LLM-компаньоном. Содержит только файловые метаданные, перцептивное хеширование и распознанный текст интерфейса (OCR). Запрещено генерировать интерпретации сцен, действий и событий.",
+  "description": "Технический экстракт кадра для контекстного поиска LLM-компаньоном. Содержит только файловые метаданные, перцептивное хеширование и распознанный текст интерфейса (OCR).",
   "type": "object",
   "additionalProperties": false,
   "required": [

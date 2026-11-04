@@ -481,6 +481,14 @@ def publish(
             item["filename"]: item
             for item in screenshot_publish.archive_screenshots(clustered_window)
         }
+        from tools.screenshot_hud import to_ocr, update_hud_index
+
+        try:
+            # Распознаётся оригинал: на кадре 1600 px цифры интерфейса искажаются.
+            hud_rows = update_hud_index(window_screenshots, now_iso=gen_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        except Exception:
+            # Изоляция сбоев: ошибка разметки не блокирует публикацию
+            hud_rows = {}
         snapshot_entries = screenshot_delta.snapshot_chain(idx_data, snapshot_id)
         new_originals = screenshot_delta.new_frame_names(
             archived.values(), screenshot_delta.delta_boundary(idx_data, snapshot_id, effective_parent)
@@ -547,6 +555,7 @@ def publish(
                 clustered_screenshots=clustered_screenshots,
                 cache_path=prev_ann_path if prev_ann_path.is_file() else None,
                 now_iso=screenshots_index_data["generated_at"],
+                hud_rows=hud_rows,
             )
             if not screenshot_publish.has_ocr_content(annotated_records):
                 # Пустой OCR: аннотации и лента не несут информации и не публикуются.
@@ -582,9 +591,12 @@ def publish(
         annotations = {record.get("filename"): record for record in annotated_records}
 
         def to_frame(item: dict[str, Any]) -> dict[str, Any]:
+            # Кадры дельты вне выпуска не имеют аннотации, но разметка интерфейса в индексе у них есть.
+            hud_ocr = to_ocr(hud_rows.get(item["sha256"]))
+            annotation = annotations.get(item["published_name"]) or ({"ocr": hud_ocr} if hud_ocr else None)
             return screenshot_delta.frame_record(
                 item, snapshot_entries, load_chain_diff, load_snapshot_locations,
-                annotations.get(item["published_name"]), item["published_name"] in bundled,
+                annotation, item["published_name"] in bundled,
             )
 
         new_frames = [to_frame(archived[name]) for name in new_originals]

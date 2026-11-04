@@ -2,6 +2,7 @@
 
 Принципы:
 1. Только объективные факты: файловые метаданные (SHA-256, mtime, dHash), перцептивная группировка дублей и OCR интерфейса.
+   Основной источник OCR — машинный индекс `tools.screenshot_hud`; Gemini включается только явно (`KENSHI_SCREENSHOT_VLM=gemini`).
 2. Исключены любые генерации и домыслы описаний сцен, действий или сюжета.
 3. Сохранение неопределенности: если текст не распознан, поля остаются null / [], а не заполняются значениями по умолчанию.
 4. Кэширование по SHA-256: неизмененные кадры не обрабатываются повторно.
@@ -16,6 +17,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+
+from tools.screenshot_hud import to_ocr
 
 
 PROMPT_KENSHI_OCR = """Ты — технический инструмент извлечения текста (OCR) из интерфейса игры Kenshi на скриншоте.
@@ -34,6 +37,13 @@ PROMPT_KENSHI_OCR = """Ты — технический инструмент из
 - Придумывать действия персонажей, сюжет или трактовать события.
 - Домысливать текст, если он не читается или отсутствует.
 Если элемент отсутствует или не различим, возвращай null для одиночных полей и пустой массив [] для списков. Ответ СТРОГО в JSON без пояснений."""
+
+
+def resolve_api_key(api_key: str | None) -> str | None:
+    """Ключ из окружения действует только при явном включении: наличие ключа не должно отправлять кадры наружу."""
+    if api_key:
+        return api_key
+    return os.environ.get("GEMINI_API_KEY") if os.environ.get("KENSHI_SCREENSHOT_VLM") == "gemini" else None
 
 
 def compress_image_for_ocr(image_path: Path, max_width: int = 800) -> bytes | None:
@@ -129,6 +139,7 @@ def extract_single_screenshot(
     model_name: str = "gemini-3.8-flash",
     now_iso: str | None = None,
     circuit_broken: bool = False,
+    hud_rows: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Техническое извлечение данных кадра: метаданные, хэши и OCR без генерации описаний."""
     sha256 = item.get("sha256", "")
@@ -180,9 +191,31 @@ def extract_single_screenshot(
         cache[sha256] = dup_rec
         return dup_rec
 
-    # 3. Попытка OCR интерфейса через VLM (если задан ключ и Circuit Breaker не разомкнут)
+    # 3. Машинный индекс интерфейса: ключ — sha256 оригинала, публикуемый кадр уменьшен и хэшируется иначе.
+    hud_row = (hud_rows or {}).get(item.get("source_sha256") or sha256)
+    hud_ocr = to_ocr(hud_row)
+    if hud_ocr:
+        rec = {
+            "format": "kenshi-screenshot-annotation/1",
+            "sha256": sha256,
+            "filename": fn,
+            "order": order,
+            "modified_at": modified_at,
+            "meta": {
+                "dhash": dhash,
+                "scene_group_id": scene_group_id,
+                "is_exact_duplicate": is_exact_duplicate,
+                "duplicate_of": duplicate_of,
+            },
+            "ocr": hud_ocr,
+            "provenance": {"source": "ocr", "confidence": None, "extracted_at": hud_row["extracted_at"]},
+        }
+        cache[sha256] = rec
+        return rec
+
+    # 4. Попытка OCR интерфейса через VLM (только при явном включении и неразомкнутом Circuit Breaker)
     ocr_data = None
-    resolved_api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    resolved_api_key = resolve_api_key(api_key)
     raw_path = item.get("source_path") or item.get("path")
     img_path = Path(raw_path) if raw_path else None
 
@@ -230,7 +263,7 @@ def extract_single_screenshot(
         cache[sha256] = rec
         return rec
 
-    # 4. Технический экстракт без OCR (сохранение полной неопределенности)
+    # 5. Технический экстракт без OCR (сохранение полной неопределенности)
     # Никаких домыслов, описаний сцен или действий по умолчанию!
     metadata_rec = {
         "format": "kenshi-screenshot-annotation/1",
@@ -277,8 +310,9 @@ def load_extractor_cache(cache_path: Path | None) -> dict[str, dict[str, Any]]:
                 continue
             record = json.loads(line)
             sha = record.get("sha256")
-            # Принимать только валидные технические экстракты без устаревшего блока visual
-            if sha and "ocr" in record and "visual" not in record:
+            # Запись без OCR не кэшируется: иначе кадр навсегда останется пустым, когда OCR станет доступен.
+            source = record.get("provenance", {}).get("source")
+            if sha and "ocr" in record and "visual" not in record and source != "metadata":
                 cache[sha] = record
     except Exception:
         pass
@@ -292,6 +326,7 @@ def extract_screenshots_batch(
     api_key: str | None = None,
     model_name: str = "gemini-3.8-flash",
     now_iso: str | None = None,
+    hud_rows: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Пакетное техническое извлечение данных кадров с кэшированием и Circuit Breaker."""
     cache = load_extractor_cache(cache_path)
@@ -299,7 +334,7 @@ def extract_screenshots_batch(
 
     circuit_broken = False
     consecutive_api_failures = 0
-    resolved_api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    resolved_api_key = resolve_api_key(api_key)
 
     for item in clustered_screenshots:
         sha256 = item.get("sha256", "")
@@ -312,6 +347,7 @@ def extract_screenshots_batch(
             model_name=model_name,
             now_iso=now_iso,
             circuit_broken=circuit_broken,
+            hud_rows=hud_rows,
         )
         extracted_records.append(rec)
 

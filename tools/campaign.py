@@ -115,6 +115,14 @@ def main(argv: list[str] | None = None) -> int:
     ann_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры")
     ann_parser.add_argument("--published-dir", type=Path, default=Path("published"), help="Каталог публикации (published)")
 
+    # 7.1.1. индекс интерфейса кадров
+    hud_parser = commands.add_parser("screenshots-index", help="Машинный индекс кадров по тексту интерфейса (Windows OCR)")
+    hud_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры")
+    hud_parser.add_argument("--all", action="store_true", help="Весь каталог вместо окна 7 суток")
+    find_parser = commands.add_parser("screenshots-find", help="Поиск кадров в машинном индексе")
+    find_parser.add_argument("--day", type=int, help="Игровой день, прочитанный с кадра")
+    find_parser.add_argument("--text", help="Подстрока распознанного текста")
+
     # 7.2. deliver-companion
     deliv_parser = commands.add_parser("deliver-companion", help="Доставка проверенного published в игровой репозиторий Kenshi-Compain")
     deliv_parser.add_argument("--published-dir", type=Path, help="Каталог публикации (по умолчанию published)")
@@ -366,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
             from tools.screenshot_clustering import cluster_screenshots
             from tools.screenshot_extractor import extract_screenshots_batch
             from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
+            from tools.screenshot_hud import update_hud_index
 
             screens_dir = args.screens_dir or Config.from_env().screens
             pub_dir = args.published_dir.resolve()
@@ -375,7 +384,10 @@ def main(argv: list[str] | None = None) -> int:
             clustered, episodes = cluster_screenshots(collected)
             prev_ann_p = pub_dir / "screenshots/annotations.jsonl"
             now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            annotated = extract_screenshots_batch(clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso)
+            hud_rows = update_hud_index(collected, now_iso=now_iso)
+            annotated = extract_screenshots_batch(
+                clustered, prev_ann_p if prev_ann_p.is_file() else None, now_iso=now_iso, hud_rows=hud_rows,
+            )
             sc_dir = pub_dir / "screenshots"
             sc_dir.mkdir(parents=True, exist_ok=True)
             (sc_dir / "annotations.jsonl").write_bytes(serialize_annotations_jsonl(annotated))
@@ -387,6 +399,33 @@ def main(argv: list[str] | None = None) -> int:
                 encoding="utf-8"
             )
             result = {"annotated_count": len(annotated), "episodes_count": len(episodes)}
+
+        elif args.command == "screenshots-index":
+            from datetime import datetime, timezone, timedelta
+            from tools.screenshots import collect_recent_screenshots
+            from tools.screenshot_hud import update_hud_index
+
+            now_dt = datetime.now(timezone.utc)
+            cutoff_dt = datetime.fromtimestamp(0, timezone.utc) if args.all else now_dt - timedelta(days=7)
+            collected = collect_recent_screenshots(args.screens_dir or Config.from_env().screens, cutoff_dt, now_dt)
+            rows = update_hud_index(collected)
+            frames = [rows[item["sha256"]] for item in collected if item["sha256"] in rows]
+            result = {
+                "frames": len(collected),
+                "indexed": len(frames),
+                "with_day": sum(row["game_day"] is not None for row in frames),
+                "with_time": sum(row["game_time"] is not None for row in frames),
+                "with_selected": sum(row["selected"] is not None for row in frames),
+            }
+
+        elif args.command == "screenshots-find":
+            from tools.screenshot_hud import find_frames, load_hud_index
+
+            fields = ("filename", "modified_at", "game_day", "game_time", "selected", "state", "goal", "tasks")
+            result = {"frames": [
+                {field: row.get(field) for field in fields}
+                for row in find_frames(load_hud_index().values(), args.day, args.text)
+            ]}
 
         elif args.command == "pipeline":
             cfg = Config.from_env(args.faction_sid)

@@ -106,9 +106,12 @@ def _groups(locations: dict[str, Any] | None) -> str | None:
 
 def _ocr_labels(annotation: dict[str, Any] | None) -> str | None:
     ocr = (annotation or {}).get("ocr") or {}
-    labels = [str(ocr["location"])] if ocr.get("location") else []
+    labels = [f"День {ocr['game_day']}"] if ocr.get("game_day") is not None else []
+    labels += [str(ocr["game_time"])] if ocr.get("game_time") else []
+    labels += [str(ocr["location"])] if ocr.get("location") else []
     labels += [str(value) for value in (ocr.get("characters") or [])[:MARKUP_GROUPS]]
     labels += [str(value) for value in (ocr.get("notifications") or [])[:MARKUP_GROUPS]]
+    labels += [str(value) for value in (ocr.get("items_or_tasks") or [])[:MARKUP_GROUPS]]
     return ", ".join(labels) or None
 
 
@@ -185,7 +188,7 @@ def render_frames_table(frames: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-MARKUP_NOTE = ("Первичная разметка — автоматические ориентиры по файловому времени, а не подтверждённые события; "
+MARKUP_NOTE = ("Первичная разметка — автоматические ориентиры по файловому времени и OCR интерфейса, а не подтверждённые события; "
                "содержание кадра определяется только по изображению.")
 
 

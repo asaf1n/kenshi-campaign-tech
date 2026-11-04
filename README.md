@@ -73,6 +73,7 @@ python -m tools.campaign timeline validate
   - `published/screenshots/index.json` — машиночитаемый хронологический индекс (`kenshi-screenshots-index/1`) с метаданными, хешами SHA-256 и прямыми Raw/Blob URL.
   - `published/screenshots/index.md` — новые кадры снимка и архивный хвост с первичной разметкой и ссылками; `annotations.jsonl` и `feed.md` публикуются только при содержательном OCR.
   - `published/screenshots/screenshots_latest.pdf` — кадры дельты с текстовой шапкой для Gemini Notebook; вне git, читается с Google Диска ([docs/gdrive-sync.md](docs/gdrive-sync.md)).
+  - `published/screenshots/annotations.jsonl` и `feed.md` — машинная разметка кадров (день, время, выбранный персонаж, задачи) и лента серий; публикуются при содержательном OCR. Локальный индекс всех кадров: `python -m tools.campaign screenshots-index --all`, поиск: `screenshots-find` (`docs/screenshots.md`).
   - `published/screenshots/*.jpg` — уменьшенные ключевые кадры; имя `<исходное имя>-<8 символов sha256 оригинала>.jpg`.
 - **Доступ LLM**: изображения открываются по прямым Raw-ссылкам репозитория Kenshi Compain (`https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/...`) либо загружаются в чат.
 

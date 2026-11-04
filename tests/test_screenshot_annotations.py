@@ -181,6 +181,56 @@ class ScreenshotExtractorTests(unittest.TestCase):
         self.assertEqual(res["meta"]["scene_group_id"], "seq_new")
         self.assertEqual(res["ocr"]["location"], "Хаб")
 
+    def test_metadata_record_is_not_cache_hit(self) -> None:
+        """Запись без OCR не считается кэшем: иначе кадр останется пустым и после появления OCR."""
+        sha = "a" * 64
+        path = self.tmp_path / "annotations.jsonl"
+        base = {"sha256": sha, "ocr": {}, "provenance": {"source": "metadata"}}
+        path.write_text(json.dumps(base) + "\n", encoding="utf-8")
+        self.assertEqual(load_extractor_cache(path), {})
+
+        item = {"filename": "shot.jpg", "sha256": "b" * 64, "source_sha256": sha, "order": 1,
+                "modified_at": "2026-10-30T12:00:00Z", "dhash": "0123456789abcdef", "scene_group_id": "seq_001"}
+        hud_rows = {sha: {"game_day": 130, "game_time": "21:30", "selected": "Бип", "tasks": ["Медик"],
+                          "extracted_at": "2026-11-01T00:00:00Z"}}
+        record = extract_single_screenshot(item, cache={}, hud_rows=hud_rows)
+        self.assertEqual(record["provenance"]["source"], "ocr")
+        self.assertEqual(record["ocr"]["game_day"], 130)
+        validate(record, "screenshot-annotations")
+
+    def test_hud_parsing_by_labels(self) -> None:
+        """Поля читаются по подписям в обоих оформлениях; нечитаемое остаётся None, значения не съезжают по строкам."""
+        from tools.screenshot_hud import parse_hud
+
+        def line(text: str, x: int, y: int, h: int = 19) -> dict[str, object]:
+            return {"text": text, "x": x, "y": y, "w": 80, "h": h}
+
+        dark = {
+            "hud": [line("Деньги", 2485, 1393), line("к.72 513", 2660, 1393), line("День: 125", 2485, 1433),
+                    line("00:41", 2681, 1433), line("1: Охранять: Кот", 2369, 1515), line("2: Медик", 2369, 1555)],
+            # Столбец значений OCR сместил выше подписей: «Нет цели» ближе к «Состояние», чем «В норме».
+            "left": [line("Хот Лон", 10, 1021), line("Состояние:", 16, 1097), line("цель:", 19, 1128),
+                     line("Перегруз:", 21, 1154), line("В норме", 279, 1079), line("Нет цели", 271, 1107),
+                     line("00/0", 333, 1131)],
+        }
+        parchment = {
+            "hud": [line("Деньги", 2493, 1271), line("день: ВО", 2494, 1311), line("09:15", 2685, 1311)],
+            "day_strip": [line("AeHb: 130", 2494, 1311)],
+        }
+        cases = (
+            ("тёмное", dark, 1800, {"game_day": 125, "game_time": "00:41", "money": 72513, "selected": "Хот Лон",
+                                    "state": "В норме", "goal": "Нет цели", "tasks": ["Охранять: Кот", "Медик"]}),
+            ("пергамент", parchment, 1800, {"game_day": 130, "game_time": "09:15", "money": None, "selected": None,
+                                            "state": None, "goal": None, "tasks": []}),
+            # На низком разрешении цифровой проход ненадёжен: «День: 4» читался как 14.
+            ("низкое разрешение", parchment, 1050, {"game_day": None}),
+            ("без панели", {"hud": [line("Рабовладельцы", 100, 1300)]}, 1800, {"game_day": None, "game_time": None}),
+        )
+        for name, regions, height, expected in cases:
+            with self.subTest(name):
+                parsed = parse_hud(regions, height)
+                self.assertEqual({key: parsed[key] for key in expected}, expected)
+
     def test_technical_feed_rendering(self) -> None:
         """6. Генерация feed.md фиксирует технические серии, OCR и ссылки без вымышленных нарративов."""
         ann = [{
