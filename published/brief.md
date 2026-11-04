@@ -1,10 +1,10 @@
 # Краткая сводка: День 132, 11:15
 
-- **snapshot_id:** `sha256-b598bf852613e87bf83511832b70a549da5145a11c75de1deff2d44c74ab3383`
-- **previous_snapshot_id:** `sha256-b06c8cdb67bfe062ba6b5b7e1a0723ab227b867ce7dc98c927f93848f934f384`
+- **snapshot_id:** `sha256-d20e4f80df3ef29e4c37eb949b3f11ad0e3a3752786e26f00672e58913592a68`
+- **previous_snapshot_id:** `sha256-b598bf852613e87bf83511832b70a549da5145a11c75de1deff2d44c74ab3383`
 - **branch_id:** `hot-lon-chapter-x-final`
 - **game_time:** `Day 132, 11:15`
-- **generated_at:** `2026-11-04T12:07:21Z`
+- **generated_at:** `2026-11-04T12:38:45Z`
 
 ## Игровой мир
 - **Время:** День 132, время 11:15
