@@ -158,7 +158,7 @@ def extract_single_screenshot(
     if hud_row and cache.get(sha256, {}).get("provenance", {}).get("source") in (None, "ocr", "cache"):
         cache.pop(sha256, None)
     hud_ocr = to_ocr(hud_row)
-    if hud_ocr:
+    if hud_ocr and sha256 not in cache:
         rec = {
             "format": "kenshi-screenshot-annotation/1",
             "sha256": sha256,
