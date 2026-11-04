@@ -152,6 +152,14 @@ def deliver_to_companion(
                 )
                 committed = True
                 if auto_push:
+                    # Канон меняют и другие агенты через GitHub: отставший клон получит отказ push.
+                    subprocess.run(
+                        ["git", "pull", "--rebase", "--autostash", "origin", "main"],
+                        cwd=str(target_repo),
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
                     subprocess.run(
                         ["git", "push", "origin", "main"],
                         cwd=str(target_repo),

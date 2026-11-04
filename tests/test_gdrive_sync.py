@@ -5,11 +5,12 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
 from tools.config import find_gdrive_root
-from tools.gdrive_sync import ingest_inbox, sync_chronicle, sync_drive, sync_session, write_in_place
+from tools.gdrive_sync import ensure_buffer, ingest_inbox, sync_chronicle, sync_drive, sync_session, write_in_place
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -47,12 +48,16 @@ class GDriveSyncTests(unittest.TestCase):
         archive.mkdir()
         (archive / "b-2.jpg").write_bytes(b"b")
 
+        (published / "current").mkdir()
+        (published / "current/index.json").write_text("{}", encoding="utf-8")
+
         report = sync_session(published, self.root, archive)
         session = self.root / "published"
         self.assertEqual(report["errors"], [])
-        self.assertEqual((session / "screenshots_index.md").read_text(encoding="utf-8"), "index")
-        self.assertTrue((session / "screenshots_latest.pdf").is_file())
-        self.assertEqual(sorted(p.name for p in (session / "screenshots").iterdir()), ["a-1.jpg", "b-2.jpg", "index.md"])
+        self.assertEqual(sorted(p.name for p in (session / "screenshots").iterdir()),
+                         ["a-1.jpg", "b-2.jpg", "index.json", "index.md", "screenshots_latest.pdf"])
+        self.assertTrue((session / "manifest.json").is_file())
+        self.assertFalse((session / "current").exists())
         self.assertEqual(sync_session(published, self.root, archive)["written"], 0)
 
         self.assertEqual(sync_drive(self.tmp / "absent", published, None)["status"], "skipped")
@@ -61,13 +66,25 @@ class GDriveSyncTests(unittest.TestCase):
 
     def test_chronicle_mirror_and_inbox_packets(self) -> None:
         """Ловит запись вне Campaign/, частичное применение пакета и перезапись неизменяемого артефакта сессии."""
+        remote = self.tmp / "remote.git"
         companion = self.tmp / "companion"
         sessions = companion / "Campaign" / "Хроники" / "archive" / "sessions"
         sessions.mkdir(parents=True)
         (sessions / "S-20261101-1.md").write_text("старый\n", encoding="utf-8")
         (companion / "Campaign" / "Хроники" / "Арка.md").write_text("канон\n", encoding="utf-8")
-        inbox = self.root / "tmp"
-        inbox.mkdir()
+        (companion / "Campaign/README.md").write_text("корень\n", encoding="utf-8")
+        git = lambda *args, cwd=companion: subprocess.run(  # noqa: E731
+            ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8")
+        git("init", "--bare", "-b", "main", str(remote), cwd=self.tmp)
+        git("init", "-b", "main")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        git("add", ".")
+        git("commit", "-m", "init")
+        git("remote", "add", "origin", str(remote))
+        git("push", "-u", "origin", "main")
+        ensure_buffer(self.root)
+        inbox = self.root / "tmp/inbox"
 
         good = ("=== ФАЙЛ: Campaign/Хроники/Арка.md ===\nновый канон\n=== Глава 2 ===\nпродолжение\n=== КОНЕЦ ===\n"
                 "=== ВЫГРУЗКА S-20261102-1 ===\n---\ncampaign: Хроники\n---\nтекст\n"
@@ -85,6 +102,10 @@ class GDriveSyncTests(unittest.TestCase):
             "=== ФАЙЛ: Campaign/Хроники/Первый.md ===\nа\n=== КОНЕЦ ===\n"
             "=== ФАЙЛ: Campaign/Хроники/Первый.md/вложенный.md ===\nб\n=== КОНЕЦ ===\n", encoding="utf-8")
         (inbox / "short.md").write_text("=== ФАЙЛ: Короткий.md ===\nв\n=== КОНЕЦ ===\n", encoding="utf-8")
+        (inbox / "tail.md").write_text("=== ФАЙЛ: Хвост.md ===\nа\n=== КОНЕЦ ===\nоторванный хвост\n=== КОНЕЦ ===\n", encoding="utf-8")
+        (inbox / "typo.md").write_text("=== ФАЙЛ: Опечатка.md ===\nа\n=== КОНЕЦ ===\n=== ФАЙЛ Другой.md ===\nб\n=== КОНЕЦ ===\n", encoding="utf-8")
+        (inbox / "nested.md").write_text(
+            "=== ВЫГРУЗКА S-20261103-1 ===\n---\ncampaign: Хроники\n---\n=== ФАЙЛ: Вложенный.md ===\nа\n=== КОНЕЦ ===\n", encoding="utf-8")
         (inbox / "note.txt").write_text("обычная заметка", encoding="utf-8")
 
         report = ingest_inbox(self.root, companion, now=datetime(2026, 11, 4, 12, 0, tzinfo=timezone.utc))
@@ -92,7 +113,7 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual([item["packet"] for item in report["processed"]], ["good.md", "short.md"])
         self.assertEqual(report["processed"][0]["manual"], ["ПРАВКИ: Арка.md"])
         self.assertEqual(sorted(item["packet"] for item in report["rejected"]),
-                         ["bypass.md", "cut.md", "escape.md", "immutable.md", "partial.md"])
+                         ["bypass.md", "cut.md", "escape.md", "immutable.md", "nested.md", "partial.md", "tail.md", "typo.md"])
         self.assertEqual(report["ignored"], ["note.txt"])
         self.assertEqual((companion / "Campaign/Хроники/Арка.md").read_text(encoding="utf-8"),
                          "новый канон\n=== Глава 2 ===\nпродолжение\n")
@@ -103,10 +124,26 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual((sessions / "S-20261101-1.md").read_text(encoding="utf-8"), "старый\n")
         self.assertFalse((companion / "Campaign/Хроники/Новый.md").exists())
         self.assertFalse((companion / "AGENTS.md").exists())
-        self.assertTrue((inbox / "Обработано" / "good-20261104T120000Z-manual.md").is_file())
+        self.assertTrue((self.root / "tmp/processed/good-20261104T120000Z-manual.md").is_file())
+        self.assertTrue((self.root / "tmp/checkpoints").is_dir())
+        self.assertIn("Короткий.md", git("-c", "core.quotepath=off", "--git-dir", str(remote), "show", "--name-only", "--format=", "main", cwd=self.tmp).stdout)
         self.assertTrue((inbox / "escape.md").is_file())
 
+        # Отказ push: пакет остаётся во входящих, повтор после восстановления доводит его до processed.
+        (inbox / "later.md").write_text("=== ФАЙЛ: Позже.md ===\nг\n=== КОНЕЦ ===\n", encoding="utf-8")
+        for name in ("escape", "immutable", "bypass", "cut", "partial", "tail", "typo", "nested"):
+            (inbox / f"{name}.md").unlink()
+        git("remote", "set-url", "--push", "origin", str(self.tmp / "absent.git"))
+        failed = ingest_inbox(self.root, companion)
+        self.assertEqual([item["packet"] for item in failed["rejected"]], ["later.md"])
+        self.assertTrue((inbox / "later.md").is_file())
+        git("remote", "set-url", "--push", "origin", str(remote))
+        self.assertEqual([item["packet"] for item in ingest_inbox(self.root, companion)["processed"]], ["later.md"])
+
+        (companion / "Campaign/Хроники/Черновик.md").write_text("не зафиксировано\n", encoding="utf-8")
         sync_chronicle(companion, self.root)
+        self.assertFalse((self.root / "Campaign/Хроники/Черновик.md").exists())
+        self.assertFalse((self.root / "Campaign/README.md").exists())
         self.assertIn("новый канон", (self.root / "Campaign/Хроники/Арка.md").read_text(encoding="utf-8"))
 
 

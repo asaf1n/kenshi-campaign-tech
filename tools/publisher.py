@@ -658,8 +658,13 @@ def publish(
                     # PDF нужен только Диску: его сбой не должен останавливать публикацию и доставку в GitHub.
                     pdf_path = sc_staging / screenshot_delta.PDF_NAME
                     try:
-                        publication_warnings += [f"PDF: кадр пропущен: {name}"
-                                                 for name in build_screenshots_pdf(pdf_frames, pdf_path)]
+                        # Сборка в %TEMP%: на Диск и в выпуск попадает только завершённый файл.
+                        with tempfile.TemporaryDirectory() as pdf_tmp:
+                            built = Path(pdf_tmp) / screenshot_delta.PDF_NAME
+                            publication_warnings += [f"PDF: кадр пропущен: {name}"
+                                                     for name in build_screenshots_pdf(pdf_frames, built)]
+                            if built.is_file():
+                                shutil.copyfile(built, pdf_path)
                     except Exception as pdf_error:
                         pdf_path.unlink(missing_ok=True)
                         publication_warnings.append(f"PDF не собран: {pdf_error}")

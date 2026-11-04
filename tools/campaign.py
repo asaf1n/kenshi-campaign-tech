@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")
 
     # 7.4. ingest-inbox
-    inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов `=== ФАЙЛ/ВЫГРУЗКА ===` в Campaign/ игрового репозитория")
+    inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов из tmp/inbox/ Google Диска: запись в Campaign/, commit и push в Kenshi-Compain")
     inbox_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     inbox_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске")
 
@@ -504,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.buffer.write(canonical(result))
         if args.command == "sync-drive" and result.get("status") != "synced":
             return 1
-        if args.command == "ingest-inbox" and result.get("rejected"):
+        if args.command == "ingest-inbox" and (
+                result.get("rejected") or result.get("error") or any("move_error" in item for item in result["processed"])):
             return 1
         return 0
 

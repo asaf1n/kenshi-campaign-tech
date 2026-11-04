@@ -172,7 +172,7 @@ def _cell(value: str) -> str:
 
 def render_frames_table(frames: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Google Диск |",
+        "| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь (GitHub и Google Диск) |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for frame in frames:
@@ -209,7 +209,7 @@ def render_index_md(index_data: dict[str, Any], new_frames: list[dict[str, Any]]
         f"- **Обновлено:** `{index_data['generated_at']}`",
         f"- **Окно выборки:** {index_data['window_days']} суток (с `{index_data['window_start']}` по `{index_data['window_end']}`)",
         f"- **Кадров в выпуске:** {index_data['count']}",
-        f"- **Пакет для просмотра на Google Диске:** `{GDRIVE_SESSION_DIR}/{PDF_NAME}`",
+        f"- **Пакет для просмотра на Google Диске:** `{GDRIVE_SESSION_DIR}/screenshots/{PDF_NAME}`",
         "",
         MARKUP_NOTE,
         "",

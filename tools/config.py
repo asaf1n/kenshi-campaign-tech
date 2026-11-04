@@ -11,11 +11,12 @@ from tools.io_utils import ExtractionError
 # Подкаталоги повторяют раскладку репозитория Kenshi-Compain, ссылки выгрузки совпадают с путями на Диске.
 GDRIVE_SESSION_DIR = "published"
 GDRIVE_CHRONICLE_DIR = "Campaign"
-GDRIVE_INBOX_DIR = "tmp"
-GDRIVE_PROCESSED_DIR = "Обработано"
+GDRIVE_INBOX_DIR = "tmp/inbox"
+GDRIVE_CHECKPOINTS_DIR = "tmp/checkpoints"
+GDRIVE_PROCESSED_DIR = "tmp/processed"
 GDRIVE_CANDIDATES = (
-    Path("G:/Kenshi Compain. Docs"),
     Path("G:/Мой диск/Kenshi Compain. Docs"),
+    Path("G:/Kenshi Compain. Docs"),
     Path("G:/My Drive/Kenshi Compain. Docs"),
 )
 

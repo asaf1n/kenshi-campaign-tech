@@ -73,6 +73,7 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertIn("screenshot_1-", tail_part)
         self.assertIn(f"published/screenshots/{new_name})", delta_part)
         self.assertIn(f"`published/screenshots/{new_name}`", delta_part)
+        self.assertIn("`published/screenshots/screenshots_latest.pdf`", index_md)
         self.assertIn("Казна: 100 -> 50 (-50)", delta_part)
 
         brief = (self.published / "brief.md").read_text(encoding="utf-8")
