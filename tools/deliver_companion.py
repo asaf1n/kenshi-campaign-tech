@@ -6,10 +6,10 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 from typing import Any
 
+from tools.git_sync import GitSyncError, push_main, require_git, run_git
 from tools.io_utils import linked
 
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
@@ -123,6 +123,7 @@ def deliver_to_companion(
 
     committed = False
     pushed = False
+    git_error: str | None = None
     game_time = manifest.get("game_time", "Unknown")
     snapshot_id = manifest.get("snapshot_id", "")
     snap_short = snapshot_id[:15] if snapshot_id else ""
@@ -130,55 +131,29 @@ def deliver_to_companion(
     # 3. Git операции в целевом репозитории (если это git repo)
     if (target_repo / ".git").is_dir() and auto_commit:
         try:
-            subprocess.run(
-                ["git", "add", "published/"],
-                cwd=str(target_repo),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            diff_res = subprocess.run(
-                ["git", "diff", "--cached", "--quiet"],
-                cwd=str(target_repo),
-            )
-            if diff_res.returncode != 0:
-                commit_msg = f"chore(published): доставить выгрузку {game_time} ({snap_short})"
-                subprocess.run(
-                    ["git", "commit", "-m", commit_msg],
-                    cwd=str(target_repo),
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
+            require_git(target_repo, "add", "published/")
+            if run_git(target_repo, "diff", "--cached", "--quiet").returncode != 0:
+                require_git(target_repo, "commit", "-m", f"chore(published): доставить выгрузку {game_time} ({snap_short})")
                 committed = True
-                if auto_push:
-                    # Канон меняют и другие агенты через GitHub: отставший клон получит отказ push.
-                    subprocess.run(
-                        ["git", "pull", "--rebase", "--autostash", "origin", "main"],
-                        cwd=str(target_repo),
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    subprocess.run(
-                        ["git", "push", "origin", "main"],
-                        cwd=str(target_repo),
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    pushed = True
-        except Exception as err:
-            sys.stderr.write(f"Предупреждение при git-операциях в Kenshi Compain: {err}\n")
+            if auto_push:
+                # Вне условия коммита: повтор отправляет коммит, застрявший при прошлом сбое сети.
+                push_main(target_repo)
+                pushed = True
+        except GitSyncError as err:
+            git_error = str(err)
+            sys.stderr.buffer.write(f"WARNING: git-операции в Kenshi Compain: {err}\n".encode("utf-8"))
 
-    return {
-        "status": "delivered",
+    result: dict[str, Any] = {
+        "status": "partial" if git_error else "delivered",
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),
         "committed": committed,
         "pushed": pushed,
     }
+    if git_error:
+        result["git_error"] = git_error
+    return result
 
 
 def main() -> None:

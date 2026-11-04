@@ -504,6 +504,9 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.buffer.write(canonical(result))
         if args.command == "sync-drive" and result.get("status") != "synced":
             return 1
+        delivery = result.get("companion_delivery") if args.command == "pipeline" else result
+        if args.command in ("pipeline", "deliver-companion") and delivery and delivery.get("status") == "partial":
+            return 1
         if args.command == "ingest-inbox" and (
                 result.get("rejected") or result.get("error") or any("move_error" in item for item in result["processed"])):
             return 1

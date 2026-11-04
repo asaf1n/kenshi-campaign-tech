@@ -21,6 +21,7 @@ from tools.config import (
     GDRIVE_PROCESSED_DIR,
     GDRIVE_SESSION_DIR,
 )
+from tools.git_sync import GitSyncError, push_main, require_git, run_git, sync_with_origin
 from tools.io_utils import linked
 from tools.screenshot_delta import PDF_NAME
 from tools.screenshot_publish import ARCHIVE_DIR
@@ -289,21 +290,12 @@ def apply_packet(packet: Path, companion_dir: Path) -> dict[str, Any]:
     return {"applied": [target.relative_to(base).as_posix() for target in targets], "manual": manual}
 
 
-def _git(companion_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=str(companion_dir), capture_output=True, text=True, encoding="utf-8", check=False)
-
-
-def _require_git(result: subprocess.CompletedProcess[str]) -> None:
-    if result.returncode != 0:
-        raise InboxError(f"git {result.args[1]}: {result.stderr.strip()}")
-
-
 def _commit_and_push(companion_dir: Path, paths: list[str], packet_name: str) -> None:
     """Фиксирует пути пакета в main. Push выполняется и без нового коммита: прошлый запуск мог упасть на сети."""
-    _require_git(_git(companion_dir, "add", "--", *paths))
-    if _git(companion_dir, "diff", "--cached", "--quiet", "--", *paths).returncode != 0:
-        _require_git(_git(companion_dir, "commit", "-m", f"docs(chronicle): принять пакет {packet_name}", "--", *paths))
-    _require_git(_git(companion_dir, "push", "origin", "main"))
+    require_git(companion_dir, "add", "--", *paths)
+    if run_git(companion_dir, "diff", "--cached", "--quiet", "--", *paths).returncode != 0:
+        require_git(companion_dir, "commit", "-m", f"docs(chronicle): принять пакет {packet_name}", "--", *paths)
+    push_main(companion_dir)
 
 
 def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = None) -> dict[str, Any]:
@@ -319,17 +311,18 @@ def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = 
     packets = sorted(path for path in inbox.iterdir() if path.is_file() and path.suffix.lower() in PACKET_SUFFIXES)
     if not packets:
         return report
-    # Канон меняют и другие агенты через GitHub: без обновления клона push будет отклонён.
-    pull = _git(companion_dir, "pull", "--ff-only", "origin", "main")
-    if pull.returncode != 0:
-        report["error"] = f"git pull: {pull.stderr.strip()}"
+    # До записи: коммит на чужой ветке не попал бы в main, а пакет ушёл бы в processed.
+    try:
+        sync_with_origin(companion_dir)
+    except GitSyncError as error:
+        report["error"] = str(error)
         return report
     for packet in packets:
         try:
             result = apply_packet(packet, companion_dir)
             if result["applied"]:
                 _commit_and_push(companion_dir, result["applied"], packet.name)
-        except (InboxError, UnicodeDecodeError, OSError, subprocess.SubprocessError) as error:
+        except (InboxError, GitSyncError, UnicodeDecodeError, OSError, subprocess.SubprocessError) as error:
             report["rejected"].append({"packet": packet.name, "reason": str(error)})
             continue
         if not result["applied"]:
