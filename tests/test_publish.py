@@ -287,7 +287,10 @@ class PublishTests(unittest.TestCase):
         squad2 = render_squad(cur, snap_id, locations=loc)
         self.assertEqual(squad1, squad2)
 
-        self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8"), brief1)
+        manifest = read_json((self.published_dir / "manifest.json").read_bytes())
+        published_brief = render_brief(cur, ch, snap_id, locations=loc, timeline=timeline, timeline_projection=True,
+                                       publication=manifest)
+        self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8"), published_brief)
         self.assertEqual((self.published_dir / "squad.md").read_text(encoding="utf-8"), squad1)
 
         # 2. Сверка чисел в brief.md и squad.md с JSON

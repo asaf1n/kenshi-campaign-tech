@@ -36,7 +36,6 @@ from tools.screenshots import (
     build_screenshots_index,
     collect_recent_screenshots,
     compute_file_sha256,
-    render_screenshots_gallery,
 )
 from tools.validation import PublicationValidationError, validate, validate_publication
 
@@ -164,8 +163,7 @@ class ScreenshotTests(unittest.TestCase):
 
         pub_screens = self.published_dir / "screenshots"
         self.assertTrue((pub_screens / "index.json").is_file())
-        # Пустой OCR: галерея index.md не публикуется, машиночитаемый index.json остаётся.
-        self.assertFalse((pub_screens / "index.md").exists())
+        self.assertTrue((pub_screens / "index.md").is_file())
         for name in ("screenshot_1.jpg", "screenshot_2.png", "screenshot_boundary.jpg"):
             self.assertTrue((pub_screens / _pub(self.screens_dir / name)).is_file())
         self.assertFalse((pub_screens / _pub(self.screens_dir / "screenshot_old.jpg")).exists())
@@ -351,12 +349,9 @@ class ScreenshotTests(unittest.TestCase):
         self.assertEqual(items[1]["order"], 2)
         self.assertEqual(items[1]["filename"], a_name)
 
-        # Проверка Markdown-галереи
-        self.assertFalse((self.published_dir / "screenshots/index.md").exists())
-        gallery_text = render_screenshots_gallery(idx_data)
-        self.assertIn(f"### 1. {b_name}", gallery_text)
-        self.assertIn(f"### 2. {a_name}", gallery_text)
-        self.assertIn(f"![{b_name}]({b_name})", gallery_text)
+        # Без индекса снимков дельта не определена: оба кадра попадают в архивный хвост index.md
+        index_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
+        self.assertLess(index_text.index(b_name), index_text.index(a_name))
 
     def test_requirement_10_compatibility_and_validation(self) -> None:
         """10. Публикация скриншотов полностью удовлетворяет validate_publication."""
@@ -440,8 +435,9 @@ class ScreenshotTests(unittest.TestCase):
         self.assertFalse(removed.exists())
         idx_data = read_json((self.published_dir / "screenshots/index.json").read_bytes())
         self.assertEqual(idx_data["count"], 0)
-        self.assertFalse((self.published_dir / "screenshots/index.md").exists())
-        self.assertIn("новые скриншоты не зафиксированы", render_screenshots_gallery(idx_data))
+        index_text = (self.published_dir / "screenshots/index.md").read_text(encoding="utf-8")
+        self.assertIn("Кадров в архивном хвосте нет", index_text)
+        self.assertFalse((self.published_dir / "screenshots/screenshots_latest.pdf").exists())
 
 
     def test_keyframes_are_limited_downscaled_and_archived(self) -> None:

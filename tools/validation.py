@@ -747,11 +747,17 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
         if not feed_path.is_file():
             raise PublicationValidationError(f"Файл визуальной ленты отсутствует: {feed_rel}")
 
+    # 4.4. Читаемые облачными моделями файлы не ссылаются на неопубликованные локальные дельты
+    for name in ("brief.md", "changes.md", "timeline.jsonl"):
+        path = package_dir / name
+        if path.is_file() and "data/diffs/" in path.read_text(encoding="utf-8"):
+            raise PublicationValidationError(f"В {name} осталась ссылка на неопубликованный каталог data/diffs/")
+
     # 5. Проверка приватности во всех текстовых файлах пакета
     for root_dir, dirs, files in os.walk(package_dir):
         for name in files:
             file_p = Path(root_dir) / name
-            if file_p.name == ".gitkeep" or file_p.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+            if file_p.name == ".gitkeep" or file_p.suffix.lower() in {".jpg", ".jpeg", ".png", ".pdf"}:
                 continue
             text = file_p.read_text(encoding="utf-8", errors="replace")
             check_privacy(text, file_p.relative_to(package_dir).as_posix())

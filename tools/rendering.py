@@ -17,6 +17,136 @@ def game_time_title(day: Any, time: Any) -> str:
     return f"День {day}, {time}" if time is not None else f"День {day}"
 
 
+def _publication_header(publication: dict[str, Any] | None, day: Any, time: Any) -> list[str]:
+    """Шапка манифеста в начале brief.md: читатель без доступа к .json получает идентичность снимка из Markdown."""
+    if publication is None:
+        return []
+    return [
+        f"- **snapshot_id:** `{publication.get('snapshot_id')}`",
+        f"- **previous_snapshot_id:** `{publication.get('parent_snapshot_id')}`",
+        f"- **branch_id:** `{publication.get('branch_id')}`",
+        f"- **game_time:** `Day {day}, {time}`",
+        f"- **generated_at:** `{publication.get('generated_at')}`",
+        "",
+    ]
+
+
+def limb_summary(prosthetics: list[dict[str, Any]]) -> str:
+    """Смена конечностей и протезов по участникам: `Имя (`id`): left_leg: None -> lost`."""
+    parts = []
+    for entry in prosthetics:
+        details = ", ".join(f"{slot}: {value.get('from')} -> {value.get('to')}"
+                            for slot, value in sorted((entry.get("changes") or {}).items()))
+        parts.append(f"{entry.get('name')} (`{entry.get('id')}`): {details}")
+    return "; ".join(parts)
+
+
+def render_change_lines(changes: dict[str, Any]) -> list[str]:
+    """Маркированный список ключевых изменений дельты; общий для brief.md и changes.md."""
+    lines: list[str] = []
+    valid = changes.get("valid", False)
+    if not valid:
+        reason = changes.get("reason") or "; ".join(changes.get("problems", [])) or "нет baseline для сравнения"
+        lines.extend([
+            f"- **Статус сравнения:** базовое сравнение отсутствует (`valid: false`).",
+            f"- **Причина:** {reason}.",
+            "- **Ключевые изменения:** отсутствуют (первая публикация либо несравнимые снимки).",
+        ])
+    else:
+        money = (changes.get("world") or {}).get("money") or {}
+        prosthetics = changes.get("prosthetics", [])
+        if money.get("delta"):
+            lines.append(f"- **Казна:** {money.get('from')} -> {money.get('to')} ({money['delta']:+})")
+        if prosthetics:
+            lines.append(f"- **Конечности и протезы ({len(prosthetics)}):** {limb_summary(prosthetics)}")
+        roster = changes.get("roster", {})
+        joined = roster.get("joined", [])
+        left = roster.get("left", [])
+        squad_changed = roster.get("squad_changed", [])
+        status_changed = roster.get("status_changed", [])
+        transfers = changes.get("transfers", [])
+        skills = changes.get("skills", [])
+        equipment = changes.get("equipment", [])
+        health = changes.get("health", [])
+
+        if joined:
+            j_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`)" for c in joined)
+            lines.append(f"- **Прибыли ({len(joined)}):** {j_str}")
+        if left:
+            l_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`)" for c in left)
+            lines.append(f"- **Покинули ({len(left)}):** {l_str}")
+        if squad_changed:
+            sq_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`: {c.get('from')} -> {c.get('to')})" for c in squad_changed)
+            lines.append(f"- **Смена отряда ({len(squad_changed)}):** {sq_str}")
+        if status_changed:
+            st_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`: {c.get('field')}={c.get('to')})" for c in status_changed)
+            lines.append(f"- **Смена статуса ({len(status_changed)}):** {st_str}")
+        if transfers:
+            lines.append(f"- **Перемещения предметов ({len(transfers)}):**")
+            for t in transfers:
+                item = t.get("item", t.get("sid", "предмет"))
+                from_str = ", ".join(f"{k} ({v})" for k, v in sorted(t.get("from", {}).items()))
+                to_str = ", ".join(f"{k} (+{v})" for k, v in sorted(t.get("to", {}).items()))
+                lines.append(f"  - `{item}`: от [{from_str}] к [{to_str}]")
+        if skills:
+            lines.append(f"- **Изменения навыков:** у {len(skills)} участников")
+            for sk in sorted(skills, key=lambda s: (str(s.get("name") or ""), str(s.get("id") or ""))):
+                ch_str = ", ".join(f"{k}: {v.get('from')} -> {v.get('to')}" for k, v in sorted(sk.get("changes", {}).items()))
+                lines.append(f"  - {sk.get('name')} (`{sk.get('id')}`): {ch_str}")
+        if equipment:
+            lines.append(f"- **Смена экипировки:** у {len(equipment)} участников")
+        if health:
+            lines.append(f"- **Изменения здоровья:** у {len(health)} участников")
+
+        dip_ch = changes.get("diplomacy", [])
+        if dip_ch:
+            lines.append(f"- **Изменения отношений с фракциями ({len(dip_ch)}):**")
+            for d in dip_ch:
+                d_name = d.get("faction_name") or d.get("faction_sid")
+                relation = d.get("relation")
+                rel_info = ""
+                if relation:
+                    rel_info = f"отношение: {relation.get('from')} -> {relation.get('to')}"
+                    if isinstance(relation.get("delta"), (int, float)):
+                        rel_info += f" ({relation['delta']:+})"
+                std_info = f"статус: {d['standing'].get('from')} -> {d['standing'].get('to')}" if d.get("standing") else ""
+                parts_d = [p for p in (rel_info, std_info) if p]
+                lines.append(f"  - `{d_name}`: {', '.join(parts_d)}")
+
+        ws_ch = changes.get("world_state", {})
+        if ws_ch:
+            u_ch = ws_ch.get("unique_npcs", [])
+            t_ch = ws_ch.get("town_overrides", [])
+            if u_ch or t_ch:
+                lines.append(f"- **События мира (World States):**")
+                for u in u_ch:
+                    u_nm = u.get("name_ru") or u.get("name") or u.get("sid")
+                    lines.append(f"  - Лидер `{u_nm}`: статус сменился на {u.get('state', {}).get('to') or u.get('state_code', {}).get('to')}")
+                for t in t_ch:
+                    t_nm = t.get("town_name") or t.get("replacement_sid")
+                    lines.append(f"  - Город `{t_nm}`: {t.get('status')} ({t.get('faction') or 'смена контроля'})")
+
+        jobs_ch = changes.get("jobs", [])
+        if jobs_ch:
+            lines.append(f"- **Изменения очереди работ:** у {len(jobs_ch)} участников")
+            for j in jobs_ch:
+                j_nm = j.get("name") or j.get("id")
+                lines.append(f"  - `{j_nm}`: обновлены назначенные работы")
+
+        bld_ch = changes.get("base_storage", [])
+        if bld_ch:
+            lines.append(f"- **Изменения складских запасов на базах:** {len(bld_ch)} позиций")
+            for b in bld_ch[:5]:
+                lines.append(f"  - `{b.get('building_name')}`: {b.get('item_name')} {b.get('delta'):+}")
+            if len(bld_ch) > 5:
+                lines.append(f"  - ... и ещё {len(bld_ch) - 5} складских изменений")
+
+        if not any([money.get("delta"), prosthetics, joined, left, squad_changed, status_changed, transfers, skills, equipment, health,
+                    dip_ch, ws_ch, jobs_ch, bld_ch]):
+            lines.append("- Изменений в отслеживаемых категориях не зафиксировано.")
+    return lines
+
+
 def render_brief(
     current: dict[str, Any],
     changes: dict[str, Any],
@@ -24,6 +154,8 @@ def render_brief(
     locations: dict[str, Any] | None = None,
     timeline: list[dict[str, Any]] | None = None,
     *, timeline_projection: bool = False,
+    publication: dict[str, Any] | None = None,
+    screenshots_section: str | None = None,
 ) -> str:
     world = current.get("world", {})
     day = world.get("day")
@@ -42,6 +174,7 @@ def render_brief(
     lines: list[str] = [
         f"# Краткая сводка: {game_time_title(day, time)}",
         "",
+        *_publication_header(publication, day, time),
         "## Игровой мир",
         f"- **Время:** {day_str}{time_str}",
         f"- **Баланс:** {money_str}",
@@ -221,105 +354,15 @@ def render_brief(
         else:
             lines.append("- не получено (географическое разрешение подключается профильным артефактом в задаче 02)")
 
+    if screenshots_section:
+        lines.extend(["", screenshots_section.rstrip()])
+
     lines.extend([
         "",
         "## Ключевые изменения",
     ])
 
-    valid = changes.get("valid", False)
-    if not valid:
-        reason = changes.get("reason") or "; ".join(changes.get("problems", [])) or "нет baseline для сравнения"
-        lines.extend([
-            f"- **Статус сравнения:** базовое сравнение отсутствует (`valid: false`).",
-            f"- **Причина:** {reason}.",
-            "- **Ключевые изменения:** отсутствуют (первая публикация либо несравнимые снимки).",
-        ])
-    else:
-        roster = changes.get("roster", {})
-        joined = roster.get("joined", [])
-        left = roster.get("left", [])
-        squad_changed = roster.get("squad_changed", [])
-        status_changed = roster.get("status_changed", [])
-        transfers = changes.get("transfers", [])
-        skills = changes.get("skills", [])
-        equipment = changes.get("equipment", [])
-        health = changes.get("health", [])
-
-        if joined:
-            j_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`)" for c in joined)
-            lines.append(f"- **Прибыли ({len(joined)}):** {j_str}")
-        if left:
-            l_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`)" for c in left)
-            lines.append(f"- **Покинули ({len(left)}):** {l_str}")
-        if squad_changed:
-            sq_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`: {c.get('from')} -> {c.get('to')})" for c in squad_changed)
-            lines.append(f"- **Смена отряда ({len(squad_changed)}):** {sq_str}")
-        if status_changed:
-            st_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`: {c.get('field')}={c.get('to')})" for c in status_changed)
-            lines.append(f"- **Смена статуса ({len(status_changed)}):** {st_str}")
-        if transfers:
-            lines.append(f"- **Перемещения предметов ({len(transfers)}):**")
-            for t in transfers:
-                item = t.get("item", t.get("sid", "предмет"))
-                from_str = ", ".join(f"{k} ({v})" for k, v in sorted(t.get("from", {}).items()))
-                to_str = ", ".join(f"{k} (+{v})" for k, v in sorted(t.get("to", {}).items()))
-                lines.append(f"  - `{item}`: от [{from_str}] к [{to_str}]")
-        if skills:
-            lines.append(f"- **Изменения навыков:** у {len(skills)} участников")
-            for sk in sorted(skills, key=lambda s: (str(s.get("name") or ""), str(s.get("id") or ""))):
-                ch_str = ", ".join(f"{k}: {v.get('from')} -> {v.get('to')}" for k, v in sorted(sk.get("changes", {}).items()))
-                lines.append(f"  - {sk.get('name')} (`{sk.get('id')}`): {ch_str}")
-        if equipment:
-            lines.append(f"- **Смена экипировки:** у {len(equipment)} участников")
-        if health:
-            lines.append(f"- **Изменения здоровья:** у {len(health)} участников")
-
-        dip_ch = changes.get("diplomacy", [])
-        if dip_ch:
-            lines.append(f"- **Изменения отношений с фракциями ({len(dip_ch)}):**")
-            for d in dip_ch:
-                d_name = d.get("faction_name") or d.get("faction_sid")
-                relation = d.get("relation")
-                rel_info = ""
-                if relation:
-                    rel_info = f"отношение: {relation.get('from')} -> {relation.get('to')}"
-                    if isinstance(relation.get("delta"), (int, float)):
-                        rel_info += f" ({relation['delta']:+})"
-                std_info = f"статус: {d['standing'].get('from')} -> {d['standing'].get('to')}" if d.get("standing") else ""
-                parts_d = [p for p in (rel_info, std_info) if p]
-                lines.append(f"  - `{d_name}`: {', '.join(parts_d)}")
-
-        ws_ch = changes.get("world_state", {})
-        if ws_ch:
-            u_ch = ws_ch.get("unique_npcs", [])
-            t_ch = ws_ch.get("town_overrides", [])
-            if u_ch or t_ch:
-                lines.append(f"- **События мира (World States):**")
-                for u in u_ch:
-                    u_nm = u.get("name_ru") or u.get("name") or u.get("sid")
-                    lines.append(f"  - Лидер `{u_nm}`: статус сменился на {u.get('state', {}).get('to') or u.get('state_code', {}).get('to')}")
-                for t in t_ch:
-                    t_nm = t.get("town_name") or t.get("replacement_sid")
-                    lines.append(f"  - Город `{t_nm}`: {t.get('status')} ({t.get('faction') or 'смена контроля'})")
-
-        jobs_ch = changes.get("jobs", [])
-        if jobs_ch:
-            lines.append(f"- **Изменения очереди работ:** у {len(jobs_ch)} участников")
-            for j in jobs_ch:
-                j_nm = j.get("name") or j.get("id")
-                lines.append(f"  - `{j_nm}`: обновлены назначенные работы")
-
-        bld_ch = changes.get("base_storage", [])
-        if bld_ch:
-            lines.append(f"- **Изменения складских запасов на базах:** {len(bld_ch)} позиций")
-            for b in bld_ch[:5]:
-                lines.append(f"  - `{b.get('building_name')}`: {b.get('item_name')} {b.get('delta'):+}")
-            if len(bld_ch) > 5:
-                lines.append(f"  - ... и ещё {len(bld_ch) - 5} складских изменений")
-
-        if not any([joined, left, squad_changed, status_changed, transfers, skills, equipment, health,
-                    dip_ch, ws_ch, jobs_ch, bld_ch]):
-            lines.append("- Изменений в отслеживаемых категориях не зафиксировано.")
+    lines.extend(render_change_lines(changes))
 
     not_compared = changes.get("not_compared", [])
     if not_compared:
@@ -368,6 +411,8 @@ def render_brief(
         "## Связанные артефакты",
         "- [Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)",
         "- [Расширенный снимок (extended/current.json): читать только выборочно](extended/current.json)",
+        *(["- [Сводка изменений и промежуточных снимков (changes.md)](changes.md)",
+           "- [Индекс скриншотов (screenshots/index.md)](screenshots/index.md)"] if publication else []),
         "- [Детальные изменения (changes.json)](changes.json)",
         "- [Полный состав отряда (squad.md)](squad.md)",
     ])

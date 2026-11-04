@@ -20,9 +20,13 @@ SYNCED_DIRS = ("screenshots", "current", "extended")
 # Корневые файлы прежних выпусков: удаляются в целевом репозитории, если в публикации их больше нет.
 LEGACY_ARTIFACTS = ("current.json",)
 
+# Пересобираемый PDF на десятки мегабайт раздувал бы историю git; он читается только с Google Диска.
+LOCAL_ONLY = {Path("screenshots_latest.pdf")}
+
 REQUIRED_ARTIFACTS = (
     "manifest.json",
     "changes.json",
+    "changes.md",
     "locations.json",
     "world_reference.json",
     "timeline.jsonl",
@@ -52,7 +56,7 @@ def _sync_dir(src: Path, dst: Path) -> None:
     """
     if dst.exists() and linked(dst):
         return
-    src_files = {p.relative_to(src) for p in src.rglob("*") if p.is_file()}
+    src_files = {p.relative_to(src) for p in src.rglob("*") if p.is_file()} - LOCAL_ONLY
     for rel in src_files:
         target = dst / rel
         if any(linked(parent) for parent in target.parents if parent == dst or dst in parent.parents):
@@ -63,6 +67,10 @@ def _sync_dir(src: Path, dst: Path) -> None:
         _prune(dst, dst, src_files)
 
 
+def companion_root(companion_dir: Path | None = None) -> Path:
+    return (companion_dir or Path(os.environ.get("KENSHI_COMPANION_DIR", DEFAULT_COMPANION_DIR))).resolve()
+
+
 def deliver_to_companion(
     published_dir: Path | None = None,
     companion_dir: Path | None = None,
@@ -70,10 +78,7 @@ def deliver_to_companion(
     auto_push: bool = False,
 ) -> dict[str, Any]:
     pub_path = (published_dir or DEFAULT_PUBLISHED_DIR).resolve()
-    target_repo = (
-        companion_dir
-        or Path(os.environ.get("KENSHI_COMPANION_DIR", DEFAULT_COMPANION_DIR))
-    ).resolve()
+    target_repo = companion_root(companion_dir)
     target_published = target_repo / "published"
 
     if not pub_path.is_dir():

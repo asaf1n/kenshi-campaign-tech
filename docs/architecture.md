@@ -14,10 +14,10 @@ immutable snapshots / branches / events ledger
 locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,extended/current.json,current/{index.json,characters/,bases/,*.json},changes.json,locations.json,
-           world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,
-           screenshots/{index.json,*.jpg; index.md, annotations.jsonl, feed.md при содержательном OCR}}
+           world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,changes.md,
+           screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR; screenshots_latest.pdf вне git}}
         |
-verified GitHub delivery / manual transport fallback
+verified GitHub delivery + Google Drive sync (docs/gdrive-sync.md) / manual transport fallback
         |
 LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose plans and events
 ```

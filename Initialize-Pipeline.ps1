@@ -43,6 +43,8 @@ try {
     if ((& python -c 'import sys; print(sys.version_info >= (3, 12))') -ne 'True') { throw 'Нужен Python 3.12+.' }
     & python -c 'import jsonschema' 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Не установлен jsonschema: pip install jsonschema' }
+    & python -c 'import reportlab' 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
 
     $save = $env:KENSHI_SAVE_DIRS -split ';' | Where-Object { $_ } | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory } |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -67,7 +69,7 @@ try {
 
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
     Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
-    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs --deliver-to $companion --deliver-push
+    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs --deliver-to $companion --deliver-push --sync-drive
     if ($LASTEXITCODE -ne 0) { throw "pipeline завершился с кодом $LASTEXITCODE" }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json

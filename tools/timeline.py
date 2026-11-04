@@ -256,6 +256,11 @@ def filter_events_by_branch(
 filter_by_branch = filter_events_by_branch
 
 
+def snapshot_anchor(snapshot_id: str) -> str:
+    """Якорь раздела промежуточного снимка в changes.md."""
+    return f"snapshot-{snapshot_id.removeprefix('sha256-')[:12]}"
+
+
 def project_timeline(
     events: list[dict[str, Any]], snapshot_id: str, diff_id: str,
 ) -> list[dict[str, Any]]:
@@ -269,6 +274,9 @@ def project_timeline(
                 source["ref"] = "extended/current.json"
             elif source["kind"] == "diff" and source["ref"] == f"data/diffs/{diff_id}.json":
                 source["ref"] = "changes.json"
+            elif source["kind"] == "diff" and source["ref"].startswith("data/diffs/"):
+                # Файлы data/diffs/ не публикуются: читатель получает раздел промежуточной дельты в changes.md.
+                source["ref"] = f"changes.md#{snapshot_anchor(source['ref'].removesuffix('.json').rpartition('__')[2])}"
             else:
                 source["note"] = "Локальный источник; недоступен облачному читателю. " + source.get("note", "")
     validate_timeline(projected, projection=True)

@@ -77,6 +77,12 @@
         "screenshots": {
           "$ref": "#/$defs/relativePath"
         },
+        "changes_md": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "screenshot_index_md": {
+          "$ref": "#/$defs/relativePath"
+        },
         "screenshot_annotations": {
           "$ref": "#/$defs/relativePath"
         },

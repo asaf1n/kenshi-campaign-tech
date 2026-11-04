@@ -258,14 +258,14 @@ class ScreenshotExtractorTests(unittest.TestCase):
                             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
                 names = sorted(path.name for path in (published / "screenshots").iterdir() if path.suffix != ".jpg")
-                self.assertEqual(names, ["annotations.jsonl", "feed.md", "index.json", "index.md"])
+                self.assertEqual(names, ["annotations.jsonl", "feed.md", "index.json", "index.md", "screenshots_latest.pdf"])
                 artifacts = read_json((published / "manifest.json").read_bytes())["artifacts"]
                 self.assertEqual(artifacts["screenshot_annotations"], "screenshots/annotations.jsonl")
                 self.assertEqual(artifacts["screenshot_feed"], "screenshots/feed.md")
                 self.assertEqual(validate_publication(published)["status"], "passed")
 
     def test_publish_pipeline_omits_empty_ocr_artifacts(self) -> None:
-        """7. Публикация кадра без распознанного текста не создаёт annotations.jsonl, feed.md и index.md; валидация проходит."""
+        """7. Публикация кадра без распознанного текста не создаёт annotations.jsonl и feed.md; валидация проходит."""
         from tests.test_screenshots import _create_sample_snapshot
         now = datetime.now(timezone.utc)
         snap_id = "test_snap_ann"
@@ -288,10 +288,11 @@ class ScreenshotExtractorTests(unittest.TestCase):
             screens_dir=self.screens_dir,
             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
-        # Реальный кадр без распознанного текста: аннотации, лента и галерея не публикуются, index.json остаётся.
+        # Реальный кадр без распознанного текста: аннотации и лента не публикуются, индексы остаются.
         pub_screens = self.published_dir / "screenshots"
         self.assertTrue((pub_screens / "index.json").is_file())
-        for name in ("annotations.jsonl", "feed.md", "index.md"):
+        self.assertTrue((pub_screens / "index.md").is_file())
+        for name in ("annotations.jsonl", "feed.md"):
             self.assertFalse((pub_screens / name).exists())
 
         summary = validate_publication(self.published_dir)

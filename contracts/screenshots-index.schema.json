@@ -38,6 +38,14 @@
       "type": "string",
       "format": "date-time"
     },
+    "new_frames": {
+      "description": "Файлы кадров дельты после родительского снимка; кадр вне screenshots есть только в архиве, PDF и на Google Диске.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.-]+\\.(jpg|jpeg|png)$"
+      }
+    },
     "screenshots": {
       "type": "array",
       "items": {

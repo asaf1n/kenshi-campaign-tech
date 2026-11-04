@@ -5,8 +5,7 @@
 2. Фильтрацию изображений по 7-дневному скользящему окну (now - 7 суток) с поддержкой JPG, JPEG, PNG.
 3. Защиту от частично записанных файлов и модификаций в процессе копирования.
 4. Хронологическую сортировку и сборку kenshi-screenshots-index/1.
-5. Генерацию русскоязычной Markdown-галереи index.md для визуального контекста чат-моделей.
-6. Безопасное копирование в staging с проверкой целостности хеша SHA-256.
+5. Безопасное копирование в staging с проверкой целостности хеша SHA-256.
 """
 from __future__ import annotations
 
@@ -149,6 +148,7 @@ def build_screenshots_index(
     window_days: int = DEFAULT_WINDOW_DAYS,
     window_start: str = "",
     window_end: str = "",
+    new_frames: list[str] | None = None,
 ) -> dict[str, Any]:
     """Формирование контракта kenshi-screenshots-index/1."""
     clean_screenshots = []
@@ -175,68 +175,9 @@ def build_screenshots_index(
         "window_days": window_days,
         "window_start": window_start,
         "window_end": window_end,
+        "new_frames": new_frames or [],
         "screenshots": clean_screenshots,
     }
-
-
-def render_screenshots_gallery(index_data: dict[str, Any]) -> str:
-    """Генерация Markdown-галереи index.md со ссылками на оригиналы."""
-    count = index_data.get("count", 0)
-    w_days = index_data.get("window_days", DEFAULT_WINDOW_DAYS)
-    w_start = index_data.get("window_start", "")
-    w_end = index_data.get("window_end", "")
-    gen_at = index_data.get("generated_at", "")
-
-    lines: list[str] = [
-        "# Визуальная лента скриншотов Kenshi",
-        "",
-        f"- **Обновлено**: `{gen_at}`",
-        f"- **Окно выборки**: последние {w_days} суток (с `{w_start}` по `{w_end}`)",
-        f"- **Количество скриншотов**: {count}",
-        "",
-        "Ключевые кадры игрового процесса в хронологическом порядке для визуального контекста LLM. "
-        "Кадры уменьшены до 1600 px по длинной стороне; полный набор хранится вне репозитория.",
-        "",
-    ]
-
-    screenshots = index_data.get("screenshots", [])
-    if not screenshots:
-        lines.extend([
-            "> [!NOTE]",
-            f"> В течение последних {w_days} суток новые скриншоты не зафиксированы.",
-            "",
-        ])
-        return "\n".join(lines)
-
-    lines.extend([
-        "---",
-        "",
-    ])
-
-    for item in screenshots:
-        order = item["order"]
-        fn = item["filename"]
-        mod_at = item["modified_at"]
-        size_kb = item["size_bytes"] / 1024.0
-        file_sha = item["sha256"]
-        url_raw = item["url_raw"]
-        url_blob = item["url_blob"]
-
-        lines.extend([
-            f"### {order}. {fn}",
-            "",
-            f"- **Время записи (UTC)**: `{mod_at}`",
-            f"- **Размер**: {size_kb:.1f} КБ",
-            f"- **SHA-256**: `{file_sha}`",
-            f"- **Ссылки**: [Просмотр в GitHub]({url_blob}) | [Прямой Raw URL]({url_raw})",
-            "",
-            f"![{fn}]({fn})",
-            "",
-            "---",
-            "",
-        ])
-
-    return "\n".join(lines)
 
 
 def copy_screenshot_safe(src: Path, dst: Path, expected_sha256: str | None = None) -> None:

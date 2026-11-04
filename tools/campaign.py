@@ -104,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--dry-run", action="store_true")
     pipe_parser.add_argument("--deliver-to", type=Path, help="Каталог игрового репозитория Kenshi-Compain для односторонней доставки")
     pipe_parser.add_argument("--deliver-push", action="store_true", help="Выполнить git push в игровом репозитории Kenshi-Compain")
+    pipe_parser.add_argument("--sync-drive", action="store_true", help="Синхронизировать выгрузку и канон с Google Диском")
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
@@ -120,6 +121,18 @@ def main(argv: list[str] | None = None) -> int:
     deliv_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     deliv_parser.add_argument("--no-commit", action="store_true", help="Не выполнять git commit в Kenshi-Compain")
     deliv_parser.add_argument("--push", action="store_true", help="Выполнить git push в Kenshi-Compain")
+
+    # 7.3. sync-drive
+    drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
+    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle"), default="all")
+    drive_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
+    drive_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
+    drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")
+
+    # 7.4. ingest-inbox
+    inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов `=== ФАЙЛ/ВЫГРУЗКА ===` в Campaign/ игрового репозитория")
+    inbox_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
+    inbox_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -404,6 +417,16 @@ def main(argv: list[str] | None = None) -> int:
                     auto_push=getattr(args, "deliver_push", False),
                 )
                 result["companion_delivery"] = deliv_res
+            if getattr(args, "sync_drive", False) and not args.dry_run:
+                from tools.deliver_companion import companion_root
+                from tools.gdrive_sync import sync_drive
+                try:
+                    result["gdrive"] = sync_drive(cfg.gdrive_root, (args.published_dir or ROOT / "published").resolve(),
+                                                  companion_root(args.deliver_to))
+                except Exception as sync_error:
+                    # Основная публикация уже завершена: сбой Диска её не отменяет.
+                    sys.stderr.buffer.write(f"WARNING: синхронизация Google Диска: {sync_error}\n".encode("utf-8"))
+                    result["gdrive"] = {"status": "failed"}
 
         elif args.command == "deliver-companion":
             from tools.deliver_companion import deliver_to_companion
@@ -413,6 +436,19 @@ def main(argv: list[str] | None = None) -> int:
                 auto_commit=not args.no_commit,
                 auto_push=args.push,
             )
+
+        elif args.command == "sync-drive":
+            from tools.config import find_gdrive_root
+            from tools.deliver_companion import companion_root
+            from tools.gdrive_sync import sync_drive
+            result = sync_drive(args.gdrive_dir or find_gdrive_root(), args.published_dir.resolve(),
+                                companion_root(args.companion_dir), scope=args.scope)
+
+        elif args.command == "ingest-inbox":
+            from tools.config import find_gdrive_root
+            from tools.deliver_companion import companion_root
+            from tools.gdrive_sync import ingest_inbox
+            result = ingest_inbox(args.gdrive_dir or find_gdrive_root(), companion_root(args.companion_dir))
 
         elif args.command == "build-world":
             from tools.world_reference import build_world_reference, save_world_reference
@@ -466,6 +502,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = get_branch_tree(data)
 
         sys.stdout.buffer.write(canonical(result))
+        if args.command == "sync-drive" and result.get("status") != "synced":
+            return 1
+        if args.command == "ingest-inbox" and result.get("rejected"):
+            return 1
         return 0
 
     except Exception as error:

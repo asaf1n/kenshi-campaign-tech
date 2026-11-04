@@ -4,7 +4,7 @@
 1. Захват файловой блокировки.
 2. Проверка и самовосстановление после предыдущих сбоев (backup -> published).
 3. Пространственное разрешение локаций (kenshi-locations/1) и подготовка world_reference.
-4. Рендеринг русскоязычных Markdown (brief.md, squad.md) с географическими сводками.
+4. Рендеринг русскоязычных Markdown (brief.md, squad.md, changes.md, screenshots/index.md).
 5. Подготовка пакета в staging на том же томе.
 6. Валидация пакета до переключения (validate_publication).
 7. Переключение: published -> backup -> staging -> published.
@@ -32,6 +32,8 @@ from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCREENS_DIR: Path | None = None
+# Шапка brief.md содержит generated_at, а сам generated_at зависит от сравнения файлов выпуска: сравниваем с подстановкой.
+GENERATED_AT_TOKEN = "@@generated_at@@"
 
 try:
     import msvcrt
@@ -346,9 +348,14 @@ def publish(
 
     # Накопительный таймлайн: события окна цепочки снимков и фиксация смены ветки (детерминированно по индексу).
     chain: list[dict[str, Any]] = []
+    chain_steps: list[dict[str, Any]] = []
     branch_switch: dict[str, str] | None = None
+    load_chain_diff = None
     if idx_data is not None and effective_branch:
-        from tools.chain_timeline import branch_switch_event, chain_events, detect_branch_switch
+        from tools.chain_timeline import (
+            branch_switch_event, chain_events, chain_ids, detect_branch_switch, significant_changes,
+        )
+        from tools.screenshot_delta import game_label
 
         def load_chain_diff(parent: str, child: str) -> dict[str, Any] | None:
             if (parent, child) == (effective_parent, snapshot_id):
@@ -363,6 +370,16 @@ def publish(
                 return None
 
         chain = chain_events(idx_data, snapshot_id, effective_branch, load_chain_diff, make_diff_id)
+        window_ids = chain_ids(idx_data, snapshot_id)
+        for parent_id, child_id in list(zip(window_ids, window_ids[1:]))[:-1]:
+            step_diff = load_chain_diff(parent_id, child_id)
+            summaries = [summary for _, summary in significant_changes(step_diff or {})]
+            if summaries and step_diff.get("valid") is not False:
+                chain_steps.append({
+                    "child_id": child_id,
+                    "label": f"{game_label(idx_data['snapshots'][child_id])} ({child_id[:15]})",
+                    "summaries": summaries,
+                })
         branch_switch = detect_branch_switch(idx_data, effective_parent, snapshot_id, effective_branch)
         if branch_switch:
             recorded_at = idx_data["snapshots"][snapshot_id].get("registered_at", "")
@@ -371,10 +388,11 @@ def publish(
     timeline_data = project_timeline(combined, snapshot_id, diff_id) if combined else []
     timeline_bytes = b"".join(canonical(e) for e in timeline_data)
 
-    # 3. Рендеринг русскоязычных Markdown с географическими сводками
-    brief_md = render_brief(cur, diff_data, snapshot_id, locations=locations_data,
-                            timeline=timeline_data, timeline_projection=True)
+    # 3. Рендеринг русскоязычных Markdown; brief.md собирается после разметки скриншотов
+    from tools.changes_render import render_changes_md
+
     squad_md = render_squad(cur, snapshot_id, locations=locations_data)
+    changes_md = render_changes_md(diff_data, chain_steps)
 
     manifest_data = {
         "format": "kenshi-publication/1",
@@ -392,6 +410,7 @@ def publish(
             "current": "extended/current.json",
             "current_index": "current/index.json",
             "changes": "changes.json",
+            "changes_md": "changes.md",
             "brief": "brief.md",
             "squad": "squad.md",
             "locations": "locations.json",
@@ -426,7 +445,9 @@ def publish(
             target_screens_dir = Config.from_env().screens
 
     screenshots_index_data = None
-    screenshots_gallery_md = None
+    screenshots_index_md = None
+    screenshots_section = None
+    pdf_frames: list[dict[str, Any]] = []
     collected_screenshots: list[dict[str, Any]] = []
 
     if target_screens_dir is not None:
@@ -442,12 +463,11 @@ def publish(
             build_screenshots_index,
             collect_recent_screenshots,
             copy_screenshot_safe,
-            render_screenshots_gallery,
             BLOB_DEFAULT_URL,
             RAW_DEFAULT_URL,
         )
 
-        from tools import screenshot_publish
+        from tools import screenshot_delta, screenshot_publish
         from tools.screenshot_clustering import cluster_screenshots
 
         window_screenshots = collect_recent_screenshots(
@@ -461,13 +481,18 @@ def publish(
             item["filename"]: item
             for item in screenshot_publish.archive_screenshots(clustered_window)
         }
+        snapshot_entries = screenshot_delta.snapshot_chain(idx_data, snapshot_id)
+        new_originals = screenshot_delta.new_frame_names(
+            archived.values(), screenshot_delta.delta_boundary(idx_data, snapshot_id, effective_parent)
+        )
         collected_screenshots = []
         for order, key_item in enumerate(
-            screenshot_publish.select_keyframes(list(archived.values()), window_episodes), 1
+            screenshot_publish.select_keyframes(list(archived.values()), window_episodes, priority=new_originals), 1
         ):
             name = key_item["published_name"]
             collected_screenshots.append({
                 **key_item,
+                "original_filename": key_item["filename"],
                 "order": order,
                 "filename": name,
                 "path": f"screenshots/{name}",
@@ -488,28 +513,30 @@ def publish(
             window_days=7,
             window_start=w_start_iso,
             window_end=gen_iso,
+            new_frames=[archived[name]["published_name"] for name in new_originals],
         )
 
         prev_idx_path = published_dir / "screenshots/index.json"
         if prev_idx_path.is_file():
             try:
                 prev_idx = read_json(prev_idx_path.read_bytes())
-                if prev_idx.get("screenshots") == screenshots_index_data.get("screenshots"):
+                if (prev_idx.get("screenshots") == screenshots_index_data.get("screenshots")
+                        and prev_idx.get("new_frames") == screenshots_index_data.get("new_frames")):
                     screenshots_index_data["generated_at"] = prev_idx["generated_at"]
                     screenshots_index_data["window_start"] = prev_idx.get("window_start", screenshots_index_data["window_start"])
                     screenshots_index_data["window_end"] = prev_idx.get("window_end", screenshots_index_data["window_end"])
             except Exception:
                 pass
 
-        screenshots_gallery_md = render_screenshots_gallery(screenshots_index_data)
-
         manifest_data["artifacts"]["screenshots"] = "screenshots/index.json"
+        manifest_data["artifacts"]["screenshot_index_md"] = "screenshots/index.md"
         if "screenshots" not in manifest_data["validation"]["checks"]:
             manifest_data["validation"]["checks"].append("screenshots")
 
         # Техническое извлечение данных кадра и хронологическая лента
         screenshots_annotations_bytes = None
         screenshots_feed_md = None
+        annotated_records: list[dict[str, Any]] = []
         try:
             from tools.screenshot_extractor import extract_screenshots_batch
             from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
@@ -522,8 +549,8 @@ def publish(
                 now_iso=screenshots_index_data["generated_at"],
             )
             if not screenshot_publish.has_ocr_content(annotated_records):
-                # Пустой OCR: аннотации, лента и галерея не несут информации и не публикуются; index.json остаётся.
-                screenshots_gallery_md = None
+                # Пустой OCR: аннотации и лента не несут информации и не публикуются.
+                annotated_records = []
             else:
                 screenshots_annotations_bytes = serialize_annotations_jsonl(annotated_records)
                 screenshots_feed_md = render_screenshot_feed(
@@ -544,6 +571,36 @@ def publish(
             screenshots_annotations_bytes = None
             screenshots_feed_md = None
 
+        # Индекс кадров и шапки PDF: дельта снимка, архивный хвост и первичная разметка
+        def load_snapshot_locations(target_id: str) -> dict[str, Any] | None:
+            if target_id == snapshot_id:
+                return locations_data
+            path = ROOT / "data/locations" / f"{target_id}.json"
+            return read_json(path.read_bytes()) if path.is_file() else None
+
+        bundled = {item["published_name"] for item in collected_screenshots}
+        annotations = {record.get("filename"): record for record in annotated_records}
+
+        def to_frame(item: dict[str, Any]) -> dict[str, Any]:
+            return screenshot_delta.frame_record(
+                item, snapshot_entries, load_chain_diff, load_snapshot_locations,
+                annotations.get(item["published_name"]), item["published_name"] in bundled,
+            )
+
+        new_frames = [to_frame(archived[name]) for name in new_originals]
+        old_items = [archived[item["original_filename"]] for item in collected_screenshots
+                     if item["original_filename"] not in set(new_originals)]
+        tail_frames = [to_frame(item) for item in old_items[-screenshot_delta.TAIL_FRAMES:]]
+        screenshots_index_md = screenshot_delta.render_index_md(screenshots_index_data, new_frames, tail_frames)
+        screenshots_section = screenshot_delta.render_brief_section(new_frames, screenshots_index_data["count"])
+        pdf_frames = new_frames or tail_frames[-screenshot_delta.PDF_FALLBACK_FRAMES:]
+
+    brief_md = render_brief(
+        cur, diff_data, snapshot_id, locations=locations_data, timeline=timeline_data, timeline_projection=True,
+        publication={**manifest_data, "generated_at": GENERATED_AT_TOKEN}, screenshots_section=screenshots_section,
+    )
+
+    publication_warnings: list[str] = []
     lock_file = Path(tempfile.gettempdir()) / f"kenshi_{published_dir.name}.lock"
     staging_dir = published_dir.parent / f"{published_dir.name}.staging"
     backup_dir = published_dir.parent / f"{published_dir.name}.backup"
@@ -567,6 +624,7 @@ def publish(
                 (staging_dir / rel_path).parent.mkdir(parents=True, exist_ok=True)
                 (staging_dir / rel_path).write_bytes(data)
             (staging_dir / "changes.json").write_bytes(canonical(diff_data))
+            (staging_dir / "changes.md").write_text(changes_md, encoding="utf-8")
             previous_locations_path = published_dir / "locations.json"
             if previous_locations_path.is_file():
                 previous_locations_data = read_json(previous_locations_path.read_bytes())
@@ -585,8 +643,7 @@ def publish(
                 sc_staging = staging_dir / "screenshots"
                 sc_staging.mkdir(parents=True, exist_ok=True)
                 (sc_staging / "index.json").write_bytes(canonical(screenshots_index_data))
-                if screenshots_gallery_md is not None:
-                    (sc_staging / "index.md").write_text(screenshots_gallery_md, encoding="utf-8")
+                (sc_staging / "index.md").write_text(screenshots_index_md, encoding="utf-8")
                 if screenshots_annotations_bytes is not None:
                     (sc_staging / "annotations.jsonl").write_bytes(screenshots_annotations_bytes)
                 if screenshots_feed_md is not None:
@@ -595,15 +652,33 @@ def publish(
                     src_p = item["source_path"]
                     dst_p = sc_staging / item["filename"]
                     copy_screenshot_safe(src_p, dst_p, expected_sha256=item["sha256"])
+                if pdf_frames:
+                    from tools.screenshot_pdf import build_screenshots_pdf
+
+                    # PDF нужен только Диску: его сбой не должен останавливать публикацию и доставку в GitHub.
+                    pdf_path = sc_staging / screenshot_delta.PDF_NAME
+                    try:
+                        publication_warnings += [f"PDF: кадр пропущен: {name}"
+                                                 for name in build_screenshots_pdf(pdf_frames, pdf_path)]
+                    except Exception as pdf_error:
+                        pdf_path.unlink(missing_ok=True)
+                        publication_warnings.append(f"PDF не собран: {pdf_error}")
 
             # Время выпуска меняется только при изменении содержимого bundle.
             previous_manifest = published_dir / "manifest.json"
             if previous_manifest.is_file():
                 previous = read_json(previous_manifest.read_bytes())
                 comparable = dict(manifest_data, generated_at=previous.get("generated_at"))
+                previous_stamp = str(previous.get("generated_at")).encode("utf-8")
+
+                def unchanged(name: str) -> bool:
+                    before = (published_dir / name).read_bytes()
+                    if name == "brief.md":
+                        before = before.replace(previous_stamp, GENERATED_AT_TOKEN.encode("utf-8"))
+                    return before == (staging_dir / name).read_bytes()
+
                 same_files = all(
-                    (published_dir / name).is_file()
-                    and (published_dir / name).read_bytes() == (staging_dir / name).read_bytes()
+                    (published_dir / name).is_file() and unchanged(name)
                     for name in manifest_data["artifacts"].values()
                 )
                 if screenshots_index_data is not None and same_files:
@@ -622,6 +697,9 @@ def publish(
                     stamp = datetime.fromisoformat(previous["generated_at"].replace("Z", "+00:00"))
                     manifest_data["generated_at"] = (stamp + timedelta(microseconds=1)).isoformat().replace("+00:00", "Z")
             (staging_dir / "manifest.json").write_bytes(canonical(manifest_data))
+            (staging_dir / "brief.md").write_text(
+                brief_md.replace(GENERATED_AT_TOKEN, manifest_data["generated_at"]), encoding="utf-8"
+            )
 
             if fault_inject == "before_validate":
                 raise PublisherError("Fault injection: сбой до валидации пакета")
@@ -700,4 +778,6 @@ def publish(
     }
     if screenshots_index_data is not None:
         res["screenshots_count"] = screenshots_index_data["count"]
+    if publication_warnings:
+        res["warnings"] = publication_warnings
     return res

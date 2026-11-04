@@ -89,13 +89,27 @@ def archive_screenshots(items: list[dict[str, Any]], archive_dir: Path | None = 
     return result
 
 
+def _thin(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Равномерно оставляет не больше limit элементов."""
+    if len(items) <= limit:
+        return items
+    if limit <= 1:
+        return items[:limit]
+    return [items[round(i * (len(items) - 1) / (limit - 1))] for i in range(limit)]
+
+
 def select_keyframes(
     items: list[dict[str, Any]],
     episodes: list[dict[str, Any]],
     min_frames: int = MIN_KEYFRAMES,
     max_frames: int = MAX_KEYFRAMES,
+    priority: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Детерминированный отбор ключевых кадров: по кадру на эпизод, затем равномерно по времени до границ min/max."""
+    """Детерминированный отбор: по кадру на эпизод, затем равномерно по времени до границ min/max.
+
+    Кадры `priority` (дельта снимка) занимают выпуск первыми, чтобы у них были raw-ссылки; остаток мест заполняется
+    обычным отбором. Если дельта больше max_frames, она прореживается равномерно.
+    """
     if not items:
         return []
     by_name = {item["filename"]: item for item in items}
@@ -110,4 +124,9 @@ def select_keyframes(
             chosen += [rest[round(i * (len(rest) - 1) / max(need - 1, 1))] for i in range(need)] if need > 1 else [rest[len(rest) // 2]]
     seen: set[str] = set()
     unique = [item for item in chosen if not (item["filename"] in seen or seen.add(item["filename"]))]
+    first = [by_name[name] for name in priority or [] if name in by_name]
+    if first:
+        first = _thin(first, max_frames)
+        taken = {item["filename"] for item in first}
+        unique = first + _thin([item for item in unique if item["filename"] not in taken], max_frames - len(first))
     return sorted(unique, key=lambda item: (item["mtime"], item["filename"]))

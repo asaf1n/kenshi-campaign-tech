@@ -76,13 +76,9 @@ def _game_clock(game_time: dict[str, Any] | None) -> tuple[int | None, str | Non
     return day, (f"Day {day} {int(match.group(1)):02d}:{match.group(2)}" if match else None)
 
 
-def events_from_diff(
-    diff: dict[str, Any], child_id: str, diff_id: str, branch_id: str, recorded_at: str,
-    game_time: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    """Значимые изменения дельты в событиях kenshi-event/1: состав, перестановки, протезы, казна."""
+def significant_changes(diff: dict[str, Any]) -> list[tuple[str, str]]:
+    """Значимые изменения дельты парами (kind, summary); новые виды дописываются в конец: порядковые ID событий устойчивы."""
     world = diff.get("world", {})
-    day, clock = _game_clock(game_time)
     roster = diff.get("roster") or {}
     found: list[tuple[str, str]] = []
     if roster.get("joined"):
@@ -92,10 +88,36 @@ def events_from_diff(
     if roster.get("squad_changed"):
         found.append(("squad_change", f"Сменили отряд ({len(roster['squad_changed'])}): {_names(roster['squad_changed'])}"))
     if diff.get("prosthetics"):
-        found.append(("state_delta", f"Изменены протезы: {_names(diff['prosthetics'])}"))
+        limbs = "; ".join(
+            f"{entry.get('name') or entry.get('id')}: " + ", ".join(
+                f"{slot} {value.get('from')} -> {value.get('to')}" for slot, value in sorted((entry.get("changes") or {}).items()))
+            for entry in diff["prosthetics"])
+        found.append(("state_delta", f"Изменены конечности и протезы: {limbs}"))
     money = world.get("money") or {}
     if money.get("delta"):
         found.append(("state_delta", f"Казна: {money.get('from')} -> {money.get('to')} ({money['delta']:+})"))
+    statuses = roster.get("status_changed") or []
+    if statuses:
+        found.append(("state_delta", "Смена статуса: " + ", ".join(
+            f"{entry.get('name') or entry.get('id')} {entry.get('field')}={entry.get('to')}" for entry in statuses)))
+    diplomacy = diff.get("diplomacy") or []
+    if diplomacy:
+        found.append(("state_delta", f"Изменены отношения с фракциями ({len(diplomacy)}): " + ", ".join(
+            str(entry.get("faction_name") or entry.get("faction_sid")) for entry in diplomacy[:NAMES_IN_SUMMARY])))
+    world_state = diff.get("world_state") or {}
+    world_changes = len(world_state.get("unique_npcs") or []) + len(world_state.get("town_overrides") or [])
+    if world_changes:
+        found.append(("state_delta", f"Изменения World States: {world_changes}"))
+    return found
+
+
+def events_from_diff(
+    diff: dict[str, Any], child_id: str, diff_id: str, branch_id: str, recorded_at: str,
+    game_time: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Значимые изменения дельты в событиях kenshi-event/1."""
+    day, clock = _game_clock(game_time)
+    found = significant_changes(diff)
 
     prefix = child_id.removeprefix("sha256-")[:16]
     events = []
