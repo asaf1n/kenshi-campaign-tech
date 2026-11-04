@@ -247,6 +247,8 @@ class ScreenshotExtractorTests(unittest.TestCase):
                                             "state": None, "goal": None, "tasks": []}),
             # На низком разрешении цифровой проход ненадёжен: «День: 4» читался как 14.
             ("низкое разрешение", parchment, 1050, {"game_day": None}),
+            # Кадр 148: панель частично перекрыта, «104» прочитано как «IU'4»; хвост строки значением не считается.
+            ("перекрытая цифра", {**parchment, "day_strip": [line("zer-lb: IU'4", 2485, 1438)]}, 1800, {"game_day": None}),
             ("без панели", {"hud": [line("Рабовладельцы", 100, 1300)]}, 1800, {"game_day": None, "game_time": None}),
         )
         for name, regions, height, expected in cases:
