@@ -90,9 +90,16 @@ class TestCharacterJobsAndCarryingSynthetic(unittest.TestCase):
                 self.assertEqual(ch["carrying"]["is_carrying"], n == 0)
                 self.assertIsInstance(ch["health"], list)
                 self.assertIn("inventory", ch)
-            self.assertEqual(current["diplomacy"]["relations"][0]["standing"], "ally")
-            self.assertEqual(current["world_state"]["unique_npcs"][0]["state"], "dead_or_captured")
+            self.assertNotIn("standing", current["diplomacy"]["relations"][0])
+            self.assertEqual(current["world_state"]["unique_npcs"][0]["state_code"], 2)
             self.assertIn("supplies", current)
+            # Регрессия: удалённая аналитика не возвращается ни в снимок, ни в публикацию
+            texts = {str(f.relative_to(published)): f.read_text(encoding="utf-8")
+                     for f in published.rglob("*") if f.suffix in (".json", ".md", ".jsonl")}
+            texts["current.json"] = (output / result["snapshot_id"] / "current.json").read_text(encoding="utf-8")
+            for token in ("standing", "_calculated", "Союзники", "Враги", "state_detail", "Физические показатели", "dead_or_captured"):
+                with self.subTest(token=token):
+                    self.assertEqual([name for name, text in texts.items() if token in text], [])
             published_hashes = tree_hashes(published)
             self.assertEqual(result["snapshot_id"], run_pipeline(**pipeline_args)["snapshot_id"])
             self.assertEqual(tree_hashes(published), published_hashes)

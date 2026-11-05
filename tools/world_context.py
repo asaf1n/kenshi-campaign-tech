@@ -128,21 +128,12 @@ def enrich_world_and_production_context(
             if cb and cb in handle_map:
                 c_info["carried_by_name"] = handle_map[cb]
 
-    # 6. Детализация уникальных NPC
+    # 6. Носитель пленного уникального NPC
     for u in unique_npcs or []:
         uh = _clean_handle_tuple(u.get("handle"))
-        st_code = u.get("state_code")
-        pl = u.get("player")
 
         if uh and uh in carried_targets:
-            u["state_detail"] = "captured (carried by squad)"
             u["captured_by"] = carried_targets[uh]
-        elif st_code == 2:
-            u["state_detail"] = "dead_or_captured (player involved)" if pl else "dead_or_captured (world event)"
-        elif st_code == 1:
-            u["state_detail"] = "active_world"
-        elif st_code == 0:
-            u["state_detail"] = "unaffected"
 
     # 7. Агрегация складского баланса по локациям
     if isinstance(property_data, dict) and buildings:

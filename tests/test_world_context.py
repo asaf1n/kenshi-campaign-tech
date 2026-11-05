@@ -163,12 +163,12 @@ class TestWorldContextAndProduction(unittest.TestCase):
 
         # 3. Проверяем статус уникальных NPC
         # Shade несётся Хот Лоном
-        self.assertEqual(npcs[1]["state_detail"], "captured (carried by squad)")
         self.assertEqual(npcs[1]["captured_by"], "Хот Лон")
-        # Феникс пленен/убит с участием игрока, но сейчас не на руках
-        self.assertEqual(npcs[0]["state_detail"], "dead_or_captured (player involved)")
-        # Нейтральный босс выбыл в результате мировых событий
-        self.assertEqual(npcs[2]["state_detail"], "dead_or_captured (world event)")
+        # Интерпретации состояния не добавляются; у не несомых NPC нет носителя
+        for npc in npcs:
+            self.assertNotIn("state_detail", npc)
+        self.assertNotIn("captured_by", npcs[0])
+        self.assertNotIn("captured_by", npcs[2])
 
         # 4. Проверяем создание storage_by_location
         self.assertIn("storage_by_location", prop_data)
@@ -236,7 +236,6 @@ class TestWorldContextAndProduction(unittest.TestCase):
                         "sid": "shade",
                         "name_ru": "Тень",
                         "state_code": 2,
-                        "state_detail": "captured (carried by squad)",
                         "captured_by": "Хот Лон",
                     }
                 ]
@@ -247,7 +246,7 @@ class TestWorldContextAndProduction(unittest.TestCase):
         self.assertIn("гуманоидов: 1, животных: 1", brief)
         self.assertIn("Складской баланс по базам и поселениям", brief)
         self.assertIn("Ровная Лагуна", brief)
-        self.assertIn("Тень (captured (carried by squad) — несёт Хот Лон)", brief)
+        self.assertIn("Тень (код 2 — несёт Хот Лон)", brief)
 
         squad_md = render_squad(current, "test_snap")
         self.assertIn("### Барбос (`c2`) [Животное]", squad_md)

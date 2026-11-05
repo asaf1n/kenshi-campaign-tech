@@ -95,44 +95,7 @@
           "unique": true,
           "owned_by": null
         }
-      ],
-      "physics_calculated": {
-        "status": "unverified_engine_formula",
-        "carried_weight_kg": 14.5,
-        "weight_capacity_kg": 25.0,
-        "encumbrance_pct": 0.0,
-        "speed_run_mph_est": 22.5,
-        "formula_notes": "Расчетная оценка по формулам Kenshi Wiki."
-      },
-      "combat_calculated": {
-        "status": "unverified_engine_formula",
-        "weapon_requirements": [
-          {
-            "slot": "weapon_back",
-            "name": "Мейто Нодати",
-            "weight_kg": 4.0,
-            "damage_blunt": 0.15,
-            "strength_required": 8.0,
-            "strength_deficit": 0.0,
-            "speed_penalty_pct": 0.0
-          }
-        ],
-        "armour_penalties": {
-          "stealth_mult": 1.0,
-          "athletics_mult": 1.0,
-          "combat_speed_mult": 1.0,
-          "dodge_mult": 1.0
-        },
-        "body_coverage": {
-          "chest": {
-            "coverage_pct": 100,
-            "cut_resist_pct": 45.0,
-            "blunt_resist_pct": 30.0,
-            "layers": ["Пыльник"]
-          }
-        },
-        "formula_notes": "Расчетные боевые показатели Kenshi 1.0.xx."
-      }
+      ]
     },
     {
       "id": "ps:1002",
@@ -191,33 +154,24 @@
         "faction_name": "Ниндзя-отщепенцы",
         "relation": 75.0,
         "trust": 10.0,
-        "trust_neg": 0.0,
-        "standing": "friendly"
+        "trust_neg": 0.0
       },
       {
         "faction_sid": "Holy Nation",
         "faction_name": "Святая Нация",
         "relation": -100.0,
         "trust": 0.0,
-        "trust_neg": 50.0,
-        "standing": "hostile"
+        "trust_neg": 50.0
       },
       {
         "faction_sid": "Shek Kingdom",
         "faction_name": "Королевство Шек",
         "relation": 5.0,
         "trust": 0.0,
-        "trust_neg": 0.0,
-        "standing": "neutral"
+        "trust_neg": 0.0
       }
     ],
     "summary": {
-      "allies_count": 0,
-      "friendly_count": 1,
-      "neutral_count": 1,
-      "unfriendly_count": 0,
-      "hostile_count": 1,
-      "unknown_count": 0,
       "total_factions": 3
     }
   },
@@ -229,8 +183,6 @@
         "name": "Lord Phoenix",
         "name_ru": "Лорд Феникс",
         "state_code": 2,
-        "state": "dead",
-        "state_detail": "dead_or_captured (world event)",
         "player": false,
         "handle": [1, 54, 958496064, 9, 992309568]
       },
@@ -240,7 +192,6 @@
         "name": "High Krane",
         "name_ru": "Инквизитор Крейн",
         "state_code": 1,
-        "state": null,
         "player": false,
         "handle": [1, 54, 958496065, 9, 992309568]
       }

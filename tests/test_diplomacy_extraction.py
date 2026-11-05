@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from tools.save_reader import (
-    classify_standing,
     extract_diplomacy,
     extract_world_state,
     read_quick_save,
@@ -14,19 +13,7 @@ from tools.save_reader import (
 
 
 class TestDiplomacySynthetic(unittest.TestCase):
-    """Синтетические модульные тесты классификации и разбора дипломатии."""
-
-    def test_classify_standing_thresholds(self) -> None:
-        self.assertEqual(classify_standing(None), "unknown")
-        self.assertEqual(classify_standing(100.0), "ally")
-        self.assertEqual(classify_standing(50.0), "ally")
-        self.assertEqual(classify_standing(49.9), "friendly")
-        self.assertEqual(classify_standing(0.1), "friendly")
-        self.assertEqual(classify_standing(0.0), "neutral")
-        self.assertEqual(classify_standing(-0.1), "unfriendly")
-        self.assertEqual(classify_standing(-29.9), "unfriendly")
-        self.assertEqual(classify_standing(-30.0), "hostile")
-        self.assertEqual(classify_standing(-100.0), "hostile")
+    """Синтетические модульные тесты разбора дипломатии."""
 
     def test_extract_diplomacy_synthetic(self) -> None:
         records = [
@@ -87,22 +74,15 @@ class TestDiplomacySynthetic(unittest.TestCase):
         # Сортировка: сначала известные отношения по убыванию (+100.0, затем -100.0), затем unknown (None)
         self.assertEqual(dip["relations"][0]["faction_sid"], "11624-Dialogue (10).mod")
         self.assertEqual(dip["relations"][0]["relation"], 100.0)
-        self.assertEqual(dip["relations"][0]["standing"], "ally")
 
         self.assertEqual(dip["relations"][1]["faction_sid"], "1083-gamedata.base")
         self.assertEqual(dip["relations"][1]["relation"], -100.0)
-        self.assertEqual(dip["relations"][1]["standing"], "hostile")
 
-        # Не связанная фракция: relation is None, standing is unknown
+        # Не связанная фракция: relation is None (не подменяется на 0.0)
         self.assertEqual(dip["relations"][2]["faction_sid"], "1229-gamedata.base")
         self.assertIsNone(dip["relations"][2]["relation"])
-        self.assertEqual(dip["relations"][2]["standing"], "unknown")
 
         summary = dip["summary"]
-        self.assertEqual(summary["allies_count"], 1)
-        self.assertEqual(summary["neutral_count"], 0)
-        self.assertEqual(summary["hostile_count"], 1)
-        self.assertEqual(summary["unknown_count"], 1)
         self.assertEqual(summary["total_factions"], 3)
 
     def test_extract_world_state_synthetic(self) -> None:
@@ -161,14 +141,11 @@ class TestDiplomacySynthetic(unittest.TestCase):
         self.assertEqual(len(uniques), 2)
         self.assertEqual(uniques[0]["name_ru"], "Хоббс")
         self.assertEqual(uniques[0]["state_code"], 1)
-        # Код 1 не подтвержден строковым именем — сохраняем None
-        self.assertIsNone(uniques[0]["state"])
+        self.assertNotIn("state", uniques[0])
         self.assertIs(uniques[0]["player"], False)
 
         self.assertEqual(uniques[1]["name_ru"], "Святой Лорд Феникс")
         self.assertEqual(uniques[1]["state_code"], 2)
-        # Код 2 подтвержден — dead_or_captured
-        self.assertEqual(uniques[1]["state"], "dead_or_captured")
         self.assertIs(uniques[1]["player"], True)
         self.assertIsNotNone(uniques[1]["handle"])
 
@@ -207,24 +184,20 @@ class TestDiplomacyRealSave(unittest.TestCase):
         dip = qs["diplomacy"]
         self.assertEqual(dip["player_faction_sid"], "204-gamedata.base")
         self.assertEqual(dip["summary"]["total_factions"], 103)
-        self.assertEqual(dip["summary"]["allies_count"], 2)
 
         # Шеки и Шиноби — союзники (+100.0)
         shek = next((r for r in dip["relations"] if r["faction_sid"] == "11624-Dialogue (10).mod"), None)
         self.assertIsNotNone(shek)
         self.assertEqual(shek["relation"], 100.0)
-        self.assertEqual(shek["standing"], "ally")
 
         shinobi = next((r for r in dip["relations"] if r["faction_sid"] == "14491-rebirth.mod"), None)
         self.assertIsNotNone(shinobi)
         self.assertEqual(shinobi["relation"], 100.0)
-        self.assertEqual(shinobi["standing"], "ally")
 
         # Святая Нация — война (-100.0)
         holy_nation = next((r for r in dip["relations"] if r["faction_sid"] == "1083-gamedata.base"), None)
         self.assertIsNotNone(holy_nation)
         self.assertEqual(holy_nation["relation"], -100.0)
-        self.assertEqual(holy_nation["standing"], "hostile")
 
         # 2. Проверка состояния мира
         ws = qs["world_state"]
@@ -239,7 +212,6 @@ class TestDiplomacyRealSave(unittest.TestCase):
         phoenix = next((u for u in ws["unique_npcs"] if u["sid"] == "17225-Dialogue.mod"), None)
         self.assertIsNotNone(phoenix)
         self.assertEqual(phoenix["state_code"], 2)
-        self.assertEqual(phoenix["state"], "dead_or_captured")
         self.assertIs(phoenix["player"], True)
         self.assertIsNotNone(phoenix["handle"])
 
@@ -247,7 +219,6 @@ class TestDiplomacyRealSave(unittest.TestCase):
         dust_king = next((u for u in ws["unique_npcs"] if u["sid"] == "2849-gamedata.base"), None)
         self.assertIsNotNone(dust_king)
         self.assertEqual(dust_king["state_code"], 2)
-        self.assertEqual(dust_king["state"], "dead_or_captured")
         self.assertIs(dust_king["player"], True)
 
         # Проверка разрушения Бугристого Холма

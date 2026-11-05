@@ -109,9 +109,7 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
                     rel_info = f"отношение: {relation.get('from')} -> {relation.get('to')}"
                     if isinstance(relation.get("delta"), (int, float)):
                         rel_info += f" ({relation['delta']:+})"
-                std_info = f"статус: {d['standing'].get('from')} -> {d['standing'].get('to')}" if d.get("standing") else ""
-                parts_d = [p for p in (rel_info, std_info) if p]
-                lines.append(f"  - `{d_name}`: {', '.join(parts_d)}")
+                lines.append(f"  - `{d_name}`: {rel_info}")
 
         ws_ch = changes.get("world_state", {})
         if ws_ch:
@@ -121,7 +119,7 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
                 lines.append(f"- **События мира (World States):**")
                 for u in u_ch:
                     u_nm = u.get("name_ru") or u.get("name") or u.get("sid")
-                    lines.append(f"  - Лидер `{u_nm}`: статус сменился на {u.get('state', {}).get('to') or u.get('state_code', {}).get('to')}")
+                    lines.append(f"  - Лидер `{u_nm}`: код состояния {u.get('state_code', {}).get('from')} -> {u.get('state_code', {}).get('to')}")
                 for t in t_ch:
                     t_nm = t.get("town_name") or t.get("replacement_sid")
                     lines.append(f"  - Город `{t_nm}`: {t.get('status')} ({t.get('faction') or 'смена контроля'})")
@@ -206,25 +204,9 @@ def render_brief(
         race = c.get("race") or "—"
         lines.append(f"| `{cid}` | {name} | `{sq}` | {race} |")
 
-    diplomacy_data = current.get("diplomacy")
-    if isinstance(diplomacy_data, dict) and diplomacy_data.get("relations"):
-        lines.extend([
-            "",
-            "## Геополитика и фракции",
-        ])
-        allies = [r.get("faction_name") or r["faction_sid"] for r in diplomacy_data["relations"] if r.get("standing") == "ally"]
-        hostiles = [r.get("faction_name") or r["faction_sid"] for r in diplomacy_data["relations"] if r.get("standing") == "hostile"]
-        if allies:
-            lines.append(f"- **Союзники:** {', '.join(allies)}")
-        if hostiles:
-            lines.append(f"- **Враги ({len(hostiles)}):** {', '.join(hostiles[:5])}" + ("..." if len(hostiles) > 5 else ""))
-        summ = diplomacy_data.get("summary", {})
-        if summ:
-            lines.append(f"- **Сводка:** {summ.get('allies_count', 0)} союзников, {summ.get('friendly_count', 0)} дружественных, {summ.get('neutral_count', 0)} нейтральных, {summ.get('hostile_count', 0)} враждебных")
-
     ws_data = current.get("world_state")
     if isinstance(ws_data, dict):
-        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("state") or u.get("state_detail")]
+        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("captured_by")]
         town_reps = ws_data.get("town_overrides", [])
         if uniques or town_reps:
             lines.extend([
@@ -235,7 +217,7 @@ def render_brief(
                 u_parts = []
                 for u in uniques:
                     u_name = u.get("name_ru") or u.get("name") or u.get("sid")
-                    st_label = u.get("state_detail") or u.get("state") or f"код {u.get('state_code')}"
+                    st_label = f"код {u.get('state_code')}"
                     if u.get("captured_by"):
                         st_label += f" — несёт {u['captured_by']}"
                     u_parts.append(f"{u_name} ({st_label})")
@@ -590,40 +572,6 @@ def render_squad(
             if all_items:
                 inv_str = ", ".join(f"{k} x{v}" for k, v in sorted(all_items.items()))
                 lines.append(f"- **Инвентарь:** {inv_str}")
-
-            phys = c.get("physics_calculated")
-            if phys and isinstance(phys, dict):
-                lines.append(
-                    f"- **Физические показатели (расчёт, unverified):** "
-                    f"вес {phys.get('carried_weight_kg', 0)} кг / "
-                    f"грузоподъёмность {phys.get('weight_capacity_kg', 0)} кг, "
-                    f"перегруз {phys.get('encumbrance_pct', 0)}%, "
-                    f"скорость {phys.get('speed_run_mph_est', 0)} миль/ч"
-                )
-
-            combat = c.get("combat_calculated")
-            if combat and isinstance(combat, dict):
-                w_reqs = combat.get("weapon_requirements", [])
-                if w_reqs:
-                    req_parts = []
-                    for wr in w_reqs:
-                        p_str = f"{wr.get('name')}: сила {wr.get('strength_required')}"
-                        if wr.get("strength_deficit", 0) > 0:
-                            p_str += f" (дефицит {wr.get('strength_deficit')}, штраф {wr.get('speed_penalty_pct')}%)"
-                        else:
-                            p_str += " (ОК)"
-                        req_parts.append(p_str)
-                    lines.append(f"- **Требования оружия (расчёт, unverified):** {', '.join(req_parts)}")
-
-                penalties = combat.get("armour_penalties", {})
-                if penalties:
-                    lines.append(
-                        f"- **Штрафы брони (расчёт):** "
-                        f"скрытность x{penalties.get('stealth_mult', 1.0)}, "
-                        f"атлетика x{penalties.get('athletics_mult', 1.0)}, "
-                        f"скорость боя x{penalties.get('combat_speed_mult', 1.0)}, "
-                        f"уклонение x{penalties.get('dodge_mult', 1.0)}"
-                    )
 
             lines.append("")
 

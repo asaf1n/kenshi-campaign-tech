@@ -66,11 +66,11 @@ TRACKED: dict[str, dict[str, Any]] = {
         "threshold": "точное совпадение",
     },
     "diplomacy": {
-        "fields": "отношения с фракциями: relation (|Δ| ≥ 1.0) и смена standing по faction_sid (только если оба снимка v11+)",
-        "threshold": "|Δ| ≥ 1.0 или сменился standing",
+        "fields": "отношения с фракциями: сырой relation по faction_sid (только если оба снимка v11+); standing старых снимков игнорируется",
+        "threshold": "|Δ| ≥ 1.0",
     },
     "world_state": {
-        "fields": "состояние уникальных NPC по sid (state_code/state), переопределения городов town_overrides (только если оба снимка v11+)",
+        "fields": "состояние уникальных NPC по sid (state_code), переопределения городов town_overrides (только если оба снимка v11+)",
         "threshold": "точное совпадение",
     },
     "jobs": {
@@ -211,8 +211,6 @@ def _diff_diplomacy(prev: dict[str, Any], cur: dict[str, Any], counter: Counter)
         ra, rb = da.get(sid), db.get(sid)
         rel_a = ra.get("relation") if ra else None
         rel_b = rb.get("relation") if rb else None
-        std_a = ra.get("standing") if ra else None
-        std_b = rb.get("standing") if rb else None
 
         rel_changed = False
         if rel_a is not None and rel_b is not None:
@@ -221,17 +219,12 @@ def _diff_diplomacy(prev: dict[str, Any], cur: dict[str, Any], counter: Counter)
         elif rel_a != rel_b:
             rel_changed = True
 
-        std_changed = (std_a != std_b)
-
-        if rel_changed or std_changed:
+        if rel_changed:
             name = (rb or ra).get("faction_name") or sid
             entry: dict[str, Any] = {"faction_sid": sid, "faction_name": name}
-            if rel_changed:
-                entry["relation"] = {"from": rel_a, "to": rel_b}
-                if isinstance(rel_a, (int, float)) and isinstance(rel_b, (int, float)):
-                    entry["relation"]["delta"] = round(rel_b - rel_a, 2)
-            if std_changed:
-                entry["standing"] = {"from": std_a, "to": std_b}
+            entry["relation"] = {"from": rel_a, "to": rel_b}
+            if isinstance(rel_a, (int, float)) and isinstance(rel_b, (int, float)):
+                entry["relation"]["delta"] = round(rel_b - rel_a, 2)
             out.append(entry)
     return out
 
@@ -249,18 +242,14 @@ def _diff_world_state(prev: dict[str, Any], cur: dict[str, Any], counter: Counte
         x, y = ua.get(sid), ub.get(sid)
         st_code_a = x.get("state_code") if x else None
         st_code_b = y.get("state_code") if y else None
-        st_a = x.get("state") if x else None
-        st_b = y.get("state") if y else None
 
-        if st_code_a != st_code_b or st_a != st_b:
+        if st_code_a != st_code_b:
             entry: dict[str, Any] = {
                 "sid": sid,
                 "name": (y or x).get("name") or sid,
                 "name_ru": (y or x).get("name_ru"),
                 "state_code": {"from": st_code_a, "to": st_code_b},
             }
-            if st_a != st_b:
-                entry["state"] = {"from": st_a, "to": st_b}
             npc_changes.append(entry)
 
     # 2. town_overrides

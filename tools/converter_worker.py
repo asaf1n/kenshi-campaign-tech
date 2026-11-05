@@ -13,14 +13,12 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools import gamedb, kenshi_gd, save_reader, saves, session_export
-from tools.combat_analysis import calculate_character_combat, calculate_character_physics
 from tools.world_context import enrich_world_and_production_context
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, install_write_guard, read_json
 from tools.normalization import scrub
 
 
 ENGINE_FILES: list[str] = [
-    "tools/combat_analysis.py",
     "tools/converter_worker.py",
     "tools/export_platoons.py",
     "tools/gamedb.py",
@@ -80,11 +78,7 @@ def build_native_snapshot(save: Path, faction_sid: str, game_index: dict[str, li
                           limbs: tuple[dict[str, dict[str, Any]], list[str]]) -> dict[str, Any]:
         base = original_compact(ch, squad, names, const, warnings, limbs)
         s11 = ch.get("session11", {})
-        merged = base | s11
-        if s11:
-            merged["physics_calculated"] = calculate_character_physics(merged)
-            merged["combat_calculated"] = calculate_character_combat(merged)
-        return merged
+        return base | s11
 
     # Адаптация действует только внутри изолированного воркера. Поля относятся к
     # одному inst/by: различия запасных ID и одноимённые персонажи не требуют join.

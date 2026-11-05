@@ -220,38 +220,6 @@ def parse_uniques(state_rec: dict[str, Any] | None) -> list[dict[str, Any]]:
     return uniques
 
 
-# Только подтвержденный код 2 имеет однозначную семантику в реакциях мира FCS.
-# Коды 0 и 1 не имеют однозначного документального подтверждения и сохраняются как сырой код.
-CONFIRMED_UNIQUE_STATES: dict[int, str] = {
-    2: "dead_or_captured",
-}
-
-
-def classify_standing(relation: float | None) -> str:
-    """Классификация статуса отношений по проектным порогам Kenshi.
-
-    Пороги соответствуют боевой механике Kenshi:
-    >= 50.0: ally (союзник)
-    > 0.0: friendly (положительные отношения)
-    == 0.0: neutral (нейтральные отношения)
-    > -30.0: unfriendly (напряженные отношения)
-    <= -30.0: hostile (враждебные отношения, атака при встрече)
-    None: unknown (связь не определена / не извлечена)
-    """
-    if relation is None:
-        return "unknown"
-    if relation >= 50.0:
-        return "ally"
-    elif relation > 0.0:
-        return "friendly"
-    elif relation == 0.0:
-        return "neutral"
-    elif relation > -30.0:
-        return "unfriendly"
-    else:
-        return "hostile"
-
-
 def extract_diplomacy(
     records: Sequence[dict[str, Any]],
     player_faction_sid: str = DEFAULT_PLAYER_FACTION,
@@ -260,8 +228,8 @@ def extract_diplomacy(
     """Извлекает полную дипломатическую карту отношений игрока со всеми фракциями мира.
 
     Канонические sid берутся из 'gamedata stringID' (записи типа 37).
-    Если связь между фракцией и игроком отсутствует в записи, relation устанавливается в None,
-    а standing — в 'unknown' (согласно правилу запрета скрытия неопределенности).
+    Если связь между фракцией и игроком отсутствует в записи, relation устанавливается в None
+    (отсутствие связи не подменяется нулём). Оценочные классы отношений не вычисляются.
     """
     fac_records = [r for r in records if r.get("type") == 37]
     gdb = gamedb_inst if isinstance(gamedb_inst, dict) else None
@@ -309,14 +277,13 @@ def extract_diplomacy(
                     trust_neg_to_player = _r(r_flt.get(f"trustNeg{idx}"))
                     break
 
-        # Не подменяем отсутствие связи на 0.0: сохраняем None и 'unknown'
+        # Не подменяем отсутствие связи на 0.0: сохраняем None
         rel_map[canon_sid] = {
             "faction_sid": canon_sid,
             "faction_name": r_name or canon_sid,
             "relation": rel_to_player,
             "trust": trust_to_player,
             "trust_neg": trust_neg_to_player,
-            "standing": classify_standing(rel_to_player),
         }
 
     # Сортировка: сначала с известным relation (по убыванию), затем unknown, при равенстве по faction_sid
@@ -326,12 +293,6 @@ def extract_diplomacy(
     )
 
     summary = {
-        "allies_count": sum(1 for r in sorted_relations if r["standing"] == "ally"),
-        "friendly_count": sum(1 for r in sorted_relations if r["standing"] == "friendly"),
-        "neutral_count": sum(1 for r in sorted_relations if r["standing"] == "neutral"),
-        "unfriendly_count": sum(1 for r in sorted_relations if r["standing"] == "unfriendly"),
-        "hostile_count": sum(1 for r in sorted_relations if r["standing"] == "hostile"),
-        "unknown_count": sum(1 for r in sorted_relations if r["standing"] == "unknown"),
         "total_factions": len(sorted_relations),
     }
 
@@ -359,15 +320,12 @@ def extract_world_state(
         name = entry[0] if entry else sid
         name_ru = entry[1] if entry and len(entry) > 1 and entry[1] else name
         st_code = u.get("state_code")
-        # Подтвержденное строковое состояние только для проверенного кода 2
-        st_name = CONFIRMED_UNIQUE_STATES.get(st_code) if st_code is not None else None
         uniques_list.append({
             "index": u.get("index"),
             "sid": sid,
             "name": name,
             "name_ru": name_ru,
             "state_code": st_code,
-            "state": st_name,
             "player": u.get("player"),
             "handle": u.get("handle"),
         })

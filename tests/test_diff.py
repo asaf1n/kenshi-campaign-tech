@@ -240,12 +240,15 @@ class DiffTests(unittest.TestCase):
 
         snap2 = copy.deepcopy(snap1)
         snap2["world"]["day"] = 11
-        # Flotsam: relation 50 -> 80 (+30), standing neutral -> ally
+        # snap1 — старый снимок со standing/state; snap2 — новый без них.
+        # Flotsam: relation 50 -> 80 (+30); исчезновение standing само по себе не изменение
         snap2["diplomacy"]["relations"][0]["relation"] = 80.0
-        snap2["diplomacy"]["relations"][0]["standing"] = "ally"
-        # Phoenix: state_code 1 -> 2, state None -> "dead"
+        for rel in snap2["diplomacy"]["relations"]:
+            del rel["standing"]
+        # Phoenix: state_code 1 -> 2; исчезновение state не попадает в diff
         snap2["world_state"]["unique_npcs"][0]["state_code"] = 2
-        snap2["world_state"]["unique_npcs"][0]["state"] = "dead"
+        for npc in snap2["world_state"]["unique_npcs"]:
+            del npc["state"]
         # Bad Teeth: town override by Shek Kingdom
         snap2["world_state"]["town_overrides"].append({
             "replacement_sid": "rep_bad_teeth",
@@ -259,13 +262,13 @@ class DiffTests(unittest.TestCase):
         self.assertEqual(len(d["diplomacy"]), 1)
         self.assertEqual(d["diplomacy"][0]["faction_sid"], "Flotsam")
         self.assertEqual(d["diplomacy"][0]["relation"]["delta"], 30.0)
-        self.assertEqual(d["diplomacy"][0]["standing"]["to"], "ally")
+        self.assertNotIn("standing", d["diplomacy"][0])
 
         self.assertIn("world_state", d)
         self.assertEqual(len(d["world_state"]["unique_npcs"]), 1)
         self.assertEqual(d["world_state"]["unique_npcs"][0]["sid"], "phoenix")
         self.assertEqual(d["world_state"]["unique_npcs"][0]["state_code"]["to"], 2)
-        self.assertEqual(d["world_state"]["unique_npcs"][0]["state"]["to"], "dead")
+        self.assertNotIn("state", d["world_state"]["unique_npcs"][0])
 
         self.assertEqual(len(d["world_state"]["town_overrides"]), 1)
         self.assertEqual(d["world_state"]["town_overrides"][0]["status"], "overridden")
@@ -348,14 +351,13 @@ class DiffTests(unittest.TestCase):
             "jobs": {"enabled": True, "primary": [{"index": 0, "task_code": 14, "task_name": "Лечить"}]},
         }
         snap1 = _make_snapshot([c], fmt="kenshi-session/11")
-        snap1["diplomacy"] = {"relations": [{"faction_sid": "f1", "relation": 10.0, "standing": "neutral"}], "summary": {}}
+        snap1["diplomacy"] = {"relations": [{"faction_sid": "f1", "relation": 10.0}], "summary": {}}
         snap1["world_state"] = {"unique_npcs": [{"sid": "u1", "state_code": 1}], "town_overrides": [], "summary": {}}
         snap1["property"] = {"buildings": [{"id": "b1", "storage": [{"sid": "s1", "quantity": 5}]}]}
 
         snap2 = copy.deepcopy(snap1)
         snap2["world"]["day"] = 12
         snap2["diplomacy"]["relations"][0]["relation"] = 50.0
-        snap2["diplomacy"]["relations"][0]["standing"] = "friendly"
         snap2["world_state"]["unique_npcs"][0]["state_code"] = 2
         snap2["property"]["buildings"][0]["storage"][0]["quantity"] = 20
 
