@@ -281,6 +281,16 @@ CROSSBOW_CARDS = {
 }
 
 
+def ui_trunc(cell_text: str) -> int:
+    """Правило интерфейса: усечение до целого (допуск на запись CSV с 6 знаками)."""
+    return math.floor(float(cell_text) + 1e-6)
+
+
+def ui_round(cell_text: str) -> int:
+    """Правило интерфейса: округление до целого (половина вверх)."""
+    return math.floor(float(cell_text) + 0.5 + 1e-6)
+
+
 class CalcCardBatchesTests(unittest.TestCase):
     def test_calc_match_card_batches(self) -> None:
         """Ловит дрейф формул брони, оружия и арбалета относительно карточек игры (float32 гарпуна, усечение,
@@ -322,10 +332,11 @@ class CalcCardBatchesTests(unittest.TestCase):
         for cid, (_sid, _lv, dmg, spread, reload_s, rng, speed, value) in CROSSBOW_CARDS.items():
             r = rows[cid]
             with self.subTest(card=cid):
-                self.assertEqual((r["calc_damage_min"], r["calc_damage_max"]), (str(dmg[0]), str(dmg[1])))
+                # Правила интерфейса применяются к неокруглённым значениям: min и цена усекаются, max и скорость округляются.
+                self.assertEqual((ui_trunc(r["calc_damage_min"]), ui_round(r["calc_damage_max"])), tuple(dmg))
                 self.assertEqual((float(r["calc_spread_deg"]), float(r["calc_reload_min_s"]), float(r["calc_reload_max_s"]),
-                                  float(r["calc_range_m"]), r["calc_shot_speed_ms"], r["calc_card_value"]),
-                                 (spread, reload_s[0], reload_s[1], float(rng), str(speed), str(value)))
+                                  float(r["calc_range_m"]), ui_round(r["calc_shot_speed_ms"]), ui_trunc(r["calc_card_value"])),
+                                 (spread, reload_s[0], reload_s[1], float(rng), speed, value))
         for cid, status in (("st_level", "unknown_level"), ("st_tpl", "unknown_template"), ("st_class", "unverified_class")):
             with self.subTest(status=status):
                 self.assertEqual(rows[cid]["calc_status"], status)

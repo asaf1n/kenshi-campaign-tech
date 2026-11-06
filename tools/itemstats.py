@@ -231,14 +231,16 @@ def melee_weight(t: dict[str, Any], blunt: float, inv_weight_mult: float) -> flo
     return max(t.get("weight kg", 0.0), blunt * 40 * inv_weight_mult * t.get("weight mult", 1.0))
 
 
-def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any]) -> dict[str, Any]:
+def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any], raw: bool = False) -> dict[str, Any]:
+    """raw=False - значения как на карточке (округление интерфейса: min усечение, max/скорость округление, цена усечение);
+    raw=True - damage, shot_speed_ms и card_value без округления (calc_* таблиц)."""
     q = level / 100
     bow = lerp(const.get("bow damage 1", 1.0), const.get("bow damage 99", 1.0), q)
     out: dict[str, Any] = {}
     if "pierce damage min 0" in t and "pierce damage max 0" in t:
         lo = lerp(t["pierce damage min 0"], t.get("pierce damage min 1", t["pierce damage min 0"]), q) * bow
         hi = lerp(t["pierce damage max 0"], t.get("pierce damage max 1", t["pierce damage max 0"]), q) * bow
-        out["damage"] = [math.floor(lo + 1e-9), _round_half_up(hi)]  # карточка: min усекает, max округляет
+        out["damage"] = [lo, hi] if raw else [math.floor(lo + 1e-9), _round_half_up(hi)]  # карточка: min усекает, max округляет
     if "reload time min" in t and "reload time max" in t:
         out["reload_s"] = [round(lerp(t["reload time min"], t.get("reload time min 1", t["reload time min"]), q), 2),
                            round(lerp(t["reload time max"], t.get("reload time max 1", t["reload time max"]), q), 2)]
@@ -251,9 +253,10 @@ def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any]) -> dict
         out["required_skill"] = t["accuracy perfect skill"]
     if "shot speed" in t:
         speed = lerp(t["shot speed"], t.get("shot speed 1", t["shot speed"]), q)
-        out["shot_speed_ms"] = _round_half_up(speed * CROSSBOW_SPEED_SCALE)
+        out["shot_speed_ms"] = speed * CROSSBOW_SPEED_SCALE if raw else _round_half_up(speed * CROSSBOW_SPEED_SCALE)
     if "value" in t:
-        out["card_value"] = math.floor(1e-9 + lerp(t["value"], t.get("value 1", t["value"]), q * q))  # q², не q
+        value = lerp(t["value"], t.get("value 1", t["value"]), q * q)  # q², не q
+        out["card_value"] = value if raw else math.floor(1e-9 + value)
     return out
 
 
