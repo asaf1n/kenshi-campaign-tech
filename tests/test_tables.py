@@ -248,6 +248,8 @@ CARD_INDEX = {
              "weight mult": 1.0, "skill category": 3}],
     "smiths": ["Skeleton Smiths", "Скелеты-кузнецы", "WEAPON_MANUFACTURER", "gamedata.base",
                {"cut damage mod": 1.0, "blunt damage mod": 1.0, "weight mod": 1.0}],
+    "catun_scrap": ["Catun Scrapmaster", "Катунский Кулибин", "WEAPON_MANUFACTURER", "gamedata.base",
+                    {"cut damage mod": 1.0, "blunt damage mod": 1.0, "weight mod": 1.0}],
     "tooth": ["Tooth Pick", "Зубочистка", "CROSSBOW", "Newwworld.mod",
               {"value": 1000, "value 1": 15000, "pierce damage min 0": 10.0, "pierce damage min 1": 15.0,
                "pierce damage max 0": 20.0, "pierce damage max 1": 25.0, "reload time min": 2.0, "reload time min 1": 1.25,
@@ -301,6 +303,11 @@ class CalcCardBatchesTests(unittest.TestCase):
         chars.append({"id": "sun60", "name": "sun",
                       "weapons": [{"slot": "weapon_back", "sid": "sun", "type": "melee", "level": 60}],
                       "items": [{"section": "back", "container": "inventory", "base_data_sid": "sun",
+                                 "company_sid": "catun_scrap"}]})
+        # Тяжёлое x Скелеты-кузнецы: вес на карточке не сошёлся (23 vs 24.0) - сочетание не verified.
+        chars.append({"id": "st_melee", "name": "s",
+                      "weapons": [{"slot": "weapon_back", "sid": "sun", "type": "melee", "level": 60}],
+                      "items": [{"section": "back", "container": "inventory", "base_data_sid": "sun",
                                  "company_sid": "smiths"}]})
         for cid, (sid, level, *_rest) in CROSSBOW_CARDS.items():
             chars.append({"id": cid, "name": cid,
@@ -329,18 +336,31 @@ class CalcCardBatchesTests(unittest.TestCase):
                         self.assertAlmostEqual(float(r[col]), card[key], delta=0.0051, msg=col)
         sun = rows["sun60"]
         self.assertEqual((round(float(sun["calc_cut_damage"]), 2), round(float(sun["calc_blunt_damage"]), 2)), (1.58, 1.2))
+        const = CARD_INDEX["const"][4]
+
+        def card_price(cid: str) -> int:
+            # Цена карточки в публикацию не идёт (цены - item_prices.csv); формула цены сверяется только здесь.
+            sid, level = CROSSBOW_CARDS[cid][:2]
+            return itemstats.crossbow_stats(CARD_INDEX[sid][4], level, const)["card_value"]
+
         for cid, (_sid, _lv, dmg, spread, reload_s, rng, speed, value) in CROSSBOW_CARDS.items():
             r = rows[cid]
             with self.subTest(card=cid):
                 # Правила интерфейса применяются к неокруглённым значениям: min и цена усекаются, max и скорость округляются.
                 self.assertEqual((ui_trunc(r["calc_damage_min"]), ui_round(r["calc_damage_max"])), tuple(dmg))
                 self.assertEqual((float(r["calc_spread_deg"]), float(r["calc_reload_min_s"]), float(r["calc_reload_max_s"]),
-                                  float(r["calc_range_m"]), ui_round(r["calc_shot_speed_ms"]), ui_trunc(r["calc_card_value"])),
+                                  float(r["calc_range_m"]), ui_round(r["calc_shot_speed_ms"]), card_price(cid)),
                                  (spread, reload_s[0], reload_s[1], float(rng), speed, value))
-        for cid, status in (("st_level", "unknown_level"), ("st_tpl", "unknown_template"), ("st_class", "unverified_class")):
+        for cid, status in (("st_level", "unknown_level"), ("st_tpl", "unknown_template"), ("st_class", "unverified_class"),
+                            ("st_melee", "unverified_class")):
             with self.subTest(status=status):
                 self.assertEqual(rows[cid]["calc_status"], status)
                 self.assertEqual([k for k, v in rows[cid].items() if k.startswith("calc_") and v and k != "calc_status"], [])
+        # Любая строка с calc_status != verified не содержит ни одного значения calc_*; цен в calc_* нет.
+        for r in rows.values():
+            if r["calc_status"] != "verified":
+                self.assertEqual([k for k, v in r.items() if k.startswith("calc_") and k != "calc_status" and v], [], r["character_id"])
+        self.assertNotIn("calc_card_value", rows["eagle95"])
 
         # Шаблон с несколькими кодами погоды и шлем без поправок класса.
         view = itemstats.armour_view(CARD_INDEX["mask"][4], 60, lambda sid: sid)

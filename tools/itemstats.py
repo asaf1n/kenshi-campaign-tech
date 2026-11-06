@@ -23,12 +23,15 @@ UNCONFIRMED_GRADE_LEVELS: dict[str, tuple[int, ...]] = {"ARMOUR": (5, 20)}
 # ткань (class 0, material 0) и тяжёлые кожа/кольчуга карточек не имеют.
 CONFIRMED_ARMOUR_COMBOS: frozenset[tuple[int, int]] = frozenset({(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 3)})
 # Оружие ближнего боя: ('skill category', название производителя en): Катаны 0, Сабли 1, Тяжёлое 3, Рубачи 4, Древковое 8.
+# Сочетание входит, только если ВСЕ публикуемые calc_* (урон, вес) совпали с карточкой. Исключены: (3, Skeleton Smiths) -
+# вес Падающего солнца 23 vs 24.0; (4, Ancient) - вес Боевого тесака Древних 5 vs 6; (0, Catun Scrapmaster) - вес Топпера
+# Катунского Кулибина 9 vs 8.0 (на любом level); причина расхождений не установлена (гипотеза: weight mod).
 CONFIRMED_MELEE_COMBOS: frozenset[tuple[int, str]] = frozenset({
-    (0, "Edgewalkers"), (0, "Skeleton Smiths"), (0, "Catun Scrapmaster"),
+    (0, "Edgewalkers"), (0, "Skeleton Smiths"),
     (1, "Edgewalkers"), (1, "Cross"), (1, "Skeleton Smiths"),
     (8, "Edgewalkers"), (8, "Cross"),
-    (3, "Skeleton Smiths"), (3, "Catun Scrapmaster"),
-    (4, "Edgewalkers"), (4, "Ancient"), (4, "Cross")})
+    (3, "Catun Scrapmaster"),
+    (4, "Edgewalkers"), (4, "Cross")})
 # Арбалеты сверены на Зубочистке, Старом балете, Диверсанте, Орлином кресте, Рессоробое; протезы - на ноге разведчика.
 CONFIRMED_PROSTHETIC_LIMBS: tuple[str, ...] = ("left_leg", "right_leg")
 # Коэффициенты движка по классу и материалу брони — Kenshi Wiki «Armor Stats».
@@ -175,7 +178,8 @@ VERIFICATION: dict[str, dict[str, Any]] = {
                             "ui_samples": 6, "note": "Орлиный крест L95: 795 × 0.23 = 182.85 → 183"},
     "crossbow.card_value": {"status": "verified", "source": "calculated",
                             "how": "trunc('value' + ('value 1' − 'value') × q²), q = level/100 - цена карточки",
-                            "ui_samples": 6, "note": "Орлиный крест L95: 30928; «Украдено» цену арбалета не меняет"},
+                            "ui_samples": 6, "note": "Орлиный крест L95: 30928; «Украдено» цену арбалета не меняет; "
+                                                          "в таблицы не публикуется (цены - только item_prices.csv), сверяется в тесте"},
     "weapon.armour.price": {"status": "unavailable",
                             "how": "цена карточки оружия и брони: закон не установлен, не публикуется. Деревянные "
                                    "сандали: карточка 50, формула 250 - не подтверждено"},
@@ -233,7 +237,7 @@ def melee_weight(t: dict[str, Any], blunt: float, inv_weight_mult: float) -> flo
 
 def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any], raw: bool = False) -> dict[str, Any]:
     """raw=False - значения как на карточке (округление интерфейса: min усечение, max/скорость округление, цена усечение);
-    raw=True - damage, shot_speed_ms и card_value без округления (calc_* таблиц)."""
+    raw=True - damage и shot_speed_ms без округления (calc_* таблиц); card_value (усечение) в публикацию не идёт."""
     q = level / 100
     bow = lerp(const.get("bow damage 1", 1.0), const.get("bow damage 99", 1.0), q)
     out: dict[str, Any] = {}
@@ -256,7 +260,7 @@ def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any], raw: bo
         out["shot_speed_ms"] = speed * CROSSBOW_SPEED_SCALE if raw else _round_half_up(speed * CROSSBOW_SPEED_SCALE)
     if "value" in t:
         value = lerp(t["value"], t.get("value 1", t["value"]), q * q)  # q², не q
-        out["card_value"] = value if raw else math.floor(1e-9 + value)
+        out["card_value"] = math.floor(1e-9 + value)  # цена карточки усекается; в публикацию не идёт
     return out
 
 
