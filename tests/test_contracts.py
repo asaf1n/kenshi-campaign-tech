@@ -22,10 +22,13 @@ class ContractTests(unittest.TestCase):
 
     def test_real_snapshots_validate_against_session_schema(self) -> None:
         """Схема session корректно валидирует реальный v10 снимок и v11 эталон."""
-        v10_published = read_json((ROOT / "published/extended/current.json").read_bytes())
-        validate(v10_published, "session")
         v11_example = read_json((ROOT / "examples/session-11.example.json").read_bytes())
         validate(v11_example, "session")
+        real = ROOT / "published/extended/current.json"
+        # published/ не отслеживается в git: реальный выпуск проверяется только при его наличии.
+        if not real.is_file():
+            self.skipTest(f"нет реального выпуска {real}; проверен только эталон v11")
+        validate(read_json(real.read_bytes()), "session")
 
     def test_negative_contracts(self) -> None:
         manifest = read_json((ROOT / "examples/manifest.example.json").read_bytes())

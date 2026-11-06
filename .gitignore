@@ -43,5 +43,5 @@ tests/.evidence/
 # Полный архив уменьшенных скриншотов: вне git (можно связать junction с диском облачного хранилища)
 data/screenshots_archive/
 
-# Сборный PDF кадров читается с Google Диска; пересборка раздувала бы историю git
-published/screenshots/screenshots_latest.pdf
+# Публикация (published/) уходит только в игровой репозиторий asaf1n/Kenshi-Compain через deliver-companion; в техническом репозитории не хранится
+published/

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.extraction import ROOT
@@ -22,9 +23,16 @@ def main() -> int:
     parser.add_argument("--source-kind", choices=("export", "save"), required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
+    parser.add_argument(
+        "--published-dir",
+        type=Path,
+        default=None,
+        help="каталог выпуска; по умолчанию временный (реальный published/ только явно)",
+    )
     parser.add_argument("--parent-snapshot-id")
     args = parser.parse_args()
+    if args.published_dir is None:
+        args.published_dir = Path(tempfile.mkdtemp(prefix="check_live_published_"))
 
     overall_started = datetime.now(timezone.utc).isoformat()
     before = tree_hashes(args.source) if args.source_kind == "save" else file_hash(args.source)

@@ -297,8 +297,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--save0", type=Path)
     parser.add_argument("--save1", type=Path)
     parser.add_argument("--report", type=Path, default=ROOT / "tests/.evidence/e2e_real.json")
-    parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
+    parser.add_argument(
+        "--published-dir",
+        type=Path,
+        default=None,
+        help="каталог выпуска; по умолчанию временный (реальный published/ только явно)",
+    )
     args = parser.parse_args(argv)
+    if args.published_dir is None:
+        args.published_dir = Path(tempfile.mkdtemp(prefix="e2e_real_published_"))
 
     started = datetime.now(timezone.utc).isoformat()
     config = Config.from_env()
