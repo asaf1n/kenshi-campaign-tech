@@ -4,15 +4,33 @@
 Формулы брони — Kenshi Wiki «Armor Stats» (https://kenshi.fandom.com/wiki/Armor_Stats), оружия —
 «Weapons (FCS)», сверены с интерфейсом. Подробности и контрольные значения — docs/item-stats.md.
 """
+import math
+import struct
 from typing import Any
 
 # Грейды из GUI-локализации (main.po, items.h): Prototype, Shoddy, Standard, High, Specialist, Masterwork.
-# Уровни грейдов брони — таблица Kenshi Wiki «Armor Stats» (5/20/40/60/80/95); 20–95 сверены с интерфейсом.
-# Промежуточные уровни грейда не получают: порогов между ними источники не дают.
+# Уровни грейдов брони — таблица Kenshi Wiki «Armor Stats» (5/20/40/60/80/95). Карточками игры подтверждены
+# 40 «Стандартный», 60 «Высокий», 80 «Специальный», 95 «Мастерский»; 5 «Прото» и 20 «Низкий» взяты с вики
+# и карточками не подтверждены (UNCONFIRMED_GRADE_LEVELS). Промежуточные уровни грейда не получают:
+# порогов между ними источники не дают.
 CONFIRMED_GRADES: dict[str, dict[int, str]] = {
     "ARMOUR": {5: "Прото", 20: "Низкий", 40: "Стандартный", 60: "Высокий", 80: "Специальный", 95: "Мастерский"},
     "CROSSBOW": {95: "Мастерский"},
 }
+UNCONFIRMED_GRADE_LEVELS: dict[str, tuple[int, ...]] = {"ARMOUR": (5, 20)}
+# Сочетания, для которых формулы сверены с карточками игры (cards.json ... cards5.json, день 134); calc_* таблиц
+# заполняются только для них. Броня: (class, material type) - лёгкий/средний/тяжёлый x кожа/кольчуга/латы;
+# ткань (class 0, material 0) и тяжёлые кожа/кольчуга карточек не имеют.
+CONFIRMED_ARMOUR_COMBOS: frozenset[tuple[int, int]] = frozenset({(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 3)})
+# Оружие ближнего боя: ('skill category', название производителя en): Катаны 0, Сабли 1, Тяжёлое 3, Рубачи 4, Древковое 8.
+CONFIRMED_MELEE_COMBOS: frozenset[tuple[int, str]] = frozenset({
+    (0, "Edgewalkers"), (0, "Skeleton Smiths"), (0, "Catun Scrapmaster"),
+    (1, "Edgewalkers"), (1, "Cross"), (1, "Skeleton Smiths"),
+    (8, "Edgewalkers"), (8, "Cross"),
+    (3, "Skeleton Smiths"), (3, "Catun Scrapmaster"),
+    (4, "Edgewalkers"), (4, "Ancient"), (4, "Cross")})
+# Арбалеты сверены на Зубочистке, Старом балете, Диверсанте, Орлином кресте, Рессоробое; протезы - на ноге разведчика.
+CONFIRMED_PROSTHETIC_LIMBS: tuple[str, ...] = ("left_leg", "right_leg")
 # Коэффициенты движка по классу и материалу брони — Kenshi Wiki «Armor Stats».
 CLASS_CUT = {0: 0.4, 1: 0.8, 2: 0.9, 3: 1.0}
 CLASS_BLUNT = {0: 0.03, 1: 0.21, 2: 0.27, 3: 0.3}
@@ -39,8 +57,11 @@ SHIRT_RESIST, SHIRT_HARPOON = 0.8, 0.5
 ARMOUR_CLASS = {0: "cloth", 1: "light", 2: "medium", 3: "heavy"}
 # MaterialType из fcs_enums.def.
 ARMOUR_MATERIAL = {0: "cloth", 1: "leather", 2: "chain", 3: "plate"}
-# WeatherAffecting: подтверждены коды 1 (песчаные бури) и 2 (кислотный дождь).
-WEATHER = {1: "sand_storm", 2: "acid_rain"}
+# WeatherAffecting, коды сверены с карточками: 1 песчаная буря, 2 кислотный дождь, 3 жара (в игре «Опаление»), 4 газ.
+WEATHER = {1: "sand_storm", 2: "acid_rain", 3: "heat", 4: "gas"}
+# Шаблон хранит коды в 'weather protection0..N' с общим 'weather protection amount'.
+WEATHER_FIELD = "weather protection"
+CROSSBOW_SPEED_SCALE = 0.23  # 'shot speed' шаблона -> м/с карточки (6 из 6 карточек)
 # Поле шаблона брони -> ключ модификатора; значения по умолчанию (1.0 / 0) не выводятся.
 # Скрытность, атлетика и скорость боя считаются отдельно (armour_effects).
 ARMOUR_MODIFIERS = {
@@ -75,7 +96,10 @@ VERIFICATION: dict[str, dict[str, Any]] = {
                                 "Weapons (FCS), Kenshi Wiki",
                          "ui_samples": 5, "note": "интерфейс показывает целую часть (6.6 → 6). Множитель производителя, "
                                                   "указанный на вики, интерфейсом не подтверждён (Падающее солнце: "
-                                                  "14 кг, с множителем было бы 17) и не применяется"},
+                                                  "14 кг, с множителем было бы 17) и не применяется. Не подтверждено: "
+                                                  "Падающее солнце L60 - карточка 23, формула 24.0; Боевой тесак Древних - "
+                                                  "карточка 5, формула 6 (по 1 образцу). Гипотеза, не применяется: "
+                                                  "melee_weight со 'weight mod' производителя (1 образец)"},
     "weapon.armour_penetration/attack_mod/indoors_mod/bleed_mult/animal_damage_mult": {
         "status": "verified", "source": "template", "how": "поля шаблона WEAPON", "ui_samples": 1,
         "note": "Бердыш: пробитие +30%, бонус к атаке +4, штраф в здании −4, кровопотеря 1.00x, урон по зверям +25%"},
@@ -91,12 +115,13 @@ VERIFICATION: dict[str, dict[str, Any]] = {
                          "how": "между 'range' и 'range 1', q = level/100, ÷10", "ui_samples": 1},
     "crossbow.required_skill": {"status": "verified", "source": "template",
                                 "how": "'accuracy perfect skill'", "ui_samples": 1},
-    "crossbow.damage": {"status": "partially_verified", "source": "calculated",
-                        "how": "между 'pierce damage min/max 0' и '... 1' × между 'bow damage 1' и '99' (CONSTANTS)",
-                        "ui_samples": 1, "note": "интерфейс показывает целую часть (76.76 → 76)"},
+    "crossbow.damage": {"status": "verified", "source": "calculated",
+                        "how": "между 'pierce damage min/max 0' и '... 1' × между 'bow damage 1' и '99' (CONSTANTS); "
+                               "нижняя граница усекается, верхняя округляется до целого",
+                        "ui_samples": 6, "note": "63.21-100.62 → 63-101"},
     "crossbow.grade/armour.grade": {"status": "verified_points", "source": "save level",
-                                    "how": "уровни грейдов брони — Armor Stats (5/20/40/60/80/95, 20–95 сверены с "
-                                           "интерфейсом); арбалеты — только 95; иначе null",
+                                    "how": "уровни грейдов брони — Armor Stats (5/20/40/60/80/95); карточками подтверждены 40, 60, 80, "
+                                           "95, а 5 «Прото» и 20 «Низкий» не подтверждены; арбалеты — только 95; иначе null",
                                     "points": {"ARMOUR": CONFIRMED_GRADES["ARMOUR"],
                                                "CROSSBOW": CONFIRMED_GRADES["CROSSBOW"]}},
     "armour.class": {"status": "verified", "source": "template",
@@ -113,15 +138,16 @@ VERIFICATION: dict[str, dict[str, Any]] = {
     "armour.skill_modifiers.stealth/athletics/combat_speed": {
         "status": "verified", "source": "calculated",
         "how": "поле шаблона × (min + (max − min) × E/100) класса × то же для материала, E = level + level bonus "
-               "(Armor Stats); шлем не влияет, атлетику дают только штаны и обувь; отрицательный множитель "
-               "шаблона — эффекта нет",
+               "(Armor Stats); у шлема - только множитель шаблона без класса и материала; атлетику дают только "
+               "штаны и обувь; отрицательный множитель шаблона — эффекта нет",
         "ui_samples": 17,
         "note": "интерфейс показывает 2 знака: 0.0096 → 0.01, 0.0372 → 0.04"},
     "armour.resistances": {
         "status": "verified", "source": "calculated",
         "how": "cut% = E × (класс_cut × материал_cut + cut def bonus) + бонус_материала × класс_cut; "
-               "blunt% = E × (класс_blunt × материал_blunt + blunt def bonus); harpoon = E × материал_harpoon × "
-               "pierce def mult; рубахи: cut/blunt × 0.8, harpoon × 0.5; потолок 90% (Armor Stats)",
+               "blunt% = E × (класс_blunt × материал_blunt + blunt def bonus); harpoon = E × float32(материал_harpoon) × "
+               "pierce def mult; рубахи: cut/blunt × 0.8, harpoon × 0.5; потолок 90% (Armor Stats); карточка усекает "
+               "неокруглённое значение",
         "ui_samples": 54,
         "note": "18 предметов/уровней × 3 типа совпали с интерфейсом. Интерфейс показывает целую часть, а точно "
                 "целое значение иногда на 1 меньше (0.9 × 40 = 36 → «35»). Множитель гарпунов для рубах 0.5 "
@@ -140,9 +166,25 @@ VERIFICATION: dict[str, dict[str, Any]] = {
                                        "отрицательный множитель (stealth mult −1 у Чёрной куртки с латами — в игре "
                                        "модификатора скрытности нет)", "ui_samples": 3},
     "armour.weather_protection": {"status": "verified", "source": "template",
-                                  "how": "'weather protection amount' и 'weather protection0' (1 = песчаные бури, "
-                                         "2 = кислотный дождь); другие коды — code_N", "ui_samples": 5},
-    "crossbow.shot_speed": {"status": "unavailable", "how": "интерполяция шаблона (795) не совпала с интерфейсом (183 м/с)"},
+                                  "how": "'weather protection amount' и коды 'weather protection0..N' (1 = песчаные бури, "
+                                         "2 = кислотный дождь, 3 = жара, 4 = газ); другие коды - code_N", "ui_samples": 12,
+                                  "note": "индекс gamedb хранит только 'weather protection0': у шаблонов с несколькими "
+                                          "кодами выводится первый (STAT_FIELDS и INDEX_VERSION не менялись - отложено)"},
+    "crossbow.shot_speed": {"status": "verified", "source": "calculated",
+                            "how": "round(между 'shot speed' и 'shot speed 1', q = level/100, × 0.23) - м/с карточки",
+                            "ui_samples": 6, "note": "Орлиный крест L95: 795 × 0.23 = 182.85 → 183"},
+    "crossbow.card_value": {"status": "verified", "source": "calculated",
+                            "how": "trunc('value' + ('value 1' − 'value') × q²), q = level/100 - цена карточки",
+                            "ui_samples": 6, "note": "Орлиный крест L95: 30928; «Украдено» цену арбалета не меняет"},
+    "weapon.armour.price": {"status": "unavailable",
+                            "how": "цена карточки оружия и брони: закон не установлен, не публикуется. Деревянные "
+                                   "сандали: карточка 50, формула 250 - не подтверждено"},
+    "armour.athletics_hide_threshold": {"status": "unverified",
+                                        "how": "порог скрытия атлетики на карточке не установлен: множители 0.9681/0.9775/"
+                                               "0.995 карточка не показывает, значения публикуются без порога"},
+    "armour.resistances_boundary_59": {"status": "unverified",
+                                       "how": "у карточек Высокого уровня при целых произведениях (граница 59.x) blunt "
+                                              "карточки на 1 ниже расчёта; причина не установлена"},
     "carried_weight_kg": {"status": "verified", "source": "calculated",
                           "how": "Σ вес предметов персонажа: экипировка, пояс, рюкзак и инвентарь — полностью, содержимое "
                                  "надетого рюкзака × 'encumbrance effect' рюкзака; протезы не учитываются. Вес: броня и "
@@ -169,6 +211,15 @@ def lerp(a: float, b: float, q: float) -> float:
     return a + (b - a) * q
 
 
+def _f32(x: float) -> float:
+    """Значение, как его хранит движок (float32): 0.35 -> 0.3499999940395355."""
+    return struct.unpack("f", struct.pack("f", x))[0]
+
+
+def _round_half_up(x: float) -> int:
+    return math.floor(x + 1e-9 + 0.5)
+
+
 def melee_damage(t: dict[str, Any], manuf: dict[str, Any] | None, level: int) -> tuple[float, float]:
     m = manuf or {}
     cut = t.get("cut damage multiplier", 0.0) * m.get("cut damage mod", 1.0) * (0.3 + 0.017 * level)
@@ -185,8 +236,9 @@ def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any]) -> dict
     bow = lerp(const.get("bow damage 1", 1.0), const.get("bow damage 99", 1.0), q)
     out: dict[str, Any] = {}
     if "pierce damage min 0" in t and "pierce damage max 0" in t:
-        out["damage"] = [round(lerp(t["pierce damage min 0"], t.get("pierce damage min 1", t["pierce damage min 0"]), q) * bow, 2),
-                         round(lerp(t["pierce damage max 0"], t.get("pierce damage max 1", t["pierce damage max 0"]), q) * bow, 2)]
+        lo = lerp(t["pierce damage min 0"], t.get("pierce damage min 1", t["pierce damage min 0"]), q) * bow
+        hi = lerp(t["pierce damage max 0"], t.get("pierce damage max 1", t["pierce damage max 0"]), q) * bow
+        out["damage"] = [math.floor(lo + 1e-9), _round_half_up(hi)]  # карточка: min усекает, max округляет
     if "reload time min" in t and "reload time max" in t:
         out["reload_s"] = [round(lerp(t["reload time min"], t.get("reload time min 1", t["reload time min"]), q), 2),
                            round(lerp(t["reload time max"], t.get("reload time max 1", t["reload time max"]), q), 2)]
@@ -197,6 +249,11 @@ def crossbow_stats(t: dict[str, Any], level: int, const: dict[str, Any]) -> dict
         out["range_m"] = round(lerp(t["range"], t.get("range 1", t["range"]), q) / 10, 1)
     if "accuracy perfect skill" in t:
         out["required_skill"] = t["accuracy perfect skill"]
+    if "shot speed" in t:
+        speed = lerp(t["shot speed"], t.get("shot speed 1", t["shot speed"]), q)
+        out["shot_speed_ms"] = _round_half_up(speed * CROSSBOW_SPEED_SCALE)
+    if "value" in t:
+        out["card_value"] = math.floor(1e-9 + lerp(t["value"], t.get("value 1", t["value"]), q * q))  # q², не q
     return out
 
 
@@ -218,18 +275,19 @@ def armour_resistances(t: dict[str, Any], e: float) -> dict[str, float] | None:
         return None
     cut = e * (CLASS_CUT[c] * MATERIAL_CUT[m] + t.get("cut def bonus", 0.0)) + MATERIAL_CUT_BONUS[m] * CLASS_CUT[c]
     blunt = e * (CLASS_BLUNT[c] * MATERIAL_BLUNT[m] + t.get("blunt def bonus", 0.0))
-    harpoon = e * MATERIAL_HARPOON[m] * t.get("pierce def mult", 1.0)
+    harpoon = e * _f32(MATERIAL_HARPOON[m]) * t.get("pierce def mult", 1.0)
     if t.get("slot") == SLOT_SHIRT:
         cut, blunt, harpoon = cut * SHIRT_RESIST, blunt * SHIRT_RESIST, harpoon * SHIRT_HARPOON
-    return {"cut_pct": round(min(cut, RESIST_CAP), 2), "blunt_pct": round(min(blunt, RESIST_CAP), 2),
-            "harpoon": round(harpoon, 2)}
+    # Без промежуточного округления: карточка усекает целую часть неокруглённого значения.
+    return {"cut_pct": min(cut, RESIST_CAP), "blunt_pct": min(blunt, RESIST_CAP), "harpoon": harpoon}
 
 
 def armour_effects(t: dict[str, Any], e: float) -> dict[str, float]:
     """Скрытность, атлетика, скорость боя с поправкой по классу, материалу и уровню; нейтральные не выводятся."""
     slot, c, m = t.get("slot"), t.get("class"), t.get("material type")
     out: dict[str, float] = {}
-    if slot == SLOT_HAT or c not in CLASS_CUT:
+    hat = slot == SLOT_HAT  # шлем: множители шаблона без класса и материала (Маска Болотного Ниндзя: 1.1)
+    if not hat and c not in CLASS_CUT:
         return out
     for name, field in EFFECT_FIELD.items():
         if name == "athletics" and slot not in (SLOT_LEGS, SLOT_BOOTS):
@@ -237,7 +295,7 @@ def armour_effects(t: dict[str, Any], e: float) -> dict[str, float]:
         base = t.get(field, 1.0)
         if base < 0:  # Чёрная куртка с латами: −1 в шаблоне, в игре эффекта нет
             continue
-        v = base * _lin(CLASS_EFFECT[name][c], e) * _lin(MATERIAL_EFFECT.get(name, {}).get(m, (1, 1)), e)
+        v = base if hat else base * _lin(CLASS_EFFECT[name][c], e) * _lin(MATERIAL_EFFECT.get(name, {}).get(m, (1, 1)), e)
         if abs(v - 1.0) > 1e-6:
             out[f"{name}_multiplier"] = round(v, 4)
     return out
@@ -318,14 +376,16 @@ def armour_view(t: dict[str, Any], level: int | None, part_name: Any, is_chest: 
     if e is not None:
         res = armour_resistances(t, e)
         if res:
-            out["resistances"] = res
+            # 8 знаков: карточка усекает неокруглённое, 71.999998 (harpoon шлема) не должно стать 72.
+            out["resistances"] = {k: round(v, 8) for k, v in res.items()}
     w = armour_weight(t, is_chest)
     if w is not None:
         out["weight_kg"] = w
     wp = t.get("weather protection amount")
     if wp:
-        code = t.get("weather protection0")
-        out["weather_protection"] = {WEATHER.get(code, f"code_{code}"): round(wp, 2)}
+        codes = [t[k] for k in sorted((k for k in t if k.startswith(WEATHER_FIELD) and k[len(WEATHER_FIELD):].isdigit()),
+                                      key=lambda k: int(k[len(WEATHER_FIELD):]))]
+        out["weather_protection"] = {WEATHER.get(code, f"code_{code}"): round(wp, 2) for code in codes}
     return out
 
 
@@ -348,4 +408,8 @@ def weapon_view(t: dict[str, Any], manuf: dict[str, Any] | None, level: int | No
         v = t.get(field)
         if v is not None and abs(v - neutral) > 1e-6:
             out[key] = round(v, 2)
+            if field.endswith("damage mult") and field != "bleed mult":
+                # Карточка усекает неокруглённый множитель: 0.61 из float32 даёт -39, не -40.
+                out["vs_" + {"animal": "beasts", "human": "humans", "robot": "robots"}[field.split()[0]] + "_pct"] = \
+                    math.trunc((v - 1) * 100)
     return out

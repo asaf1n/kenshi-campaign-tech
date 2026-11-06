@@ -1,8 +1,9 @@
 """Табличные выгрузки published/tables/: CSV и index.md из снимка, locations.json и справочников игры.
 
 Чистые функции без обращения к диску (кроме load_game_data): одинаковые входы дают одинаковые байты.
-Не публикуются величины, вычисленные формулами itemstats.py (урон, вес, сопротивления, hp протезов):
-сверки с карточками игры нет. В таблицы идут исходные значения сохранения и шаблонов игры.
+Колонки calc_* в equipment.csv - значения по формулам itemstats.py/prosthetics.py, сверенные с карточками игры
+(броня, оружие ближнего боя, арбалет, протез; границы - CALC_NOTE). Остальные колонки - исходные значения
+сохранения и шаблонов игры. Для величин без сверки (итоговая цена оружия и брони) calc_* колонок нет.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from tools import itemstats, prosthetics
 from tools.world_context import ZONE_KEY_FORMAT, storage_rows, zone_settlements
 
 TABLES_DIR: str = "tables"
@@ -68,6 +70,52 @@ MANUFACTURER_FIELDS: tuple[tuple[str, str], ...] = (
     ("weight mod", "manufacturer_weight_mod"))
 GRADE_FIELDS: tuple[tuple[str, str], ...] = (
     ("attack mod", "grade_attack_mod"), ("defence mod", "grade_defence_mod"))
+# Итоговые колонки equipment.csv. Порядок фиксирован; пусто - level неизвестен или нет данных шаблона.
+CALC_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("calc_status", "Причина пустых calc_*: verified - рассчитано (сочетание сверено с карточками игры); unknown_level - level не "
+                    "определён; unknown_template - шаблон (или константы игры) не найден в справочнике; unverified_class - "
+                    "сочетание без карточки игры (броня: класс x материал; оружие: класс x производитель; протез не на ноге)"),
+    ("calc_level", "level, использованный для расчёта calc_*; пусто - level неизвестен, все calc_* пусты"),
+    ("calc_cut_damage", "Оружие ближнего боя: режущий урон (`cut damage multiplier` x `cut damage mod` x (0.3 + 0.017 x level))"),
+    ("calc_blunt_damage", "Оружие ближнего боя: дробящий урон (`blunt damage multiplier` x `blunt damage mod` x level / 50)"),
+    ("calc_damage_min", "Арбалет: нижняя граница урона, целое (усечение, как на карточке)"),
+    ("calc_damage_max", "Арбалет: верхняя граница урона, целое (округление, как на карточке: 100.62 -> 101)"),
+    ("calc_reload_min_s", "Арбалет: перезарядка, нижняя граница, с"),
+    ("calc_reload_max_s", "Арбалет: перезарядка, верхняя граница, с"),
+    ("calc_spread_deg", "Арбалет: разброс, градусы"),
+    ("calc_range_m", "Арбалет: дальность, м"),
+    ("calc_shot_speed_ms", "Арбалет: скорость выстрела, м/с (round(lerp(`shot speed`, `shot speed 1`, level/100) x 0.23))"),
+    ("calc_card_value", "Арбалет: цена карточки (trunc(`value` + (`value 1` - `value`) x (level/100)^2)); у остальных предметов пусто"),
+    ("calc_weight_kg", "Вес предмета, кг (оружие ближнего боя, броня); у арбалета и протеза - `tpl_weight_kg`"),
+    ("calc_cut_resist_pct", "Броня: сопротивление разрезу, %"),
+    ("calc_blunt_resist_pct", "Броня: сопротивление дробящему, %"),
+    ("calc_harpoon_resist", "Броня: сопротивление гарпунам"),
+    ("calc_cut_efficiency", "Броня: эффективность сопротивления разрезу (1 - `cut into stun`)"),
+    ("calc_stealth_mult", "Броня и протез: множитель скрытности; 1 - нейтрально"),
+    ("calc_ranged_mult", "Броня: множитель дальнего боя (арбалеты); 1 - нейтрально"),
+    ("calc_dodge_mult", "Броня: множитель уворота; 1 - нейтрально"),
+    ("calc_dexterity_mult", "Броня: множитель ловкости; 1 - нейтрально"),
+    ("calc_combat_speed_mult", "Броня: множитель скорости боя; 1 - нейтрально"),
+    ("calc_athletics_mult", "Броня и протез: множитель атлетики; 1 - нейтрально, у брони считается для ног и обуви"),
+    ("calc_martial_arts_add", "Броня: поправка боевых искусств; 0 - нейтрально"),
+    ("calc_swimming_mult", "Протез: множитель плавания; не округлён, UI показывает целые проценты усечением"),
+    ("calc_hp_max", "Протез: ОЗ макс (округление до 5)"),
+)
+CALC_NOTE: str = (
+    "Колонки `calc_*` в `equipment.csv` - значения по формулам конвертера (itemstats.py, prosthetics.py), сверенные с "
+    "карточками игры: броня (классы лёгкий, средний, тяжёлый; кожа, кольчуга, латы; шлемы, обувь), оружие ближнего "
+    "боя, арбалеты (5 партий карточек), протез (нога разведчика). Значения публикуются без округления; совпадение с карточкой игры - равенство после округления до точности интерфейса "
+    "(усечение целой части для сопротивлений и веса); шаблоны берутся после применения модов снимка. calc_* заполняются "
+    "только для сверенных сочетаний (`calc_status` = verified): броня - лёгкий и средний класс x кожа, кольчуга; средний x "
+    "латы; тяжёлый x латы; оружие ближнего боя - катаны, сабли, древковое, тяжёлое, рубачи с производителями, "
+    "встречавшимися на карточках; арбалеты; протезы ног. Сверены: урон, пробитие, сопротивления, "
+    "эффективность, покрытие, множители навыков и боевых искусств, разброс, перезарядка, дальность, скорость выстрела и "
+    "цена арбалета, ОЗ протеза; UI усекает проценты (-39.99 показано как -39). Не подтверждено: вес Падающего солнца "
+    "(карточка 23, расчёт 24.0) и Боевого тесака Древних (карточка 5, расчёт 6), по одному образцу; порог скрытия "
+    "атлетики на карточке; граница 59.x у брони Высокого уровня (blunt карточки на 1 ниже); грейды брони 5 «Прото» и 20 "
+    "«Низкий». Итоговая цена оружия, брони и сандалий не вычисляется (закон не установлен; базовая цена - в "
+    "`item_prices.csv`); множители протезов публикуются только для атлетики, плавания и скрытности."
+)
 REACTION_CONDITIONS: tuple[str, ...] = ("NPC is", "NPC is NOT", "player ally", "player enemy")
 
 
@@ -221,8 +269,95 @@ def _tpl(row: dict[str, Any], stats: dict[str, Any], fields: Sequence[str]) -> N
             row[tpl_column(f)] = stats[f]
 
 
+def _constants(index: dict[str, list[Any]] | None) -> dict[str, Any]:
+    for entry in (index or {}).values():
+        if entry[2] == "CONSTANTS" and len(entry) > 4 and entry[4]:
+            return entry[4]
+    return {}
+
+
+def _gate(level: Any, template: dict[str, Any], confirmed: bool) -> str:
+    """calc_status: причина, по которой calc_* пусты, либо verified."""
+    if level is None:
+        return "unknown_level"
+    if not template:
+        return "unknown_template"
+    return "verified" if confirmed else "unverified_class"
+
+
+def calc_weapon(w: dict[str, Any], t: dict[str, Any], manuf: dict[str, Any], const: dict[str, Any],
+                manuf_name: str | None = None) -> dict[str, Any]:
+    level = w.get("level")
+    crossbow = w.get("type") == "crossbow"
+    confirmed = crossbow or (t.get("skill category"), manuf_name) in itemstats.CONFIRMED_MELEE_COMBOS
+    status = _gate(level, t, confirmed)
+    if status != "verified":
+        return {"calc_status": status}
+    if not crossbow:
+        cut, blunt = itemstats.melee_damage(t, manuf, level)
+        weight = itemstats.melee_weight(t, blunt, const.get("weapon inventory weight mult", 0.5))
+        return {"calc_status": status, "calc_level": level, "calc_cut_damage": cut, "calc_blunt_damage": blunt,
+                "calc_weight_kg": weight}
+    if "bow damage 1" not in const or "bow damage 99" not in const:
+        return {"calc_status": "unknown_template"}  # без констант игры урон арбалета не определён
+    stats = itemstats.crossbow_stats(t, level, const)
+    damage = stats.get("damage") or [None, None]  # min усечён, max округлён - как на карточке
+    reload_s = stats.get("reload_s") or [None, None]
+    return {"calc_status": status, "calc_level": level, "calc_damage_min": damage[0], "calc_damage_max": damage[1],
+            "calc_reload_min_s": reload_s[0], "calc_reload_max_s": reload_s[1],
+            "calc_spread_deg": stats.get("spread_deg"), "calc_range_m": stats.get("range_m"),
+            "calc_shot_speed_ms": stats.get("shot_speed_ms"), "calc_card_value": stats.get("card_value")}
+
+
+# Колонка -> (ключ skill_modifiers armour_view, поле шаблона, нейтральное значение).
+ARMOUR_CALC_MODS: tuple[tuple[str, str, str, float], ...] = (
+    ("calc_stealth_mult", "stealth_multiplier", "stealth mult", 1.0),
+    ("calc_ranged_mult", "ranged_multiplier", "ranged skill mult", 1.0),
+    ("calc_dodge_mult", "dodge_multiplier", "dodge mult", 1.0),
+    ("calc_dexterity_mult", "dexterity_multiplier", "dexterity mult", 1.0),
+    ("calc_combat_speed_mult", "combat_speed_multiplier", "combat speed mult", 1.0),
+    ("calc_athletics_mult", "athletics_multiplier", "athletics mult", 1.0),
+    ("calc_martial_arts_add", "martial_arts_additive", "unarmed bonus", 0.0),
+)
+
+
+def calc_armour(a: dict[str, Any], t: dict[str, Any], index: dict[str, list[Any]] | None) -> dict[str, Any]:
+    level = a.get("level")
+    status = _gate(level, t, (t.get("class"), t.get("material type")) in itemstats.CONFIRMED_ARMOUR_COMBOS)
+    if status != "verified":
+        return {"calc_status": status}
+    view = itemstats.armour_view(t, level, lambda sid: sid,
+                                 lambda sid: ((index or {}).get(sid) or [None])[0] == "Chest")
+    res, mods = view.get("resistances") or {}, view.get("skill_modifiers") or {}
+    out: dict[str, Any] = {
+        "calc_status": status, "calc_level": level, "calc_cut_resist_pct": res.get("cut_pct"), "calc_blunt_resist_pct": res.get("blunt_pct"),
+        "calc_harpoon_resist": res.get("harpoon"), "calc_cut_efficiency": view.get("cut_efficiency"),
+        "calc_weight_kg": view.get("weight_kg"),
+    }
+    for col, key, field, neutral in ARMOUR_CALC_MODS:
+        if key in mods:
+            out[col] = mods[key]
+        elif t.get(field, neutral) >= 0:  # armour_view опускает нейтральные; отрицательные шаблонные игра не показывает
+            out[col] = neutral
+    return out
+
+
+def calc_prosthetic(p: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
+    level = p.get("level")
+    status = _gate(level, t, p.get("limb") in itemstats.CONFIRMED_PROSTHETIC_LIMBS)
+    if status != "verified":
+        return {"calc_status": status}
+    out: dict[str, Any] = {"calc_status": status, "calc_level": level, "calc_hp_max": prosthetics.hp_max(t, level)}
+    for col, field in (("calc_stealth_mult", "stealth mult"), ("calc_athletics_mult", "athletics mult"),
+                       ("calc_swimming_mult", "swimming mult")):
+        lo = t.get(field, 1.0)
+        out[col] = itemstats.lerp(lo, t.get(field + " 1", lo), level / 100)
+    return out
+
+
 def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
     rows: list[dict[str, Any]] = []
+    const = _constants(index)
     for c in current.get("characters") or []:
         # Количественные поля экземпляра (quality, sid грейда и производителя) берутся из items[] по слоту и sid.
         instances: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -255,6 +390,8 @@ def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None)
                     row[col] = _stats(index, row["grade_sid"]).get(field)
                 for field, col in MANUFACTURER_FIELDS:
                     row[col] = _stats(index, row["manufacturer_sid"]).get(field)
+            manuf = _stats(index, row.get("manufacturer_sid")) if w.get("type") != "crossbow" else {}
+            row |= calc_weapon(w, stats, manuf, const, _names(index, row.get("manufacturer_sid"))[0])
             rows.append(row)
         for slot, a in (c.get("armour") or {}).items():
             if not isinstance(a, dict):
@@ -268,10 +405,12 @@ def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None)
             unshown = a.get("template_unshown") or {}
             row["template_unshown"] = _join(f"{k}={cell(v)}" for k, v in sorted(unshown.items()))
             _tpl(row, _stats(index, a.get("sid")), ARMOUR_TPL)
+            row |= calc_armour(a, _stats(index, a.get("sid")), index)
             rows.append(row)
         for p in c.get("prosthetics") or []:
             row = head("prosthetic", p.get("limb"), p, {})
             _tpl(row, _stats(index, p.get("sid")), LIMB_TPL)
+            row |= calc_prosthetic(p, _stats(index, p.get("sid")))
             rows.append(row)
     rows.sort(key=lambda r: (str(r["character_id"]), r["kind"], str(r["slot"]), str(r["sid"])))
 
@@ -296,8 +435,9 @@ def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None)
     columns += [(col, f"Поправка грейда (запись material) `{f}`") for f, col in GRADE_FIELDS]
     columns += [(tpl_column(f), f"Поле шаблона игры `{f}`; пусто - не применимо к виду предмета")
                 for f in tpl_fields]
+    columns += list(CALC_COLUMNS)
     return Table("equipment.csv", "character_id, kind, slot, sid",
-                 "Оружие, броня и протезы персонажей: значения шаблона и множители без итоговых формул",
+                 "Оружие, броня и протезы персонажей: значения шаблона, множители и итоговые `calc_*`",
                  columns, rows)
 
 
@@ -588,9 +728,7 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
     lines += ["", "## Недоступные и неопубликованные поля", ""]
     lines += [f"- {n}" for n in game_notes]
     lines += [
-        "- Итоговые характеристики предметов (урон `cut`/`blunt`, вес, сопротивления, модификаторы навыков брони, "
-        "`hp_max` протезов) не публикуются: формулы itemstats.py не сверены с карточками игры. "
-        "В `equipment.csv` есть значения шаблона (`tpl_*`), множители производителя и поправки грейда.",
+        CALC_NOTE + " Значения шаблона (`tpl_*`), множители производителя и поправки грейда даны отдельными колонками.",
         "- Содержимое инвентаря и рюкзаков персонажей, сведения о построенных зданиях и исследованиях в таблицы не входят.",
         "- Смысл `v[1]`, `v[2]` у ссылок `world state`/`NPC is` в документах игры не описан; значения публикуются без трактовки.",
         "- Итоговые цены продажи и покупки в городах не вычисляются: связь город - культура задана записями, "

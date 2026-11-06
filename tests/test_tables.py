@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import csv
 import io
+import math
 import random
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from typing import Any
 from unittest.mock import patch
 
 from tests.test_publish import _create_sample_snapshot
+from tools import itemstats
 from tools.publisher import publish
 from tools.tables import build_tables
 from tools.validation import PublicationValidationError, validate_publication, validate_tables
@@ -165,6 +167,174 @@ class TableContentTests(unittest.TestCase):
         text = files["index.md"].decode("utf-8")
         self.assertIn("причина-1", text)
         self.assertIn("Справочник игры недоступен", text)
+
+
+# Эталон calc_* по карточкам игры (воронёная кольчуга level 80, катана level 70, нога разведчика level 95);
+# шаблоны - реальные записи справочника. Карточка усекает значения: 42.48 -> 42, 10.13 -> 10 кг.
+CALC_INDEX = {
+    "chain": ["Blackened Chainmail", "Воронёная кольчуга", "ARMOUR", "gamedata.base",
+              {"class": 2, "material type": 2, "slot": 8, "cut into stun": 0.4, "level bonus": 10, "blunt def bonus": 0.0,
+               "cut def bonus": 0.0, "pierce def mult": 1.0, "weight kg": 13.0, "stealth mult": 1.2,
+               "ranged skill mult": 0.7, "dodge mult": 0.9, "dexterity mult": 0.85, "combat speed mult": 0.97,
+               "refs:part coverage": {"p1": [100, 100, 0], "p2": [100, 100, 0], "p3": [100, 100, 0], "chest": [100, 100, 0]}}],
+    "chest": ["Chest", "Грудь", "LOCATIONAL_DAMAGE", "gamedata.base", None],
+    "katana": ["Guardless Katana", "Катана без гарды", "WEAPON", "gamedata.base",
+               {"cut damage multiplier": 1.0, "blunt damage multiplier": 0.0, "weight kg": 1.0, "weight mult": 1.0, "skill category": 0}],
+    "edge": ["Edgewalkers", "Идущие по Клинку", "WEAPON_MANUFACTURER", "gamedata.base",
+             {"cut damage mod": 1.1, "blunt damage mod": 1.0, "weight mod": 1.0}],
+    "leg": ["Scout Leg (left)", "Нога разведчика (левая)", "LIMB_REPLACEMENT", "Newwworld.mod",
+            {"slot": 52, "weight kg": 10.0, "HP": 50, "HP 1": 150, "athletics mult": 1.0, "athletics mult 1": 1.4,
+             "swimming mult": 0.75, "swimming mult 1": 1.0, "stealth mult": 0.25, "stealth mult 1": 0.95}],
+}
+CALC_EXPECTED: dict[str, dict[str, str]] = {
+    "armour": {"calc_status": "verified", "calc_level": "80", "calc_cut_resist_pct": "42.48", "calc_blunt_resist_pct": "19.44",
+               "calc_harpoon_resist": "27.000001", "calc_cut_efficiency": "0.6", "calc_weight_kg": "10.13",
+               "calc_stealth_mult": "0.7128", "calc_ranged_mult": "0.7", "calc_dodge_mult": "0.9",
+               "calc_dexterity_mult": "0.85", "calc_combat_speed_mult": "0.97", "calc_athletics_mult": "1",
+               "calc_cut_damage": "", "calc_hp_max": ""},
+    "weapon": {"calc_status": "verified", "calc_level": "70", "calc_cut_damage": "1.639", "calc_blunt_damage": "0", "calc_weight_kg": "1",
+               "calc_cut_resist_pct": ""},
+    "prosthetic": {"calc_status": "verified", "calc_level": "95", "calc_hp_max": "145", "calc_stealth_mult": "0.915",
+                   "calc_athletics_mult": "1.38", "calc_swimming_mult": "0.9875", "calc_weight_kg": ""},
+}
+
+
+class CalcColumnsTests(unittest.TestCase):
+    def test_calc_match_game_cards(self) -> None:
+        """Ловит дрейф формул itemstats/prosthetics и состава calc_* относительно карточек игры; без level - пусто."""
+        char = {"id": "ps:1", "name": "Т", "weapons": [{"slot": "weapon_back", "sid": "katana", "type": "melee", "level": 70}],
+                "armour": {"shirt": {"slot": "shirt", "sid": "chain", "level": 80},
+                           "legs": {"slot": "legs", "sid": "chain", "level": None}},
+                "prosthetics": [{"limb": "left_leg", "sid": "leg", "level": 95}],
+                "items": [{"section": "back", "container": "inventory", "base_data_sid": "katana", "company_sid": "edge"}]}
+        files = build_tables({"characters": [char]}, None, SNAPSHOT_ID, CALC_INDEX, None)
+        rows = parse(files, "equipment.csv")
+        by_kind = {r["kind"]: r for r in rows if r["level"]}
+        for kind, expected in CALC_EXPECTED.items():
+            with self.subTest(kind=kind):
+                self.assertEqual({k: by_kind[kind][k] for k in expected}, expected)
+        unknown = [r for r in rows if not r["level"]][0]
+        self.assertEqual([k for k, v in unknown.items() if k.startswith("calc_") and v and k != "calc_status"], [])
+        text = files["index.md"].decode("utf-8")
+        self.assertIn("| `calc_swimming_mult` |", text)
+        self.assertIn("| `calc_shot_speed_ms` |", text)
+        self.assertIn("unverified_class", text)
+
+
+def _armour_tpl(**kw: Any) -> list[Any]:
+    base = {"slot": 5, "cut into stun": 0.4000000059604645, "level bonus": 0, "blunt def bonus": 0.0, "cut def bonus": 0.0,
+            "pierce def mult": 1.0, "weight kg": 1.0, "stealth mult": 1.0, "ranged skill mult": 1.0, "dodge mult": 1.0,
+            "dexterity mult": 1.0, "athletics mult": 1.0, "combat speed mult": 1.0, "unarmed bonus": 0}
+    return ["Item", "Предмет", "ARMOUR", "gamedata.base", base | kw]
+
+
+CARD_INDEX = {
+    **CALC_INDEX,
+    "const": ["Constants", "Constants", "CONSTANTS", "gamedata.base",
+              {"weapon inventory weight mult": 0.5, "bow damage 1": 1.100000023841858, "bow damage 99": 1.2999999523162842}],
+    # Шаблоны из справочника игры (Newwworld/rebirth/gamedata.base), день 134.
+    "boots": _armour_tpl(**{"class": 2, "material type": 3, "slot": 9, "cut into stun": 0.20000000298023224,
+                            "level bonus": -10, "weight kg": 4.0, "stealth mult": 1.100000023841858,
+                            "refs:part coverage": {"p1": [40, 0, 0], "p2": [40, 0, 0]}}),
+    "hat": _armour_tpl(**{"class": 2, "material type": 3, "slot": 3, "cut into stun": 0.20000000298023224,
+                          "weight kg": 3.0, "weather protection amount": 0.3499999940395355, "weather protection0": 2,
+                          "perception bonus": 4, "refs:part coverage": {"head": [70, 100, 0]}}),
+    "mask": _armour_tpl(**{"class": 1, "material type": 1, "slot": 3, "weight kg": 1.0, "weather protection amount": 1.0,
+                           "weather protection0": 1, "weather protection1": 4, "stealth mult": 1.100000023841858,
+                           "refs:part coverage": {"head": [70, 0, 0]}}),
+    "cloth": _armour_tpl(**{"class": 0, "material type": 0, "slot": 8, "refs:part coverage": {"p1": [100, 0, 0]}}),
+    "sun": ["Falling Sun", "Падающее солнце", "WEAPON", "rebirth.mod",
+            {"cut damage multiplier": 1.2000000476837158, "blunt damage multiplier": 1.0, "weight kg": 10.0,
+             "weight mult": 1.0, "skill category": 3}],
+    "smiths": ["Skeleton Smiths", "Скелеты-кузнецы", "WEAPON_MANUFACTURER", "gamedata.base",
+               {"cut damage mod": 1.0, "blunt damage mod": 1.0, "weight mod": 1.0}],
+    "tooth": ["Tooth Pick", "Зубочистка", "CROSSBOW", "Newwworld.mod",
+              {"value": 1000, "value 1": 15000, "pierce damage min 0": 10.0, "pierce damage min 1": 15.0,
+               "pierce damage max 0": 20.0, "pierce damage max 1": 25.0, "reload time min": 2.0, "reload time min 1": 1.25,
+               "reload time max": 3.0, "reload time max 1": 3.0, "accuracy deviation at 0 skill": 11.0,
+               "accuracy deviation at 0 skill 1": 6.0, "range": 375, "range 1": 500, "shot speed": 350.0,
+               "shot speed 1": 450.0, "accuracy perfect skill": 90, "weight kg": 4.0}],
+    "eagle": ["Eagle Cross", "Орлиный крест", "CROSSBOW", "Newwworld.mod",
+              {"value": 2500, "value 1": 34000, "pierce damage min 0": 50.0, "pierce damage min 1": 60.0,
+               "pierce damage max 0": 70.0, "pierce damage max 1": 100.0, "reload time min": 5.0, "reload time min 1": 4.0,
+               "reload time max": 10.0, "reload time max 1": 8.0, "accuracy deviation at 0 skill": 2.5,
+               "accuracy deviation at 0 skill 1": 1.5, "range": 1500, "range 1": 1900, "shot speed": 700.0,
+               "shot speed 1": 800.0, "accuracy perfect skill": 80, "weight kg": 18.0}],
+}
+# (персонаж, слот, sid, level, значения карточки). None - не сверяется: расхождение на границе 59.x у Высокого
+# уровня (карточка на 1 ниже расчёта, не подтверждено) и скрытая на карточке атлетика L95 (порог не установлен).
+ARMOUR_CARDS: list[tuple[str, str, str, int, dict[str, float | None]]] = [
+    ("chain80", "shirt", "chain", 80, {"blunt": 19, "cut": 42, "harpoon": 27, "weight": 10, "stealth": 0.71,
+                                       "ranged": 0.70, "dodge": 0.90, "combat_speed": 0.97, "dexterity": 0.85}),
+    ("chain60", "shirt", "chain", 60, {"blunt": 15, "cut": 33, "harpoon": None, "weight": 10, "stealth": 0.63}),
+    ("boots95", "boots", "boots", 95, {"blunt": 45, "cut": 66, "harpoon": 76, "weight": 4, "stealth": 0.69,
+                                       "athletics": None}),
+    ("boots60", "boots", "boots", 60, {"blunt": None, "cut": 42, "harpoon": None, "weight": 4, "stealth": 0.45,
+                                       "athletics": 0.93}),
+    ("hat80", "head", "hat", 80, {"blunt": 43, "cut": 63, "harpoon": 71, "weight": 4, "stealth": 1.0}),
+    ("mask60", "head", "mask", 60, {"blunt": 16, "cut": 26, "harpoon": None, "weight": 1, "stealth": 1.10}),
+]
+# sid, level, урон min-max, разброс, перезарядка min-max, дальность, скорость м/с, цена карточки.
+CROSSBOW_CARDS = {
+    "tooth20": ("tooth", 20, (12, 24), 10.0, (1.85, 3.0), 40, 85, 1560),
+    "eagle95": ("eagle", 95, (76, 127), 1.55, (4.05, 8.1), 188, 183, 30928),
+}
+
+
+class CalcCardBatchesTests(unittest.TestCase):
+    def test_calc_match_card_batches(self) -> None:
+        """Ловит дрейф формул брони, оружия и арбалета относительно карточек игры (float32 гарпуна, усечение,
+        шлем без класса, скорость и цена арбалета) и состава calc_status."""
+        chars: list[dict[str, Any]] = []
+        for cid, slot, sid, level, _ in ARMOUR_CARDS:
+            chars.append({"id": cid, "name": cid, "armour": {slot: {"slot": slot, "sid": sid, "level": level}}})
+        chars.append({"id": "sun60", "name": "sun",
+                      "weapons": [{"slot": "weapon_back", "sid": "sun", "type": "melee", "level": 60}],
+                      "items": [{"section": "back", "container": "inventory", "base_data_sid": "sun",
+                                 "company_sid": "smiths"}]})
+        for cid, (sid, level, *_rest) in CROSSBOW_CARDS.items():
+            chars.append({"id": cid, "name": cid,
+                          "weapons": [{"slot": "weapon_back", "sid": sid, "type": "crossbow", "level": level}]})
+        # По одному случаю на значение calc_status (verified - любая строка выше).
+        chars += [
+            {"id": "st_level", "name": "s", "armour": {"shirt": {"slot": "shirt", "sid": "chain", "level": None}}},
+            {"id": "st_tpl", "name": "s", "armour": {"shirt": {"slot": "shirt", "sid": "ghost", "level": 80}}},
+            {"id": "st_class", "name": "s", "armour": {"shirt": {"slot": "shirt", "sid": "cloth", "level": 80}}},
+        ]
+        files = build_tables({"characters": chars}, None, SNAPSHOT_ID, CARD_INDEX, None)
+        rows = {r["character_id"]: r for r in parse(files, "equipment.csv")}
+        names = {"stealth": "calc_stealth_mult", "ranged": "calc_ranged_mult", "dodge": "calc_dodge_mult",
+                 "combat_speed": "calc_combat_speed_mult", "dexterity": "calc_dexterity_mult",
+                 "athletics": "calc_athletics_mult"}
+        for cid, _slot, _sid, _level, card in ARMOUR_CARDS:
+            r = rows[cid]
+            with self.subTest(card=cid):
+                self.assertEqual(r["calc_status"], "verified")
+                for key, col in (("blunt", "calc_blunt_resist_pct"), ("cut", "calc_cut_resist_pct"),
+                                 ("harpoon", "calc_harpoon_resist"), ("weight", "calc_weight_kg")):
+                    if card[key] is not None:  # карточка усекает целую часть неокруглённого значения
+                        self.assertEqual(math.floor(float(r[col])), card[key], col)
+                for key, col in names.items():
+                    if card.get(key) is not None:
+                        self.assertAlmostEqual(float(r[col]), card[key], delta=0.0051, msg=col)
+        sun = rows["sun60"]
+        self.assertEqual((round(float(sun["calc_cut_damage"]), 2), round(float(sun["calc_blunt_damage"]), 2)), (1.58, 1.2))
+        for cid, (_sid, _lv, dmg, spread, reload_s, rng, speed, value) in CROSSBOW_CARDS.items():
+            r = rows[cid]
+            with self.subTest(card=cid):
+                self.assertEqual((r["calc_damage_min"], r["calc_damage_max"]), (str(dmg[0]), str(dmg[1])))
+                self.assertEqual((float(r["calc_spread_deg"]), float(r["calc_reload_min_s"]), float(r["calc_reload_max_s"]),
+                                  float(r["calc_range_m"]), r["calc_shot_speed_ms"], r["calc_card_value"]),
+                                 (spread, reload_s[0], reload_s[1], float(rng), str(speed), str(value)))
+        for cid, status in (("st_level", "unknown_level"), ("st_tpl", "unknown_template"), ("st_class", "unverified_class")):
+            with self.subTest(status=status):
+                self.assertEqual(rows[cid]["calc_status"], status)
+                self.assertEqual([k for k, v in rows[cid].items() if k.startswith("calc_") and v and k != "calc_status"], [])
+
+        # Шаблон с несколькими кодами погоды и шлем без поправок класса.
+        view = itemstats.armour_view(CARD_INDEX["mask"][4], 60, lambda sid: sid)
+        self.assertEqual(view["weather_protection"], {"sand_storm": 1.0, "gas": 1.0})
+        self.assertEqual(view["skill_modifiers"]["stealth_multiplier"], 1.1)
 
 
 class TableValidationTests(unittest.TestCase):
