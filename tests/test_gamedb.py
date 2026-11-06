@@ -156,6 +156,21 @@ class GameDBTests(unittest.TestCase):
             self.assertEqual(gamedb.build(), db)
         self.assertEqual(before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in before})
 
+    def test_item_value_follows_load_order(self) -> None:
+        # Ловит выбор цены из первого файла или первого определения вместо последнего в порядке загрузки.
+        sid = "1-base.mod"
+        base = self.write(self.root / "base.mod", _mod(_record(sid, "Hemp", kind=4, data={"int": {"value": 50}})))
+        patch_mod = self.write(self.root / "patch.mod", _mod(_record(sid, "Hemp", kind=4, data={"int": {"value": 100}})))
+        silent = self.write(self.root / "silent.mod", _mod(_record(sid, "Hemp", kind=4)))
+        self.po.write_text('#. Type: ITEM\n#: 1-base.mod\nmsgid "Hemp"\nmsgstr "Пенька"\n', encoding="utf-8")
+        for files, value, source in (([base, patch_mod, silent], 100, "patch.mod"), ([patch_mod, base, silent], 50, "base.mod"),
+                                     ([base, silent], 50, "base.mod")):
+            with self.subTest(order=[f.name for f in files]):
+                stats = gamedb.load_index(self.cache, files, self.po)[0][sid][4]
+                self.assertEqual((stats["value"], stats["value_source"]), (value, source))
+        stats = gamedb.load_index(self.cache, [base, patch_mod], self.po)[0][sid][4]
+        self.assertEqual(stats["value_history"], [["base.mod", 50], ["patch.mod", 100]])
+
     def test_load_index_and_cache(self) -> None:
         sid = "1-base.mod"
         base = self.write(self.root / "base.mod", _mod(_record(
@@ -163,7 +178,7 @@ class GameDBTests(unittest.TestCase):
         )))
         with patch.object(gamedb.os, "replace", wraps=os.replace) as replace:
             index, first = gamedb.load_index(self.cache, [base], self.po)
-            replace.assert_called_once()
+            self.assertEqual(replace.call_count, 2)  # индекс и кэш записей реакций/торговли
         self.assertEqual(index[sid], ["Constants", "Constants", "CONSTANTS", "base.mod", {"weapon inventory weight mult": 2.0}])
         self.assertEqual(first["cache"], "rebuilt")
         self.assertEqual(first["files"], 1)

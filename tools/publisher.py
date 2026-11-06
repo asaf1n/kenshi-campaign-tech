@@ -28,6 +28,7 @@ from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
 from tools.validation import TIMELINE_EMPTY_WARNING, validate_publication
+from tools.world_context import aggregate_storage_by_location
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -327,6 +328,13 @@ def publish(
         changes=diff_data,
         generated_at=generated_at,
     )
+
+    # Склады по поселениям требуют разрешённых локаций, которых нет при извлечении снимка.
+    cur_property = cur.get("property")
+    if isinstance(cur_property, dict) and cur_property.get("buildings"):
+        cur_property["storage_by_location"] = aggregate_storage_by_location(
+            cur_property["buildings"], locations_data,
+        )
 
     # Сохраняем промежуточный результат в data/locations/<snapshot_id>.json
     loc_dir = ROOT / "data/locations"

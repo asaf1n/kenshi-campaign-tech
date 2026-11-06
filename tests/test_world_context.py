@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.player_assets import research_block
 from tools.rendering import render_brief, render_squad
-from tools.world_context import aggregate_storage_by_location, enrich_world_and_production_context
+from tools.world_context import aggregate_storage_by_location, enrich_world_and_production_context, storage_rows
 
 
 class DummyGameNames:
@@ -69,6 +69,33 @@ class TestWorldContextAndProduction(unittest.TestCase):
         items_map = {it["name"]: it["quantity"] for it in lagoon["items_summary"]}
         self.assertEqual(items_map["Пенька"], 50)
         self.assertEqual(items_map["Железная руда"], 20)
+
+    def test_storage_rows_with_and_without_settlement(self):
+        # Ловит потерю предметов у зданий без поселения и подмену имён предметов их SID.
+        def building(bid, zone, qty, town=None, interior=()):
+            return {"id": bid, "zone": zone, "name": f"Склад {bid}", "town": town, "interior": list(interior),
+                    "storage": [{"sid": "hemp-sid", "name": "Пенька", "quantity": qty}],
+                    "storage_items": [{"base_data_sid": "hemp-sid", "quantity": qty, "container": f"storage>c-{bid}"}]}
+
+        buildings = [
+            building("b1", "24.40", 10, interior=[building("b1-in", "24.40", 5)]),
+            building("b2", "35.42", 7),
+            building("b3", "19.35", 3),
+        ]
+        locations = {"buildings": [
+            {"building_key": "24.40:b1", "location": {"name_ru": "Деревня"}, "nearby_locations": []},
+            {"building_key": "35.42:b2", "location": None, "nearby_locations": [{"name_ru": "Лагуна"}]},
+        ]}
+        index = {"hemp-sid": ["Hemp", "Пенька", "ITEM", "base", {"value": 100, "value_source": "rebirth.mod"}]}
+        rows, _ = storage_rows(buildings, locations, index)
+        self.assertEqual({r["item"] for r in rows}, {"Пенька"})
+        self.assertEqual({(r["building_id"], r["settlement"], r["settlement_status"], r["base_price"]) for r in rows}, {
+            ("b1", "Деревня", "in_location", 100), ("b1-in", "Деревня", "in_location", 100),
+            ("b2", "Лагуна", "near_location", 100), ("b3", None, "zone", 100)})
+        result = aggregate_storage_by_location(buildings, locations, index)
+        self.assertEqual({k: v["total_items_count"] for k, v in result.items()},
+                         {"Деревня": 15, "Лагуна": 7, "зона 19.35 (поселение не определено)": 3})
+        self.assertEqual(sum(v["total_items_count"] for v in result.values()), sum(r["quantity"] for r in rows))
 
     def test_enrich_jobs_carrying_and_npcs(self):
         chars = [

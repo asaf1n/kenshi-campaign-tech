@@ -24,32 +24,32 @@ PO_RU: str = f"{KENSHI}/locale/ru_RU/gamedata.po"
 BASE_FILES: dict[str, str] = {"base": "gamedata.base", "Newwworld": "Newwworld.mod", "Dialogue": "Dialogue.mod",
               "rebirth": "rebirth.mod"}
 # Повышать при изменении состава полей индекса — старый кэш будет пересобран.
-INDEX_VERSION: int = 8
+INDEX_VERSION: int = 9
 
 # Поля шаблонов, нужные для характеристик предметов (itemstats.py). Остальное в индекс не попадает.
 STAT_FIELDS: dict[str, tuple[str, ...]] = {
-    "WEAPON": ("cut damage multiplier", "blunt damage multiplier", "weight kg", "weight mult",
+    "WEAPON": ("value", "cut damage multiplier", "blunt damage multiplier", "weight kg", "weight mult",
                "armour penetration", "attack mod", "defence mod", "indoors mod", "skill category",
                "bleed mult", "animal damage mult", "human damage mult", "robot damage mult"),
-    "WEAPON_MANUFACTURER": ("cut damage mod", "blunt damage mod", "weight mod"),
+    "WEAPON_MANUFACTURER": ("cut damage mod", "blunt damage mod", "weight mod", "price mod"),
     "MATERIAL_SPECS_WEAPON": ("attack mod", "defence mod"),
-    "CROSSBOW": ("pierce damage min 0", "pierce damage min 1", "pierce damage max 0", "pierce damage max 1",
+    "CROSSBOW": ("value", "value 1", "pierce damage min 0", "pierce damage min 1", "pierce damage max 0", "pierce damage max 1",
                  "reload time min", "reload time min 1", "reload time max", "reload time max 1",
                  "accuracy deviation at 0 skill", "accuracy deviation at 0 skill 1", "range", "range 1",
                  "shot speed", "shot speed 1", "accuracy perfect skill", "weight kg"),
-    "ARMOUR": ("class", "material type", "slot", "cut into stun", "level bonus", "blunt def bonus", "cut def bonus",
+    "ARMOUR": ("value", "class", "material type", "slot", "cut into stun", "level bonus", "blunt def bonus", "cut def bonus",
                "pierce def mult", "weight kg", "weather protection amount", "weather protection0",
                "stealth mult", "ranged skill mult", "dodge mult", "dexterity mult", "asassination mult",
                "athletics mult", "combat speed mult", "damage output mult", "fist injury mult",
                "unarmed bonus", "perception bonus", "combat attk bonus", "combat def bonus",
                "combat skill bonus", "ranged bonus"),
-    "ITEM": ("item function", "artifact", "weight kg"),
-    "CONTAINER": ("weight kg", "encumbrance effect"),
-    "MAP_ITEM": ("weight kg",),
-    "NEST_ITEM": ("weight kg",),
+    "ITEM": ("item function", "artifact", "weight kg", "value"),
+    "CONTAINER": ("weight kg", "encumbrance effect", "value"),
+    "MAP_ITEM": ("weight kg", "value"),
+    "NEST_ITEM": ("weight kg", "value"),
     "CONSTANTS": ("weapon inventory weight mult", "bow damage 1", "bow damage 99"),
     # Протезы (prosthetics.py): '<поле>' — худшее качество, '<поле> 1' — лучшее.
-    "LIMB_REPLACEMENT": ("slot", "weight kg", "HP", "HP 1", "strength mult", "strength mult 1", "dexterity mult",
+    "LIMB_REPLACEMENT": ("slot", "weight kg", "value", "value 1", "HP", "HP 1", "strength mult", "strength mult 1", "dexterity mult",
                          "dexterity mult 1", "athletics mult", "athletics mult 1", "swimming mult",
                          "swimming mult 1", "stealth mult", "stealth mult 1", "thievery mult", "thievery mult 1",
                          "ranged mult", "ranged mult 1", "unarmed damage bonus", "unarmed damage bonus 1",
@@ -57,11 +57,18 @@ STAT_FIELDS: dict[str, tuple[str, ...]] = {
     # Исследования и постройки игрока (player_assets.py).
     "RESEARCH": ("level", "time", "money", "repeats", "blueprint only", "is level upgrade"),
     "BUILDING": ("building category",),
+    # Торговые поля (fcs.def: SQUAD_TEMPLATE.buy mult/sell mult; ITEMS_CULTURE.trade prices).
+    "SQUAD_TEMPLATE": ("is trader", "buy mult", "sell mult"),
 }
 STAT_REFS: dict[str, tuple[str, ...]] = {"ARMOUR": ("part coverage",), "CROSSBOW": ("ammo",),
-                                         "RESEARCH": ("enable buildings",)}
+                                         "RESEARCH": ("enable buildings",),
+                                         "ITEMS_CULTURE": ("trade prices",), "TOWN": ("trade culture", "trade prices"),
+                                         "FACTION": ("trade culture",)}
 # Глобальные константы не имеют типа в gamedata.po; запись опознаётся по номеру типа.
 CONSTANTS_TYPE_ID: int = 27
+# Типы без "#. Type:" в gamedata.po; имена сверены по разделам fcs.def (поля записей совпадают):
+# SQUAD_TEMPLATE (buy mult, vendors, leader), WORLD_EVENT_STATE (NPC is, player involvement).
+FCS_TYPE_NAMES: dict[int, str] = {52: "SQUAD_TEMPLATE", 110: "WORLD_EVENT_STATE"}
 
 
 def find_mod(
@@ -185,6 +192,9 @@ def build(files: Sequence[PathLike] | None = None, po_path: PathLike | None = No
             e.setdefault("data", {})
             for sec in ("float", "int", "bool", "string"):
                 e["data"].setdefault(sec, {}).update(rec[sec])
+            if "value" in rec["int"]:
+                # Итоговая цена определяется последним файлом порядка загрузки; история нужна для указания источника.
+                e.setdefault("value_history", []).append([src, rec["int"]["value"]])
             refs = e.setdefault("refs", {})
             for cat, lst in rec["refs"].items():
                 cur = refs.setdefault(cat, {})
@@ -208,6 +218,8 @@ def type_map(db: dict[str, Any]) -> dict[int, str]:
             tm.setdefault(e["type_id"], Counter())[e["type_name"]] += 1
     out = {k: v.most_common(1)[0][0] for k, v in tm.items()}
     out.setdefault(CONSTANTS_TYPE_ID, "CONSTANTS")
+    for tid, tname in FCS_TYPE_NAMES.items():
+        out.setdefault(tid, tname)
     return out
 
 
@@ -239,28 +251,127 @@ def _stats(e: dict[str, Any], tname: str) -> dict[str, Any] | None:
         refs = e.get("refs", {}).get(cat)
         if refs:
             out["refs:" + cat] = refs
+    history = e.get("value_history")
+    if history and "value" in out:
+        out["value_source"] = history[-1][0]
+        if len(history) > 1:
+            out["value_history"] = history
     return out
 
 
-def load_index(
-    cache_dir: PathLike, files: Sequence[PathLike] | None = None, po_path: PathLike | None = None,
-) -> tuple[dict[str, list[Any]], dict[str, Any]]:
-    """Компактный индекс sid -> [name_en, name_ru, type, source, stats|None] с кэшем на диске.
+# ---------------------------------------------------------------- сырые записи реакций и торговли
 
-    Строится тем же build(), что и полный экспорт. Кэш отдельный для каждого набора файлов
-    (у разных сохранений могут быть разные моды) и пересобирается при изменении отпечатка.
+# Кэш записей отдельный от индекса: индекс остаётся компактным (sid -> имя и поля шаблонов).
+RECORDS_PREFIX: str = "gamedb_records_"
+# Для определений реакций сохраняются значения 'v' ссылок (например 'NPC is' -> [1, 0, 0]) без трактовки.
+OVERRIDE_TOWN_STUB_REFS: tuple[str, ...] = ("override town", "world state", "faction", "trade culture", "trade prices")
+CONDITION_STUB_TYPES: frozenset[int] = frozenset({18, 19, 93})
+
+
+def _ref_pairs(refs: dict[str, dict[str, Any]], cats: Sequence[str] | None = None) -> dict[str, list[list[Any]]]:
+    return {cat: [[sid, v] for sid, v in sorted(lst.items())] for cat, lst in sorted(refs.items())
+            if lst and (cats is None or cat in cats)}
+
+
+def _raw_record(sid: str, e: dict[str, Any], tmap: dict[int, str], *, data: bool = True,
+                cats: Sequence[str] | None = None) -> dict[str, Any]:
+    """Запись как хранится: тип, имя, поля bool/int/float/string, ссылки со значением v и файлы-источники."""
+    files = ([e["defined_in"]] if e.get("defined_in") else []) + list(e.get("modified_in") or [])
+    out: dict[str, Any] = {"sid": sid, "type_id": e["type_id"],
+                           "type": e.get("type_name") or tmap.get(e["type_id"]) or f"type_{e['type_id']}",
+                           "name": e.get("name", ""), "origin": sid.split("-", 1)[-1], "files": files}
+    if data:
+        for sec in ("bool", "int", "float", "string"):
+            fields = e.get("data", {}).get(sec)
+            if fields:
+                out[sec] = dict(sorted(fields.items()))
+    refs = _ref_pairs(e.get("refs", {}), cats)
+    if refs:
+        out["refs"] = refs
+    return out
+
+
+def reaction_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Определения реакций мира: World States (110), Town Overrides (TOWN) и записи с условием 'world state'.
+
+    Условия и эффекты не трактуются: в refs каждой записи сохранено значение v. По fcs.def для
+    'world state' v=1 - условие истинно, v=0 - ложно (AND-комбинация); 'NPC is' - код состояния уникального NPC.
     """
-    files = files if files is not None else game_files()
-    fp = fingerprint(files, po_path)
-    key = hashlib.sha1(json.dumps(fp).encode("utf-8")).hexdigest()[:16]
-    cache_path = os.path.join(cache_dir, f"gamedb_{key}.json")
-    try:
-        with open(cache_path, encoding="utf-8") as fh:
-            cached = json.load(fh)
-        if isinstance(cached, dict) and cached.get("fingerprint") == fp:
-            return cached["index"], {"cache": "hit", "files": len(files), "cache_file": os.path.basename(cache_path)}
-    except (OSError, ValueError, KeyError):
-        pass
+    records = db["records"]
+    tmap = type_map(db)
+    override_targets = {t for e in records.values() if e["type_id"] == 13
+                        for t in e.get("refs", {}).get("override town", {})}
+    out: dict[str, list[dict[str, Any]]] = {"world_states": [], "town_overrides": [], "town_parents": [],
+                                            "squad_templates": [], "other_conditioned": []}
+    for sid in sorted(records):
+        e = records[sid]
+        tid, refs = e["type_id"], e.get("refs", {})
+        if tid == 110:
+            out["world_states"].append(_raw_record(sid, e, tmap))
+        elif tid == 13 and (sid in override_targets or "(override)" in e.get("name", "")):
+            out["town_overrides"].append(_raw_record(sid, e, tmap))
+        elif tid == 13 and "override town" in refs:
+            out["town_parents"].append(_raw_record(sid, e, tmap, data=False, cats=OVERRIDE_TOWN_STUB_REFS))
+        elif tid == 52 and refs.get("world state"):
+            out["squad_templates"].append(_raw_record(sid, e, tmap, data=False))
+        elif tid in CONDITION_STUB_TYPES and refs.get("world state"):
+            out["other_conditioned"].append(_raw_record(sid, e, tmap, data=False, cats=("world state",)))
+    return out
+
+
+def trade_records(db: dict[str, Any]) -> dict[str, Any]:
+    """Сырые торговые записи без вычисленных цен.
+
+    Связь город-культура хранится только ссылками 'trade culture' у FACTION и TOWN; итоговый коэффициент
+    складывается ещё из buy mult/sell mult отряда-торговца и глобальных констант, поэтому здесь он не считается.
+    """
+    records = db["records"]
+    tmap = type_map(db)
+    out: dict[str, Any] = {"cultures": [], "culture_links": [], "squad_templates": [], "manufacturers": [],
+                           "constants": []}
+    for sid in sorted(records):
+        e = records[sid]
+        tid, d, refs = e["type_id"], e.get("data", {}), e.get("refs", {})
+        tname = e.get("type_name") or tmap.get(tid)
+        if tid == 104:
+            out["cultures"].append(_raw_record(sid, e, tmap, data=False))
+        elif tname in ("FACTION", "TOWN") and ("trade culture" in refs or (tname == "TOWN" and "trade prices" in refs)):
+            out["culture_links"].append(_raw_record(sid, e, tmap, data=False, cats=("trade culture", "trade prices")))
+        elif tid == 52 and (d.get("bool", {}).get("is trader") or "sell mult" in d.get("float", {})
+                            or d.get("float", {}).get("buy mult", 1.0) != 1.0):
+            row = _raw_record(sid, e, tmap, data=False, cats=("vendors",))
+            for sec, key in (("bool", "is trader"), ("float", "buy mult"), ("float", "sell mult"),
+                             ("float", "vendors refresh time"), ("int", "vendor money")):
+                if key in d.get(sec, {}):
+                    row[key] = d[sec][key]
+            out["squad_templates"].append(row)
+        elif tid == 51:
+            row = _raw_record(sid, e, tmap, data=False)
+            if "price mod" in d.get("float", {}):
+                row["price mod"] = d["float"]["price mod"]
+            out["manufacturers"].append(row)
+        elif tid == CONSTANTS_TYPE_ID:
+            row = _raw_record(sid, e, tmap, data=False)
+            row["values"] = {k: v for k, v in sorted(d.get("float", {}).items()) if "price" in k or "trade" in k}
+            out["constants"].append(row)
+    return out
+
+
+def _cache_key(fp: list[list[Any]]) -> str:
+    return hashlib.sha1(json.dumps(fp).encode("utf-8")).hexdigest()[:16]
+
+
+def _write_json(path: str, payload: Any) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike | None,
+             fp: list[list[Any]]) -> dict[str, list[Any]]:
+    """Один проход build() пишет индекс и кэш записей реакций/торговли."""
+    key = _cache_key(fp)
     db = build(files, po_path)
     tmap = type_map(db)
     index: dict[str, list[Any]] = {}
@@ -274,8 +385,52 @@ def load_index(
             _stats(e, tname),
         ]
     os.makedirs(cache_dir, exist_ok=True)
-    tmp = cache_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"fingerprint": fp, "index": index}, fh, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, cache_path)
+    _write_json(os.path.join(cache_dir, f"gamedb_{key}.json"), {"fingerprint": fp, "index": index})
+    _write_json(os.path.join(cache_dir, f"{RECORDS_PREFIX}{key}.json"),
+                {"fingerprint": fp, "reactions": reaction_records(db), "trade": trade_records(db)})
+    return index
+
+
+def load_records(
+    cache_dir: PathLike, files: Sequence[PathLike] | None = None, po_path: PathLike | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Сырые записи реакций мира и торговли для набора файлов; кэш пересобирается по отпечатку."""
+    files = files if files is not None else game_files()
+    fp = fingerprint(files, po_path)
+    cache_path = os.path.join(cache_dir, f"{RECORDS_PREFIX}{_cache_key(fp)}.json")
+    state = "hit"
+    for attempt in (0, 1):
+        try:
+            with open(cache_path, encoding="utf-8") as fh:
+                cached = json.load(fh)
+            if isinstance(cached, dict) and cached.get("fingerprint") == fp:
+                return ({"reactions": cached["reactions"], "trade": cached["trade"]},
+                        {"cache": state, "files": len(files), "cache_file": os.path.basename(cache_path)})
+        except (OSError, ValueError, KeyError):
+            pass
+        if attempt == 0:
+            _rebuild(cache_dir, files, po_path, fp)
+            state = "rebuilt"
+    raise OSError(f"Кэш записей не создан: {cache_path}")
+
+
+def load_index(
+    cache_dir: PathLike, files: Sequence[PathLike] | None = None, po_path: PathLike | None = None,
+) -> tuple[dict[str, list[Any]], dict[str, Any]]:
+    """Компактный индекс sid -> [name_en, name_ru, type, source, stats|None] с кэшем на диске.
+
+    Строится тем же build(), что и полный экспорт. Кэш отдельный для каждого набора файлов
+    (у разных сохранений могут быть разные моды) и пересобирается при изменении отпечатка.
+    """
+    files = files if files is not None else game_files()
+    fp = fingerprint(files, po_path)
+    cache_path = os.path.join(cache_dir, f"gamedb_{_cache_key(fp)}.json")
+    try:
+        with open(cache_path, encoding="utf-8") as fh:
+            cached = json.load(fh)
+        if isinstance(cached, dict) and cached.get("fingerprint") == fp:
+            return cached["index"], {"cache": "hit", "files": len(files), "cache_file": os.path.basename(cache_path)}
+    except (OSError, ValueError, KeyError):
+        pass
+    index = _rebuild(cache_dir, files, po_path, fp)
     return index, {"cache": "rebuilt", "files": len(files), "cache_file": os.path.basename(cache_path)}

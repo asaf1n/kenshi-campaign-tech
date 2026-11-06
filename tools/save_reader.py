@@ -492,6 +492,18 @@ def collect_items(
     return out
 
 
+def item_game_fields(sid: str | None, gamedb_inst: Any) -> dict[str, Any]:
+    """Имя и базовая цена шаблона предмета из индекса игры: `value` итоговой записи после слияния модов."""
+    entry = gamedb_inst.get(sid) if isinstance(gamedb_inst, dict) and sid else None
+    if not isinstance(entry, (list, tuple)) or len(entry) < 5:
+        return {}
+    stats = entry[4] or {}
+    out: dict[str, Any] = {"name": entry[1] or entry[0], "name_en": entry[0]}
+    if "value" in stats:
+        out |= {"base_price": stats["value"], "base_price_source": stats.get("value_source")}
+    return out
+
+
 def parse_limbs(
     med_rec: dict[str, Any] | None,
     by_sid: dict[str, dict[str, Any]],
@@ -1004,6 +1016,8 @@ def read_player_property(
                 conts = [s for s in inst.get("states", []) if by_sid.get(s, {}).get("type") == 41]
                 for c_sid in conts:
                     storage_items.extend(collect_items(c_sid, by_sid, f"storage>{c_sid}"))
+                for it in storage_items:
+                    it.update(item_game_fields(it.get("base_data_sid"), gamedb_inst))
 
             pos = [round(v, 1) for v in inst.get("pos", [])] if inst and inst.get("pos") else None
 

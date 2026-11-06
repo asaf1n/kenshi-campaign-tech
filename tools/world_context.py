@@ -19,46 +19,114 @@ def _clean_handle_tuple(h: Sequence[int | None] | None) -> tuple[int | None, ...
     return tuple(h[:5])
 
 
-def aggregate_storage_by_location(buildings: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Агрегирует складские запасы базы игрока по городам / зонам."""
-    location_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    buildings_per_loc: Counter[str] = Counter()
+ZONE_KEY_FORMAT: str = "зона {zone} (поселение не определено)"
 
-    def process_building(b: dict[str, Any], parent_loc: str | None = None) -> None:
-        loc = b.get("town") or b.get("zone") or parent_loc or "Общая база"
-        buildings_per_loc[loc] += 1
 
-        # Извлекаем предметы из storage_items (v11) или storage (v10)
-        items = b.get("storage_items") or []
-        for it in items:
-            name = it.get("name") or it.get("base_data_sid") or it.get("item_sid") or "Неизвестный предмет"
+def _building_places(locations: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """building_key ('<зона>:<id>') -> запись locations.json."""
+    return {b["building_key"]: b for b in (locations or {}).get("buildings", []) if b.get("building_key")}
+
+
+def _settlement(b: dict[str, Any], zone: str | None, places: dict[str, dict[str, Any]],
+                parent: tuple[str | None, str] | None) -> tuple[str | None, str]:
+    """Название поселения и способ определения: in_location > town сейва > near_location > зона (запасной ключ)."""
+    place = places.get(f"{zone}:{b.get('id')}") if zone else None
+    loc = (place or {}).get("location")
+    if loc:
+        return loc.get("name_ru") or loc.get("name_en"), "in_location"
+    if b.get("town"):
+        return b["town"], "town"
+    nearby = (place or {}).get("nearby_locations") or []
+    if nearby:
+        return nearby[0].get("name_ru") or nearby[0].get("name_en"), "near_location"
+    if parent and parent[0]:
+        return parent
+    return None, "zone"
+
+
+def _stat_value(game_index: dict[str, list[Any]] | None, sid: str | None) -> tuple[Any, str | None]:
+    stats = ((game_index or {}).get(sid or "") or [None] * 5)[4] or {}
+    return stats.get("value"), stats.get("value_source")
+
+
+def storage_rows(
+    buildings: list[dict[str, Any]],
+    locations: dict[str, Any] | None = None,
+    game_index: dict[str, list[Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Строки склада «поселение, здание, контейнер, предмет, количество, базовая цена» и список всех зданий.
+
+    Имя предмета берётся из самой строки, затем из сводки `storage` здания (по sid), затем из индекса игры;
+    sid остаётся только у нераспознанных предметов (`unresolved`). Базовая цена - `base_price` строки
+    (записана при извлечении) или `value` индекса игры. Второй результат - здания с определённым способом
+    привязки к поселению (в том числе пустые), чтобы здания без поселения были видны явно.
+    """
+    places = _building_places(locations)
+    rows: list[dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
+
+    def walk(b: dict[str, Any], parent: tuple[str | None, str] | None, parent_zone: str | None) -> None:
+        zone = b.get("zone") or parent_zone
+        settlement, how = _settlement(b, zone, places, parent)
+        label = b.get("name") or b.get("template_name") or b.get("template") or "Здание"
+        nodes.append({"settlement": settlement, "settlement_status": how, "zone": zone,
+                      "building_id": b.get("id"), "building": label})
+        names = {r.get("sid"): r for r in b.get("storage") or [] if r.get("sid")}
+        raw_items = b.get("storage_items") or []
+        if not raw_items:  # v10: только сводка по зданию, без контейнеров
+            raw_items = [{"base_data_sid": r.get("sid"), "name": r.get("name"), "quantity": r.get("quantity"),
+                          "container": None} for r in b.get("storage") or []]
+        for it in raw_items:
+            sid = it.get("base_data_sid") or it.get("item_sid")
+            entry = (game_index or {}).get(sid or "")
+            name = it.get("name") or (names.get(sid) or {}).get("name") or (entry[1] or entry[0] if entry else None)
+            price, price_src = it.get("base_price"), it.get("base_price_source")
+            if price is None:
+                price, price_src = _stat_value(game_index, sid)
             qty = it.get("quantity")
-            qty_val = int(qty) if isinstance(qty, (int, float)) and qty > 0 else 1
-            location_counts[loc][name] += qty_val
-
-        for row in b.get("storage") or []:
-            name = row.get("name") or "Неизвестный предмет"
-            qty = row.get("quantity")
-            qty_val = int(qty) if isinstance(qty, (int, float)) and qty > 0 else 1
-            # Если уже учтено через storage_items, не дублируем
-            if not items:
-                location_counts[loc][name] += qty_val
-
-        for sub in b.get("interior", []):
-            process_building(sub, loc)
+            container = it.get("container")
+            rows.append({
+                "settlement": settlement, "settlement_status": how, "zone": zone,
+                "building_id": b.get("id"), "building": label,
+                "container": container.split(">", 1)[1] if isinstance(container, str) and ">" in container else container,
+                "item": name or sid or "Неизвестный предмет", "item_sid": sid, "unresolved": name is None,
+                "quantity": int(qty) if isinstance(qty, (int, float)) and qty > 0 else 1,
+                "base_price": price, "base_price_source": price_src,
+            })
+        for sub in b.get("interior") or []:
+            walk(sub, (settlement, how) if settlement else parent, zone)
 
     for b in buildings:
-        process_building(b)
+        walk(b, None, None)
+    rows.sort(key=lambda r: (r["settlement"] or "~", str(r["zone"]), str(r["building_id"]),
+                             str(r["container"]), r["item"]))
+    return rows, nodes
 
+
+def aggregate_storage_by_location(
+    buildings: list[dict[str, Any]],
+    locations: dict[str, Any] | None = None,
+    game_index: dict[str, list[Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Складские запасы по поселениям; без поселения ключ - зона с пометкой."""
+    rows, nodes = storage_rows(buildings, locations, game_index)
+
+    def key(settlement: str | None, zone: str | None) -> str:
+        return settlement or ZONE_KEY_FORMAT.format(zone=zone)
+
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    buildings_per_loc: Counter[str] = Counter()
+    for n in nodes:
+        buildings_per_loc[key(n["settlement"], n["zone"])] += 1
+    for r in rows:
+        counts[key(r["settlement"], r["zone"])][r["item"]] += r["quantity"]
     result: dict[str, dict[str, Any]] = {}
-    for loc in sorted(buildings_per_loc.keys()):
-        cnt = location_counts[loc]
-        total_items = sum(cnt.values())
-        top_items = [{"name": name, "quantity": qty} for name, qty in cnt.most_common()]
+    for loc in sorted(buildings_per_loc):
+        cnt = counts[loc]
         result[loc] = {
             "buildings_count": buildings_per_loc[loc],
-            "total_items_count": total_items,
-            "items_summary": top_items,
+            "total_items_count": sum(cnt.values()),
+            "items_summary": [{"name": name, "quantity": qty} for name, qty in cnt.most_common()],
         }
     return result
 
