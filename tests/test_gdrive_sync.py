@@ -8,9 +8,10 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.config import find_gdrive_root
-from tools.gdrive_sync import DOCS_FILES, ensure_buffer, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place
+from tools.gdrive_sync import DOCS_FILES, PIPELINE_SCOPE, InboxError, apply_packet, ensure_buffer, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -190,8 +191,75 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(state["origin_main"], git("rev-parse", "HEAD").stdout.strip())
         self.assertEqual(sorted(state["files"]), sorted((*DOCS_FILES, "docs/reference/lore.md")))
 
+        (self.root / "tmp/sync-state.json").write_text(json.dumps({**state, "campaign": {"Campaign/x.md": "h"}}), encoding="utf-8")
         second = sync_docs(companion, self.root, now)
+        self.assertEqual(json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))["campaign"], {"Campaign/x.md": "h"})
         self.assertEqual((second["written"], second["conflicts"], second["errors"]), (0, [], []))
+
+    def test_campaign_drive_edits_are_protected(self) -> None:
+        """Ловит перезапись правок игрока на Диске, пропуск прежней версии (в т.ч. с CRLF), удаление/запись файлов только
+        на Диске и запись Campaign/ из pipeline."""
+        companion = self.tmp / "companion"
+        camp = companion / "Campaign" / "К"
+        camp.mkdir(parents=True)
+        git = lambda *args: subprocess.run(  # noqa: E731
+            ["git", *args], cwd=str(companion), check=True, capture_output=True, text=True, encoding="utf-8")
+        git("init", "-b", "main")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "core.autocrlf", "false")
+        (camp / "A.md").write_bytes(b"a1\n")
+        (camp / "B.md").write_bytes(b"b1\n")
+        git("add", ".")
+        git("commit", "-m", "v1")
+        (camp / "A.md").write_bytes(b"a2\n")
+        (camp / "B.md").write_bytes(b"b2\n")
+        (camp / "C.md").write_bytes(b"c1\n")
+        git("add", ".")
+        git("commit", "-m", "v2")
+        drive = self.root / "Campaign" / "К"
+        (drive / "archive" / "sessions").mkdir(parents=True)
+        (drive / "A.md").write_bytes(b"a1\r\n")                        # прежняя версия с CRLF: перезаписать
+        (drive / "B.md").write_bytes("правка игрока\n".encode("utf-8"))  # ручная правка: не трогать
+        (drive / "archive/sessions/S-new.md").write_bytes(b"new\n")    # только на Диске
+        identity = os.stat(drive / "A.md").st_ino
+
+        report = sync_chronicle(companion, self.root)
+
+        self.assertEqual(report["errors"], [])
+        self.assertEqual((drive / "A.md").read_bytes(), b"a2\n")
+        self.assertEqual(os.stat(drive / "A.md").st_ino, identity)
+        self.assertEqual((drive / "B.md").read_bytes(), "правка игрока\n".encode("utf-8"))
+        self.assertEqual((drive / "C.md").read_bytes(), b"c1\n")
+        self.assertEqual(report["modified_on_drive"], ["Campaign/К/B.md"])
+        self.assertEqual(report["only_on_drive"], ["Campaign/К/archive/sessions/S-new.md"])
+        self.assertEqual((drive / "archive/sessions/S-new.md").read_bytes(), b"new\n")
+        state = json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(state["campaign"]), ["Campaign/К/A.md", "Campaign/К/C.md"])
+
+        # Правка Диска поверх записанной версии: файл защищён.
+        (drive / "C.md").write_bytes(b"c-edit\n")
+        (camp / "C.md").write_bytes(b"c2\n")
+        git("commit", "-am", "v3")
+        self.assertEqual(sync_chronicle(companion, self.root)["modified_on_drive"], ["Campaign/К/B.md", "Campaign/К/C.md"])
+
+        # pipeline (sync_docs подменён: ему нужен origin) Campaign/ не пишет.
+        (drive / "A.md").write_bytes(b"a1\n")
+        with mock.patch("tools.gdrive_sync.sync_docs", return_value={"errors": []}) as docs:
+            result = sync_drive(self.root, self.tmp / "published", companion, scope=PIPELINE_SCOPE)
+        self.assertEqual(sorted(result), ["docs", "session", "status"])
+        docs.assert_called_once()
+        self.assertEqual((drive / "A.md").read_bytes(), b"a1\n")
+
+    def test_inbox_rejects_docs_prompts_templates(self) -> None:
+        """Ловит запись пакетом в docs/, prompts/, templates/ (источник - main) через префикс каталога кампании."""
+        companion = self.tmp / "companion"
+        (companion / "Campaign" / "К").mkdir(parents=True)
+        for directory in ("docs", "prompts", "templates"):
+            packet = self.tmp / f"{directory}.md"
+            packet.write_text(f"=== ФАЙЛ: {directory}/x.md ===\nа\n=== КОНЕЦ ===\n", encoding="utf-8")
+            with self.assertRaisesRegex(InboxError, f"{directory}/ не принимается"):
+                apply_packet(packet, companion)
 
 
 if __name__ == "__main__":

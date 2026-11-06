@@ -12,7 +12,7 @@
 |---|---|
 | `published/` | `manifest.json`, `brief.md`, `squad.md`, `changes.md`, `changes.json`, `timeline.jsonl` |
 | `published/screenshots/` | `index.md`, `index.json`, `feed.md` (при содержательном OCR), `screenshots_latest.pdf`, кадры выпуска и кадры дельты, не вошедшие в выпуск; кадры не удаляются при выходе из окна 7 суток |
-| `Campaign/<кампания>/` | зеркало зафиксированных `*.md` каталогов кампаний: рабочие документы, `archive/`, `archive/sessions/`, `archive/povest/`. Файлы с незакоммиченными правками пропускаются и перечисляются в отчёте, удалённые в репозитории на Диске остаются |
+| `Campaign/<кампания>/` | зеркало зафиксированных `*.md` каталогов кампаний: рабочие документы, `archive/`, `archive/sessions/`, `archive/povest/`. Рабочая копия игрока, правила в разделе «Campaign/: рабочая копия игрока» |
 | `tmp/inbox/` | пакеты `[итог]`, сохранённые из LLM, когда прямая запись в GitHub недоступна |
 | `tmp/checkpoints/` | контрольные точки `CP-n.md` незавершённой сессии; конвертер их не читает |
 | `tmp/processed/` | пакеты, принятые в GitHub `main` |
@@ -26,12 +26,22 @@ Drive for desktop связывает `file_id` с файлом. `os.remove`, `un
 ## Команды
 
 ```powershell
-python -m tools.campaign pipeline ... --sync-drive           # после публикации и доставки: сессия и канон
-python -m tools.campaign sync-drive [--scope all|session|chronicle] [--gdrive-dir <путь>]
+python -m tools.campaign pipeline ... --sync-drive           # после публикации и доставки: сессия и docs (без Campaign/)
+python -m tools.campaign sync-drive [--scope all|session|chronicle|docs] [--gdrive-dir <путь>]
 python -m tools.campaign ingest-inbox [--companion-dir <путь>] [--gdrive-dir <путь>]
 ```
 
 `Initialize-Pipeline.ps1` (хоткей) передаёт `--sync-drive`. В `pipeline` сбой Диска остаётся предупреждением. Несостоявшийся push доставки даёт `companion_delivery.status=partial` и код 1, но Диск при этом синхронизируется, а следующая доставка повторяет push; автономные `sync-drive` и `ingest-inbox` завершаются кодом 1, если синхронизация неполная или пакет отклонён.
+
+## Campaign/: рабочая копия игрока
+
+`Campaign/` на Диске - рабочая копия игрока: Gemini правит файлы на Диске, игрок переносит правки в GitHub вручную. Конвертер правки не перезаписывает.
+
+- `pipeline --sync-drive` синхронизирует `published/` (сессия) и `docs/`, `templates/`; `Campaign/` не трогает. Копирование `Campaign/` выполняется только явной `sync-drive --scope chronicle` (входит в `--scope all`).
+- Перед записью файла `Campaign/` проверяется Диск (сравнение после CRLF -> LF): файла нет - создаётся; совпадает с базой из `tmp/sync-state.json` (секция `campaign`, sha256 записанных версий) или с любой версией пути в истории клона - перезаписывается на месте версией из `main`; иначе - не трогается и попадает в отчёт `modified_on_drive` («изменены на Диске, не перенесены в GitHub»).
+- Файлы только на Диске (например, новые `S-*`) не трогаются и перечисляются в `only_on_drive`. Ничего не удаляется. Файлы клона с незакоммиченными правками пропускаются (`skipped_uncommitted`).
+- `docs/` и `templates/` - источник `main` (`--scope docs`): файл Диска, не совпадающий ни с одной версией пути в истории (после CRLF -> LF), копируется в `tmp/conflicts/` до перезаписи.
+- `prompts/` на Диск не копируется. `ingest-inbox` отклоняет пакет с путём в `docs/`, `prompts/`, `templates/` (причина в `rejected`); принимаются только `.md` внутри `Campaign/`.
 
 ## Приём входящих пакетов
 

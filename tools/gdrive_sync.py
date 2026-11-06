@@ -51,6 +51,8 @@ DOCS_FILES = (
 DOCS_REFERENCE_DIR = "docs/reference"
 CONFLICTS_DIR = "tmp/conflicts"
 SYNC_STATE = "tmp/sync-state.json"
+# Источник этих каталогов - main; пакет ingest-inbox их не меняет.
+NON_PACKET_DIRS = ("docs", "prompts", "templates")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 PACKET_SUFFIXES = {".md", ".txt"}
 
@@ -141,19 +143,80 @@ def _dirty_paths(companion_dir: Path, pathspec: str) -> set[Path]:
     return {(companion_dir / entry[3:]).resolve() for entry in status.stdout.split("\0") if len(entry) > 3}
 
 
+CRLF, LF = bytes((13, 10)), bytes((10,))
+
+
+def _normalized(data: bytes) -> bytes:
+    """Drive for desktop и Git по-разному хранят окончания строк: сравнение идёт после CRLF -> LF."""
+    return data.replace(CRLF, LF)
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(_normalized(data)).hexdigest()
+
+
+def _read_state(root: Path) -> dict[str, Any]:
+    path = root / SYNC_STATE
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _write_state(root: Path, state: dict[str, Any]) -> None:
+    write_in_place((json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + chr(10)).encode("utf-8"), root / SYNC_STATE)
+
+
 def sync_chronicle(companion_dir: Path, root: Path) -> dict[str, Any]:
-    """Зеркало зафиксированных Markdown-документов кампаний; непроверенные правки на Диск не уходят."""
+    """Файлы Campaign/ из зафиксированного клона на Диск; Диск - рабочая копия игрока, его правки не перезаписываются.
+
+    Существующий файл Диска перезаписывается на месте, только если он (после CRLF -> LF) совпадает с базой из
+    `tmp/sync-state.json` (секция `campaign`) или с любой версией пути в истории клона. Иначе он попадает в
+    `modified_on_drive` и не трогается. Файлы только на Диске перечисляются в `only_on_drive`. Ничего не удаляется.
+    """
     source = companion_dir / GDRIVE_CHRONICLE_DIR
+    report: dict[str, Any] = {"written": 0, "unchanged": 0, "errors": [], "skipped_uncommitted": [],
+                              "modified_on_drive": [], "only_on_drive": []}
     if not source.is_dir():
-        return {"written": 0, "unchanged": 0, "errors": [f"Каталог не найден: {GDRIVE_CHRONICLE_DIR}"]}
+        report["errors"].append(f"Каталог не найден: {GDRIVE_CHRONICLE_DIR}")
+        return report
     try:
         dirty = _dirty_paths(companion_dir, GDRIVE_CHRONICLE_DIR)
     except (subprocess.SubprocessError, OSError) as error:
-        return {"written": 0, "unchanged": 0, "errors": [f"git status: {error}"]}
-    target = root / GDRIVE_CHRONICLE_DIR
+        report["errors"].append(f"git status: {error}")
+        return report
+    target_dir = root / GDRIVE_CHRONICLE_DIR
     files = [path for path in sorted(source.glob("*/**/*.md")) if path.is_file() and not linked(path)]
-    report = _copy_all([(path, target / path.relative_to(source)) for path in files if path.resolve() not in dirty])
-    report["skipped_uncommitted"] = sorted(path.name for path in files if path.resolve() in dirty)
+    state = _read_state(root)
+    base: dict[str, str] = dict(state.get("campaign") or {})
+    for path in files:
+        relative = path.relative_to(companion_dir).as_posix()
+        if path.resolve() in dirty:
+            report["skipped_uncommitted"].append(path.name)
+            continue
+        target = root / relative
+        try:
+            data = path.read_bytes()
+            if target.is_file():
+                current = _digest(target.read_bytes())
+                if current != _digest(data) and current != base.get(relative) and current not in _history_hashes(companion_dir, relative):
+                    report["modified_on_drive"].append(relative)
+                    continue
+            report["written" if write_in_place(data, target) else "unchanged"] += 1
+            base[relative] = _digest(data)
+        except (GitSyncError, OSError) as error:
+            report["errors"].append(f"{path.name}: {error}")
+    known = {path.relative_to(companion_dir).as_posix() for path in files}
+    if target_dir.is_dir():
+        report["only_on_drive"] = sorted(
+            path.relative_to(root).as_posix() for path in target_dir.glob("*/**/*.md")
+            if path.is_file() and path.relative_to(root).as_posix() not in known)
+    state["campaign"] = base
+    try:
+        _write_state(root, state)
+    except OSError as error:
+        report["errors"].append(f"{SYNC_STATE}: {error}")
     return report
 
 
@@ -164,19 +227,15 @@ def _git_bytes(repo: Path, *args: str) -> bytes:
     return result.stdout
 
 
-def _blob_id(data: bytes) -> str:
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-
-
-def _history_blobs(repo: Path, path: str) -> set[str]:
-    """Блобы всех версий пути в истории `main`: байты Диска из этого набора - прежняя версия, а не ручная правка."""
+def _history_hashes(repo: Path, path: str) -> set[str]:
+    """sha256 (после CRLF -> LF) всех версий пути в истории `HEAD`: совпадение - прежняя версия, а не ручная правка."""
     commits = _git_bytes(repo, "log", "--format=%H", "HEAD", "--", path).decode("ascii").split()
-    blobs: set[str] = set()
+    hashes: set[str] = set()
     for commit in commits:
-        result = run_git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}")
+        result = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=str(repo), capture_output=True, check=False)
         if result.returncode == 0:
-            blobs.add(result.stdout.strip())
-    return blobs
+            hashes.add(_digest(result.stdout))
+    return hashes
 
 
 def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None) -> dict[str, Any]:
@@ -209,8 +268,8 @@ def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None) -> d
                 raise OSError("незакоммиченные правки в клоне")
             data = _git_bytes(companion_dir, "show", f"HEAD:{name}")
             target = root / name
-            if target.is_file() and target.read_bytes() != data:
-                if _blob_id(target.read_bytes()) not in _history_blobs(companion_dir, name):
+            if target.is_file() and _digest(target.read_bytes()) != _digest(data):
+                if _digest(target.read_bytes()) not in _history_hashes(companion_dir, name):
                     copy = root / CONFLICTS_DIR / f"{name.removesuffix('.md')}-{stamp}.md"
                     write_in_place(target.read_bytes(), copy)
                     report["conflicts"].append({"path": name, "copy": copy.relative_to(root).as_posix()})
@@ -221,8 +280,8 @@ def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None) -> d
         except (GitSyncError, OSError) as error:
             report["errors"].append(f"{name}: {error}")
     if not report["errors"]:
-        state = {"origin_main": origin, "files": hashes}
-        write_in_place((json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"), root / SYNC_STATE)
+        # Секция `campaign` принадлежит sync_chronicle и сохраняется.
+        _write_state(root, {**_read_state(root), "origin_main": origin, "files": hashes})
     return report
 
 
@@ -230,6 +289,10 @@ def ensure_buffer(root: Path) -> None:
     """Подкаталоги буфера: приём пакетов, контрольные точки незавершённой сессии, обработанные пакеты."""
     for name in (GDRIVE_INBOX_DIR, GDRIVE_CHECKPOINTS_DIR, GDRIVE_PROCESSED_DIR):
         (root / name).mkdir(parents=True, exist_ok=True)
+
+
+# pipeline синхронизирует сессию и docs; chronicle - только явной командой, Campaign/ на Диске - рабочая копия игрока.
+PIPELINE_SCOPE = "pipeline"
 
 
 def sync_drive(
@@ -242,11 +305,11 @@ def sync_drive(
         return {"status": "skipped", "reason": "gdrive_not_found"}
     ensure_buffer(root)
     result: dict[str, Any] = {"status": "synced"}
-    if scope in ("all", "session"):
+    if scope in ("all", "session", PIPELINE_SCOPE):
         result["session"] = sync_session(published_dir, root, archive_dir)
     if scope in ("all", "chronicle") and companion_dir is not None:
         result["chronicle"] = sync_chronicle(companion_dir, root)
-    if scope == "docs" and companion_dir is not None:
+    if scope in ("all", "docs", PIPELINE_SCOPE) and companion_dir is not None:
         result["docs"] = sync_docs(companion_dir, root)
     errors = [error for part in ("session", "chronicle", "docs") for error in result.get(part, {}).get("errors", [])]
     if errors:
@@ -317,7 +380,10 @@ def _resolve_target(kind: str, name: str, content: str, companion_dir: Path) -> 
         relative = f"{GDRIVE_CHRONICLE_DIR}/{campaign.group(1)}/archive/sessions/{name}.md"
     else:
         relative = name.replace("\\", "/")
-        if relative.split("/")[0] != GDRIVE_CHRONICLE_DIR:
+        head = relative.split("/")[0]
+        if head in NON_PACKET_DIRS:
+            raise InboxError(f"Каталог {head}/ не принимается пакетом (источник - main): {name}")
+        if head != GDRIVE_CHRONICLE_DIR:
             # Промпты задают пути от каталога кампании; при нескольких кампаниях цель неоднозначна.
             campaigns = [path.name for path in chronicle.iterdir() if path.is_dir()] if chronicle.is_dir() else []
             if len(campaigns) != 1:

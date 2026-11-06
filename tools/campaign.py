@@ -462,10 +462,10 @@ def main(argv: list[str] | None = None) -> int:
                 result["companion_delivery"] = deliv_res
             if getattr(args, "sync_drive", False) and not args.dry_run:
                 from tools.deliver_companion import companion_root
-                from tools.gdrive_sync import sync_drive
+                from tools.gdrive_sync import PIPELINE_SCOPE, sync_drive
                 try:
                     result["gdrive"] = sync_drive(cfg.gdrive_root, (args.published_dir or ROOT / "published").resolve(),
-                                                  companion_root(args.deliver_to))
+                                                  companion_root(args.deliver_to), scope=PIPELINE_SCOPE)
                 except Exception as sync_error:
                     # Основная публикация уже завершена: сбой Диска её не отменяет.
                     sys.stderr.buffer.write(f"WARNING: синхронизация Google Диска: {sync_error}\n".encode("utf-8"))
