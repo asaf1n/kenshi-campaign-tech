@@ -6,6 +6,7 @@ Drive for desktop хранит `file_id` за файлом: удаление и�
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,18 @@ SESSION_FILES = (
     "screenshots/feed.md",
     f"screenshots/{PDF_NAME}",
 )
+# Документы игрового профиля: те же относительные пути в клоне Kenshi-Compain и на Диске.
+DOCS_FILES = (
+    "docs/companion-guide.md",
+    "docs/session-protocol.md",
+    "docs/response-formatting.md",
+    "docs/Kenshi_sources.md",
+    "docs/Kenshi_RU_EN.md",
+    "templates/template-session.md",
+)
+DOCS_REFERENCE_DIR = "docs/reference"
+CONFLICTS_DIR = "tmp/conflicts"
+SYNC_STATE = "tmp/sync-state.json"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 PACKET_SUFFIXES = {".md", ".txt"}
 
@@ -144,6 +157,75 @@ def sync_chronicle(companion_dir: Path, root: Path) -> dict[str, Any]:
     return report
 
 
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    result = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, check=False)
+    if result.returncode != 0:
+        raise GitSyncError(f"git {args[0]}: {result.stderr.decode('utf-8', 'replace').strip()}")
+    return result.stdout
+
+
+def _blob_id(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _history_blobs(repo: Path, path: str) -> set[str]:
+    """Блобы всех версий пути в истории `main`: байты Диска из этого набора - прежняя версия, а не ручная правка."""
+    commits = _git_bytes(repo, "log", "--format=%H", "HEAD", "--", path).decode("ascii").split()
+    blobs: set[str] = set()
+    for commit in commits:
+        result = run_git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}")
+        if result.returncode == 0:
+            blobs.add(result.stdout.strip())
+    return blobs
+
+
+def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None) -> dict[str, Any]:
+    """Документы игрового профиля из `origin/main` на Диск: запись на месте, ручные правки Диска сохраняются в tmp/conflicts.
+
+    Файл Диска, не совпадающий ни с одной версией пути в истории `main`, копируется в `tmp/conflicts/` до перезаписи.
+    Ничего не удаляется. `tmp/sync-state.json` фиксирует SHA `origin/main` и sha256 записанного набора.
+    """
+    report: dict[str, Any] = {"written": 0, "unchanged": 0, "errors": [], "files_written": [], "files_unchanged": [],
+                              "conflicts": []}
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        sync_with_origin(companion_dir)
+        head = require_git(companion_dir, "rev-parse", "HEAD").strip()
+        origin = require_git(companion_dir, "rev-parse", "FETCH_HEAD").strip()
+        if head != origin:
+            raise GitSyncError("Клон опережает origin/main: сначала push, синхронизация документов не выполнена")
+        dirty = {path for pathspec in (DOCS_REFERENCE_DIR, "docs", "templates") for path in _dirty_paths(companion_dir, pathspec)}
+        names = sorted(set(DOCS_FILES) | {
+            line for line in require_git(companion_dir, "ls-tree", "-r", "--name-only", "HEAD", "--", DOCS_REFERENCE_DIR).splitlines()
+            if line.endswith(".md") and "/drafts/" not in line})
+    except (GitSyncError, subprocess.SubprocessError, OSError) as error:
+        report["errors"].append(str(error))
+        return report
+    report["origin_main"] = origin
+    hashes: dict[str, str] = {}
+    for name in names:
+        try:
+            if (companion_dir / name).resolve() in dirty:
+                raise OSError("незакоммиченные правки в клоне")
+            data = _git_bytes(companion_dir, "show", f"HEAD:{name}")
+            target = root / name
+            if target.is_file() and target.read_bytes() != data:
+                if _blob_id(target.read_bytes()) not in _history_blobs(companion_dir, name):
+                    copy = root / CONFLICTS_DIR / f"{name.removesuffix('.md')}-{stamp}.md"
+                    write_in_place(target.read_bytes(), copy)
+                    report["conflicts"].append({"path": name, "copy": copy.relative_to(root).as_posix()})
+            wrote = write_in_place(data, target)
+            report["written" if wrote else "unchanged"] += 1
+            report["files_written" if wrote else "files_unchanged"].append(name)
+            hashes[name] = hashlib.sha256(data).hexdigest()
+        except (GitSyncError, OSError) as error:
+            report["errors"].append(f"{name}: {error}")
+    if not report["errors"]:
+        state = {"origin_main": origin, "files": hashes}
+        write_in_place((json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"), root / SYNC_STATE)
+    return report
+
+
 def ensure_buffer(root: Path) -> None:
     """Подкаталоги буфера: приём пакетов, контрольные точки незавершённой сессии, обработанные пакеты."""
     for name in (GDRIVE_INBOX_DIR, GDRIVE_CHECKPOINTS_DIR, GDRIVE_PROCESSED_DIR):
@@ -164,7 +246,9 @@ def sync_drive(
         result["session"] = sync_session(published_dir, root, archive_dir)
     if scope in ("all", "chronicle") and companion_dir is not None:
         result["chronicle"] = sync_chronicle(companion_dir, root)
-    errors = [error for part in ("session", "chronicle") for error in result.get(part, {}).get("errors", [])]
+    if scope == "docs" and companion_dir is not None:
+        result["docs"] = sync_docs(companion_dir, root)
+    errors = [error for part in ("session", "chronicle", "docs") for error in result.get(part, {}).get("errors", [])]
     if errors:
         result["status"] = "partial"
         _warn(f"ошибки синхронизации Google Диска: {'; '.join(errors)}")

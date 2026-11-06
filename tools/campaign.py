@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 7.3. sync-drive
     drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
-    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle"), default="all")
+    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle", "docs"), default="all")
     drive_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
     drive_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")

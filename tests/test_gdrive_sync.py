@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from tools.config import find_gdrive_root
-from tools.gdrive_sync import ensure_buffer, ingest_inbox, sync_chronicle, sync_drive, sync_session, write_in_place
+from tools.gdrive_sync import DOCS_FILES, ensure_buffer, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -145,6 +145,53 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertFalse((self.root / "Campaign/Хроники/Черновик.md").exists())
         self.assertFalse((self.root / "Campaign/README.md").exists())
         self.assertIn("новый канон", (self.root / "Campaign/Хроники/Арка.md").read_text(encoding="utf-8"))
+
+    def test_sync_docs_conflict_copy_unchanged_and_repeat(self) -> None:
+        """Ловит потерю ручной правки Диска (нет копии в tmp/conflicts), запись прежней версии main поверх копии и
+        лишнюю запись при повторе."""
+        remote, companion = self.tmp / "remote.git", self.tmp / "companion"
+        (companion / "docs" / "reference").mkdir(parents=True)
+        (companion / "docs" / "reference" / "drafts").mkdir()
+        git = lambda *args, cwd=companion: subprocess.run(  # noqa: E731
+            ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8")
+        git("init", "--bare", "-b", "main", str(remote), cwd=self.tmp)
+        git("init", "-b", "main")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        (companion / "docs/companion-guide.md").write_text("v1\n", encoding="utf-8")
+        (companion / "docs/session-protocol.md").write_text("proto\n", encoding="utf-8")
+        (companion / "templates").mkdir()
+        for extra in ("docs/response-formatting.md", "docs/Kenshi_sources.md", "docs/Kenshi_RU_EN.md", "templates/template-session.md"):
+            (companion / extra).write_text(extra, encoding="utf-8")
+        (companion / "docs/reference/lore.md").write_text("lore\n", encoding="utf-8")
+        (companion / "docs/reference/drafts/x.md").write_text("draft\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-m", "v1")
+        (companion / "docs/companion-guide.md").write_text("v2\n", encoding="utf-8")
+        git("commit", "-am", "v2")
+        git("remote", "add", "origin", str(remote))
+        git("push", "-u", "origin", "main")
+        drive = self.root / "docs"
+        (drive / "reference").mkdir(parents=True)
+        (drive / "companion-guide.md").write_bytes(b"v1\n")       # прежняя версия main: не конфликт
+        (drive / "session-protocol.md").write_bytes(b"manual\n")   # ручная правка: конфликт
+        (drive / "reference/lore.md").write_bytes(b"lore\n")       # совпадает: не пишется
+        now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+        first = sync_docs(companion, self.root, now)
+        self.assertEqual(first["errors"], [])
+        self.assertEqual([item["path"] for item in first["conflicts"]], ["docs/session-protocol.md"])
+        self.assertEqual((self.root / "tmp/conflicts/docs/session-protocol-20260102T030405Z.md").read_bytes(), b"manual\n")
+        self.assertEqual(first["files_unchanged"], ["docs/reference/lore.md"])
+        self.assertEqual((drive / "companion-guide.md").read_bytes(), b"v2\n")
+        self.assertEqual((drive / "session-protocol.md").read_bytes(), b"proto\n")
+        self.assertFalse((drive / "reference/drafts").exists())
+        state = json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["origin_main"], git("rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(sorted(state["files"]), sorted((*DOCS_FILES, "docs/reference/lore.md")))
+
+        second = sync_docs(companion, self.root, now)
+        self.assertEqual((second["written"], second["conflicts"], second["errors"]), (0, [], []))
 
 
 if __name__ == "__main__":
