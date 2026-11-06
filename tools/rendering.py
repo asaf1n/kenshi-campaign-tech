@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 import html
 from typing import Any
 
+from tools.tables import cell
+
 
 def game_time_title(day: Any, time: Any) -> str:
     """Заголовок документа по игровому времени: `День 131, 15:06`; хеши снимков в заголовки не попадают."""
@@ -226,6 +228,15 @@ def render_brief(
                 t_str = ", ".join(f"{t.get('name')} ({t.get('faction')})" for t in town_reps)
                 lines.append(f"- **Переопределённые города:** {t_str}")
 
+    relations = (current.get("diplomacy") or {}).get("relations") or []
+    if relations:
+        # Сырые значения без классификации; trust и trust_neg - в tables/diplomacy.csv.
+        lines.extend(["", "## Отношения с фракциями (relation)"])
+        if publication:
+            lines.append("Значение relation из сохранения; полная таблица - [tables/diplomacy.csv](tables/diplomacy.csv).")
+        for rel in sorted(relations, key=lambda r: (str(r.get("faction_name") or ""), str(r.get("faction_sid") or ""))):
+            lines.append(f"- {rel.get('faction_name') or rel.get('faction_sid')}: {cell(rel.get('relation'))}")
+
     prop_data = current.get("property")
     storage_by_loc = prop_data.get("storage_by_location") if isinstance(prop_data, dict) else None
     if storage_by_loc:
@@ -397,6 +408,8 @@ def render_brief(
            "- [Индекс скриншотов (screenshots/index.md)](screenshots/index.md)"] if publication else []),
         "- [Детальные изменения (changes.json)](changes.json)",
         "- [Полный состав отряда (squad.md)](squad.md)",
+        *(["- [Табличные выгрузки: отряд, экипировка, склады, цены, состояние мира (tables/index.md)](tables/index.md)"]
+          if publication else []),
     ])
     if timeline is not None:
         lines.append("- [Журнал событий (timeline.jsonl)](timeline.jsonl)")

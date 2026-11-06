@@ -1,6 +1,8 @@
 """Проверка проектных схем Draft 2020-12 и валидация пакета публикации."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import math
 import os
@@ -480,6 +482,41 @@ def package_warnings(package_dir: Path) -> list[str]:
     return [TIMELINE_EMPTY_WARNING] if timeline.is_file() and timeline.stat().st_size == 0 else []
 
 
+def validate_tables(package_dir: Path, manifest: dict[str, Any]) -> None:
+    """tables/index.md: тот же снимок, перечисленные CSV существуют, число строк совпадает, посторонних CSV нет."""
+    from tools.tables import INDEX_ARTIFACT, INDEX_ROW_RE, INDEX_SNAPSHOT_RE
+
+    if manifest["artifacts"]["tables"] != INDEX_ARTIFACT:
+        raise PublicationValidationError(f"artifacts.tables обязан указывать на {INDEX_ARTIFACT}")
+    index_path = package_dir / INDEX_ARTIFACT
+    index_text = index_path.read_text(encoding="utf-8")
+    snapshot = INDEX_SNAPSHOT_RE.search(index_text)
+    if not snapshot or snapshot.group(1) != manifest.get("snapshot_id"):
+        raise PublicationValidationError("tables/index.md относится к другому снимку, чем manifest.json")
+    listed = dict(INDEX_ROW_RE.findall(index_text))
+    if not listed:
+        raise PublicationValidationError("tables/index.md не перечисляет ни одной таблицы")
+    for name, declared in listed.items():
+        path = package_dir / "tables" / name
+        if not path.is_file() or linked(path):
+            raise PublicationValidationError(f"Таблица {name} из tables/index.md не найдена в пакете")
+        raw = path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
+            raise PublicationValidationError(f"Таблица {name} должна быть UTF-8 без BOM с окончаниями строк LF")
+        rows = list(csv.reader(io.StringIO(raw.decode("utf-8"), newline="")))
+        if not rows:
+            raise PublicationValidationError(f"Таблица {name} пуста: нет строки заголовка")
+        if any(len(r) != len(rows[0]) for r in rows):
+            raise PublicationValidationError(f"Таблица {name}: число ячеек в строке не равно числу колонок")
+        if len(rows) - 1 != int(declared):
+            raise PublicationValidationError(
+                f"Таблица {name}: в файле {len(rows) - 1} строк, в tables/index.md указано {declared}"
+            )
+    extra = sorted(p.name for p in (package_dir / "tables").glob("*.csv") if p.name not in listed)
+    if extra:
+        raise PublicationValidationError(f"Таблицы не перечислены в tables/index.md: {', '.join(extra)}")
+
+
 def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = None) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     manifest_path = package_dir / "manifest.json"
@@ -534,6 +571,9 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             raise PublicationValidationError(f"Артефакт {art_key} не найден на диске: {rel_path}")
 
         checked_files.add(target_path)
+
+    if "tables" in artifacts:
+        validate_tables(package_dir, manifest)
 
     # 2. Семантические проверки current и changes
     current_path = package_dir / artifacts["current"]

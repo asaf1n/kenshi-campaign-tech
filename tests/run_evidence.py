@@ -265,6 +265,20 @@ def main() -> int:
         print(f"FAILED: unit: пропуски вне реестра допустимых: {unexpected}", file=sys.stderr)
         return 1
 
+    published = EVIDENCE_DIR / "published_test"
+    sys.path.insert(0, str(ROOT))
+    from tools.validation import PublicationValidationError, validate_publication
+
+    if not (published / "tables" / "index.md").is_file():
+        print(f"FAILED: в доказательном выпуске нет tables/index.md: {published}", file=sys.stderr)
+        return 1
+    try:
+        validate_publication(published)
+    except PublicationValidationError as error:
+        print(f"FAILED: доказательный выпуск с tables/ не прошёл валидацию: {error}", file=sys.stderr)
+        return 1
+    print(f"tables: {len(list((published / 'tables').glob('*.csv')))} CSV в доказательном выпуске")
+
     print("All evidence collected successfully.")
     return 0
 

@@ -16,7 +16,7 @@ DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
 DEFAULT_PUBLISHED_DIR = Path(__file__).resolve().parents[1] / "published"
 
 # Каталоги выпуска, которые синхронизируются целиком (устаревшие файлы внутри удаляются).
-SYNCED_DIRS = ("screenshots", "current", "extended")
+SYNCED_DIRS = ("screenshots", "current", "extended", "tables")
 # Корневые файлы прежних выпусков: удаляются в целевом репозитории, если в публикации их больше нет.
 LEGACY_ARTIFACTS = ("current.json",)
 

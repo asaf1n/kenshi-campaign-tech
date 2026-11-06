@@ -88,6 +88,9 @@
         },
         "screenshot_feed": {
           "$ref": "#/$defs/relativePath"
+        },
+        "tables": {
+          "$ref": "#/$defs/relativePath"
         }
       }
     },

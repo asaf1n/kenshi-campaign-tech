@@ -27,9 +27,24 @@ def _building_places(locations: dict[str, Any] | None) -> dict[str, dict[str, An
     return {b["building_key"]: b for b in (locations or {}).get("buildings", []) if b.get("building_key")}
 
 
+def zone_settlements(locations: dict[str, Any] | None, world_ref: dict[str, Any] | None) -> dict[str, str]:
+    """Зона карты -> поселение, если в зоне ровно одно название: из зданий и персонажей in_location (locations.json)
+    и из локаций справочника мира (поле zone). Зоны с несколькими названиями не разрешаются."""
+    names: dict[str, set[str]] = defaultdict(set)
+    for item in [*(locations or {}).get("buildings", []), *(locations or {}).get("characters", [])]:
+        loc = item.get("location")
+        if item.get("zone") and loc:
+            names[str(item["zone"])].add(loc.get("name_ru") or loc.get("name_en"))
+    for loc in (world_ref or {}).get("locations", []):
+        if loc.get("zone"):
+            names[str(loc["zone"])].add(loc.get("name_ru") or loc.get("name_en"))
+    return {z: next(iter(n)) for z, n in names.items() if len(n) == 1 and None not in n}
+
+
 def _settlement(b: dict[str, Any], zone: str | None, places: dict[str, dict[str, Any]],
-                parent: tuple[str | None, str] | None) -> tuple[str | None, str]:
-    """Название поселения и способ определения: in_location > town сейва > near_location > зона (запасной ключ)."""
+                parent: tuple[str | None, str] | None,
+                zone_places: dict[str, str] | None = None) -> tuple[str | None, str]:
+    """Название поселения и способ определения: in_location > town сейва > near_location > поселение родителя > zone_location > зона."""
     place = places.get(f"{zone}:{b.get('id')}") if zone else None
     loc = (place or {}).get("location")
     if loc:
@@ -41,6 +56,8 @@ def _settlement(b: dict[str, Any], zone: str | None, places: dict[str, dict[str,
         return nearby[0].get("name_ru") or nearby[0].get("name_en"), "near_location"
     if parent and parent[0]:
         return parent
+    if zone and (zone_places or {}).get(zone):
+        return zone_places[zone], "zone_location"
     return None, "zone"
 
 
@@ -53,6 +70,7 @@ def storage_rows(
     buildings: list[dict[str, Any]],
     locations: dict[str, Any] | None = None,
     game_index: dict[str, list[Any]] | None = None,
+    zone_places: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Строки склада «поселение, здание, контейнер, предмет, количество, базовая цена» и список всех зданий.
 
@@ -67,7 +85,7 @@ def storage_rows(
 
     def walk(b: dict[str, Any], parent: tuple[str | None, str] | None, parent_zone: str | None) -> None:
         zone = b.get("zone") or parent_zone
-        settlement, how = _settlement(b, zone, places, parent)
+        settlement, how = _settlement(b, zone, places, parent, zone_places)
         label = b.get("name") or b.get("template_name") or b.get("template") or "Здание"
         nodes.append({"settlement": settlement, "settlement_status": how, "zone": zone,
                       "building_id": b.get("id"), "building": label})
@@ -107,9 +125,10 @@ def aggregate_storage_by_location(
     buildings: list[dict[str, Any]],
     locations: dict[str, Any] | None = None,
     game_index: dict[str, list[Any]] | None = None,
+    zone_places: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Складские запасы по поселениям; без поселения ключ - зона с пометкой."""
-    rows, nodes = storage_rows(buildings, locations, game_index)
+    rows, nodes = storage_rows(buildings, locations, game_index, zone_places)
 
     def key(settlement: str | None, zone: str | None) -> str:
         return settlement or ZONE_KEY_FORMAT.format(zone=zone)

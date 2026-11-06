@@ -26,9 +26,10 @@ from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_ind
 from tools.io_utils import canonical, digest, linked, read_json
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
+from tools.tables import INDEX_ARTIFACT, TABLES_DIR, build_tables, load_game_data
 from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
 from tools.validation import TIMELINE_EMPTY_WARNING, validate_publication
-from tools.world_context import aggregate_storage_by_location
+from tools.world_context import aggregate_storage_by_location, zone_settlements
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -155,6 +156,7 @@ def publish(
     timeline_path: Path | None = None,
     sessions_root: Path | None = None,
     screens_dir: Path | None = None,
+    game_cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = snapshots_dir.resolve()
     diffs_dir = diffs_dir.resolve()
@@ -330,10 +332,12 @@ def publish(
     )
 
     # Склады по поселениям требуют разрешённых локаций, которых нет при извлечении снимка.
+    # Справочник игры для набора модов снимка: имена и цены складов, шаблоны предметов, реакции мира.
+    game_index, game_records, game_notes = load_game_data(cur, game_cache_dir or ROOT / "data/cache")
     cur_property = cur.get("property")
     if isinstance(cur_property, dict) and cur_property.get("buildings"):
         cur_property["storage_by_location"] = aggregate_storage_by_location(
-            cur_property["buildings"], locations_data,
+            cur_property["buildings"], locations_data, game_index, zone_settlements(locations_data, w_ref),
         )
 
     # Сохраняем промежуточный результат в data/locations/<snapshot_id>.json
@@ -400,6 +404,7 @@ def publish(
     from tools.changes_render import render_changes_md
 
     squad_md = render_squad(cur, snapshot_id, locations=locations_data)
+    table_files = build_tables(cur, locations_data, snapshot_id, game_index, game_records, game_notes, w_ref)
     changes_md = render_changes_md(diff_data, chain_steps)
 
     manifest_data = {
@@ -424,6 +429,7 @@ def publish(
             "locations": "locations.json",
             "world_reference": "world_reference.json",
             "timeline": "timeline.jsonl",
+            "tables": INDEX_ARTIFACT,
         },
         "validation": {
             "status": "passed",
@@ -622,6 +628,7 @@ def publish(
     )
 
     publication_warnings: list[str] = [hud_warning] if hud_warning else []
+    publication_warnings += [f"tables: {note}" for note in game_notes]
     lock_file = Path(tempfile.gettempdir()) / f"kenshi_{published_dir.name}.lock"
     staging_dir = published_dir.parent / f"{published_dir.name}.staging"
     backup_dir = published_dir.parent / f"{published_dir.name}.backup"
@@ -659,6 +666,9 @@ def publish(
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
+            (staging_dir / TABLES_DIR).mkdir(parents=True, exist_ok=True)
+            for table_name, table_bytes in table_files.items():
+                (staging_dir / TABLES_DIR / table_name).write_bytes(table_bytes)
 
             if screenshots_index_data is not None:
                 sc_staging = staging_dir / "screenshots"
@@ -707,6 +717,11 @@ def publish(
                     (published_dir / name).is_file() and unchanged(name)
                     for name in manifest_data["artifacts"].values()
                 )
+                if same_files:
+                    published_tables = published_dir / TABLES_DIR
+                    same_files = published_tables.is_dir() and {
+                        p.name: p.read_bytes() for p in published_tables.iterdir() if p.is_file()
+                    } == table_files
                 if screenshots_index_data is not None and same_files:
                     pub_sc_dir = published_dir / "screenshots"
                     staging_sc_dir = staging_dir / "screenshots"
