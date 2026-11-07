@@ -42,7 +42,7 @@
 
 Из `game` исключены константой `UNIT_REFERENCE_TABLES` семь таблиц справочника юнитов: `unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv` (около 1,15 млн символов; маска `tables/*.csv` их совпала бы). Решение пользователя: пока не входят; включение - осознанное (правка `UNIT_REFERENCE_TABLES` и повторный `sync-drive`). Таблицы остаются в `published/tables/` и доставляются в GitHub.
 
-Не входят ни в один профиль: JSON, отдельные `.jpg`, `README.md`, `prompts/`, `sites/`, `docs/setup-decision.md`. `docs/chronicler-guide.md` только в `chronicle`, `archive/` только в `chronicle`.
+Не входят ни в один профиль: JSON, отдельные `.jpg`, `README.md`, `prompts/`, `sites/`. `docs/chronicler-guide.md` только в `chronicle`, `archive/` только в `chronicle`.
 
 `squad.md` остаётся в `game`: таблицы `tables/*.csv` не покрывают инвентарь и содержимое рюкзака (`Инвентарь`), пояс, рюкзак как предмет и счётчик «Количество участников» отряда; навыки со значением <= 0 в `squad.md` скрыты, в CSV выгружаются; `Работы (отключены)` есть в `squad.csv` как `jobs_enabled`.
 
