@@ -11,8 +11,8 @@ import unittest
 from unittest import mock
 
 from tools.config import find_gdrive_root
-from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, ensure_buffer,
-                               expand_profile, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place)
+from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, build_plan, ensure_buffer,
+                               expand_profile, plan_prune, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place)
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -83,6 +83,28 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(expand_profile(PROFILE_CHRONICLE, pool), sorted([
             "Campaign/К/Kenshi_Хронология.md", "Campaign/К/archive/Kenshi_Библия.md", "Campaign/К/archive/novel/Повесть.md",
             "Campaign/К/archive/sessions/S-1.md", "docs/chronicler-guide.md", "docs/Kenshi_sources.md"]))
+
+    def test_profile_chars_report_and_os_junk(self) -> None:
+        """Ловит неверную сортировку/сумму символов (UTF-8 символы, не байты; PDF и отсутствующие вне суммы) и
+        попадание desktop.ini/Thumbs.db в состав профиля и outside_set."""
+        published = self.tmp / "published"
+        (published / "screenshots").mkdir(parents=True)
+        (published / "brief.md").write_text("абв", encoding="utf-8")
+        (published / "squad.md").write_text("a" * 10, encoding="utf-8")
+        (published / "desktop.ini").write_text("junk", encoding="utf-8")
+        (published / "screenshots" / "screenshots_latest.pdf").write_bytes(b"%PDF")
+        (self.root / "published").mkdir()
+        (self.root / "published" / "Thumbs.db").write_bytes(b"x")
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "desktop.ini").write_text("junk", encoding="utf-8")
+        plan = build_plan(published, None, self.root)
+        game = plan["profiles"]["game"]
+        self.assertEqual([(i["path"], i["chars"]) for i in game["files_chars"]],
+                         [("published/squad.md", 10), ("published/brief.md", 3),
+                          ("published/screenshots/screenshots_latest.pdf", None)])
+        self.assertEqual(game["total_chars"], 13)
+        self.assertNotIn("published/desktop.ini", game["files"])
+        self.assertEqual(plan_prune(self.root, plan, {}, None, ("published", "docs"))[1], [])
 
     def test_chronicle_mirror_and_inbox_packets(self) -> None:
         """Ловит запись вне Campaign/, частичное применение пакета и перезапись неизменяемого артефакта сессии."""

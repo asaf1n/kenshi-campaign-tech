@@ -42,6 +42,8 @@ DOCS_REFERENCE_DIR = "docs/reference"
 PUBLISHED_PREFIX = f"{GDRIVE_SESSION_DIR}/"
 # Ориентир числа источников блокнота (лимит Gemini Notebook - 50); превышение - предупреждение, а не отказ.
 PROFILE_FILE_LIMIT = 30
+OS_JUNK_NAMES = frozenset({"desktop.ini", "thumbs.db"})
+CHARS_TOP = 10
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,11 @@ _END = "КОНЕЦ"
 
 class InboxError(ValueError):
     """Пакет отклонён целиком и остаётся во входящих."""
+
+
+def is_os_junk(name: str) -> bool:
+    """Служебные файлы ОС (desktop.ini, Thumbs.db) не входят ни в планы, ни в отчёт, ни в удаление."""
+    return name.lower() in OS_JUNK_NAMES
 
 
 def _warn(message: str) -> None:
@@ -198,7 +205,7 @@ def _published_candidates(published_dir: Path) -> list[str]:
     if not published_dir.is_dir():
         return []
     return [PUBLISHED_PREFIX + path.relative_to(published_dir).as_posix()
-            for path in published_dir.rglob("*") if path.is_file()]
+            for path in published_dir.rglob("*") if path.is_file() and not is_os_junk(path.name)]
 
 
 def sync_session(published_dir: Path, root: Path, entries: list[tuple[str, str]] | None = None,
@@ -404,6 +411,32 @@ def _base(root: Path, profile: Profile) -> Path:
     return root / root_dir if root_dir else root
 
 
+def _file_chars(relative: str, on_drive: str, published_dir: Path, companion_dir: Path | None, ref: str,
+                root: Path, repo_set: set[str]) -> dict[str, Any]:
+    """`{path, chars}`: len(текст UTF-8) источника, который уйдёт на Диск; PDF/бинарный - None, отсутствующий - None."""
+    item: dict[str, Any] = {"path": on_drive, "chars": None}
+    if relative.lower().endswith(".pdf"):
+        item["note"] = "binary"
+        return item
+    try:
+        local = published_dir / relative.removeprefix(PUBLISHED_PREFIX)
+        if relative.startswith(PUBLISHED_PREFIX) and local.is_file():
+            data = local.read_bytes()
+        elif companion_dir is not None and not relative.startswith(PUBLISHED_PREFIX) and relative in repo_set:
+            data = _git_bytes(companion_dir, "show", f"{ref}:{relative}")
+        elif (root / relative).is_file():
+            data = (root / relative).read_bytes()
+        else:
+            item["note"] = "missing_locally"
+            return item
+        item["chars"] = len(data.decode("utf-8"))
+    except UnicodeDecodeError:
+        item["note"] = "binary"
+    except (GitSyncError, OSError):
+        item["note"] = "unreadable"
+    return item
+
+
 def build_plan(published_dir: Path, companion_dir: Path | None, root: Path, ref: str = "HEAD",
                profiles: tuple[Profile, ...] = PROFILES) -> dict[str, Any]:
     """Состав профилей: пары источник -> Диск, списки файлов профилей, отсутствующие точные пути и репозиторные файлы.
@@ -415,21 +448,29 @@ def build_plan(published_dir: Path, companion_dir: Path | None, root: Path, ref:
     published = _published_candidates(published_dir)
     repo = _companion_files(companion_dir, ref) if companion_dir is not None else []
     entries = profile_entries([*published, *repo], MANAGED_PREFIXES, profiles)
+    repo_set = set(repo)
     listing: dict[str, Any] = {}
     in_set: set[str] = set()
     missing: set[str] = set()
     for profile in profiles:
         base = _base(root, profile)
         campaign = base / GDRIVE_CHRONICLE_DIR
-        on_drive = ([path.relative_to(base).as_posix() for path in campaign.rglob("*.md") if path.is_file()]
+        on_drive = ([path.relative_to(base).as_posix() for path in campaign.rglob("*.md")
+                    if path.is_file() and not is_os_junk(path.name)]
                     if campaign.is_dir() else [])
         pool = {*published, *repo, *on_drive}
-        files = [drive_path(profile, relative) for relative in expand_profile(profile, pool)]
+        relatives = expand_profile(profile, pool)
+        files = [drive_path(profile, relative) for relative in relatives]
         in_set.update(files)
+        files_chars = sorted(
+            (_file_chars(relative, drive_path(profile, relative), published_dir, companion_dir, ref, root, repo_set)
+             for relative in relatives),
+            key=lambda item: (item["chars"] is None, -(item["chars"] or 0), item["path"]))
         missing.update(pattern for pattern in profile.include if "*" not in pattern and pattern not in pool)
         listing[profile.name] = {
             "title": profile.title, "root_dir": profile.root_dir, "count": len(files), "limit": PROFILE_FILE_LIMIT,
             "over_limit": len(files) > PROFILE_FILE_LIMIT, "files": files,
+            "files_chars": files_chars, "total_chars": sum(item["chars"] or 0 for item in files_chars),
             # Файлы профиля с root_dir получают новые file_id: источники блокнота подключаются заново.
             "relink": files if profile.root_dir.strip("/") else [],
         }
@@ -461,7 +502,7 @@ def plan_prune(root: Path, plan: dict[str, Any], state: dict[str, Any], archive_
                 continue
             covered = any(path.startswith(drive_path(profile, f"{area}/")) for path in plan["in_set"])
             for path in sorted(top.rglob("*")):
-                if not path.is_file():
+                if not path.is_file() or is_os_junk(path.name):
                     continue
                 on_drive = path.relative_to(root).as_posix()
                 relative = path.relative_to(base).as_posix()
@@ -552,6 +593,10 @@ def sync_drive(
     for name, profile in plan["profiles"].items():
         if profile["over_limit"]:
             _warn(f"профиль {name}: {profile['count']} файлов, ориентир {profile['limit']}")
+        _warn(f"профиль {name}: всего {profile['total_chars']} символов; топ-{CHARS_TOP}")
+        for item in profile["files_chars"][:CHARS_TOP]:
+            _warn(f"  {item['chars'] if item['chars'] is not None else '-'}\t{item['path']}"
+                  + (f" ({item['note']})" if item.get("note") else ""))
     if errors:
         result["status"] = "partial"
         _warn(f"ошибки синхронизации Google Диска: {'; '.join(errors)}")
