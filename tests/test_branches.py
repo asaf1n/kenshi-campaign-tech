@@ -290,7 +290,7 @@ class BranchAndIndexTests(unittest.TestCase):
         hashes_after_b = _hash_directory(self.published_dir)
         self.assertIn("manifest.json", hashes_after_b)
         self.assertIn("extended/current.json", hashes_after_b)
-        self.assertIn("current/index.json", hashes_after_b)
+        self.assertNotIn("current/index.json", hashes_after_b)
         self.assertIn("changes.json", hashes_after_b)
         self.assertIn("locations.json", hashes_after_b)
 

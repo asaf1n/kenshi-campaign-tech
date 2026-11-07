@@ -180,7 +180,6 @@ def test_chatgpt_channel_and_freshness(
     required_bundle = [
         "manifest.json",
         "extended/current.json",
-        "current/index.json",
         "changes.json",
         "locations.json",
         "world_reference.json",

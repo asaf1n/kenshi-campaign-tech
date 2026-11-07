@@ -421,7 +421,6 @@ def publish(
         "source_sha256": source_sha256,
         "artifacts": {
             "current": "extended/current.json",
-            "current_index": "current/index.json",
             "changes": "changes.json",
             "changes_md": "changes.md",
             "brief": "brief.md",
@@ -644,13 +643,11 @@ def publish(
             gitkeep_bytes = gitkeep_path.read_bytes() if gitkeep_path.is_file() else b""
             (staging_dir / ".gitkeep").write_bytes(gitkeep_bytes)
 
-            from tools.current_layers import build_layers, public_projection
+            from tools.current_layers import public_projection
 
-            projected = public_projection(cur)
-            layer_files = {"extended/current.json": canonical(projected), **build_layers(projected)}
-            for rel_path, data in layer_files.items():
-                (staging_dir / rel_path).parent.mkdir(parents=True, exist_ok=True)
-                (staging_dir / rel_path).write_bytes(data)
+            # Staging собирается с нуля и заменяет published/ целиком: устаревший current/ не переносится.
+            (staging_dir / "extended").mkdir(parents=True, exist_ok=True)
+            (staging_dir / "extended/current.json").write_bytes(canonical(public_projection(cur)))
             (staging_dir / "changes.json").write_bytes(canonical(diff_data))
             (staging_dir / "changes.md").write_text(changes_md, encoding="utf-8")
             previous_locations_path = published_dir / "locations.json"

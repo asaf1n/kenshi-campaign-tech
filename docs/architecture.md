@@ -13,7 +13,7 @@ immutable snapshots / branches / events ledger
         |
 locator + renderer + screenshots collector + atomic publisher
         |
-published/{manifest.json,extended/current.json,current/{index.json,characters/,bases/,*.json},changes.json,locations.json,
+published/{manifest.json,extended/current.json,changes.json,locations.json,
            world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,changes.md,
            tables/{index.md + 17 CSV: отряд, экипировка, склады, цены, торговые записи, NPC, Town Overrides, дипломатия,
                    реакции мира, справочник юнитов},

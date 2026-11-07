@@ -29,7 +29,7 @@
 | `docs/`, `templates/` | руководства, справочники и шаблон сессии по профилям |
 | `tmp/inbox/`, `tmp/checkpoints/`, `tmp/processed/`, `tmp/conflicts/`, `tmp/sync-state.json` | служебные (смонтированный Диск): пакеты `[итог]`, контрольные точки `CP-n.md`, принятые пакеты, копии правок Диска, состояние синхронизации; в наборы не входят, не удаляются |
 
-Шарды `current/`, `extended/`, `locations.json`, `world_reference.json`, `manifest.json`, `changes.json`, `timeline.jsonl`, `screenshots/index.json`, `annotations.jsonl` и кадры `.jpg` на Диск не копируются. Подкаталоги `tmp/` создаются автоматически.
+`extended/`, `locations.json`, `world_reference.json`, `manifest.json`, `changes.json`, `timeline.jsonl`, `screenshots/index.json`, `annotations.jsonl` и кадры `.jpg` на Диск не копируются. Подкаталоги `tmp/` создаются автоматически.
 
 ## Профили
 

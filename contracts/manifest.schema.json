@@ -54,7 +54,9 @@
           "$ref": "#/$defs/relativePath"
         },
         "current_index": {
-          "$ref": "#/$defs/relativePath"
+          "$ref": "#/$defs/relativePath",
+          "deprecated": true,
+          "description": "Устарел: каталог current/ не публикуется; ключ допускается только в манифестах прежних выпусков."
         },
         "changes": {
           "$ref": "#/$defs/relativePath"

@@ -402,7 +402,6 @@ def render_brief(
     lines.extend([
         "",
         "## Связанные артефакты",
-        "- [Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)",
         "- [Расширенный снимок (extended/current.json): читать только выборочно](extended/current.json)",
         *(["- [Сводка изменений и промежуточных снимков (changes.md)](changes.md)",
            "- [Индекс скриншотов (screenshots/index.md)](screenshots/index.md)"] if publication else []),

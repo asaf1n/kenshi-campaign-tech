@@ -517,6 +517,23 @@ def validate_tables(package_dir: Path, manifest: dict[str, Any]) -> None:
         raise PublicationValidationError(f"Таблицы не перечислены в tables/index.md: {', '.join(extra)}")
 
 
+# Верхний предел текстовых файлов стартового набора (manifest, brief, squad, changes), символов.
+START_SET_LIMIT_CHARS = 140_000
+
+
+def validate_start_set_size(package_dir: Path, artifacts: dict[str, str]) -> None:
+    """Стартовый набор (manifest, brief, squad, changes) укладывается в START_SET_LIMIT_CHARS."""
+    total = 0
+    for name in ("manifest.json", artifacts.get("brief"), artifacts.get("squad"), artifacts.get("changes")):
+        path = package_dir / name if name else None
+        if path is not None and path.is_file():
+            total += len(path.read_text(encoding="utf-8"))
+    if total > START_SET_LIMIT_CHARS:
+        raise PublicationValidationError(
+            f"Стартовый набор (manifest, brief, squad, changes) превышает лимит: {total} > {START_SET_LIMIT_CHARS} символов"
+        )
+
+
 def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = None) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     manifest_path = package_dir / "manifest.json"
@@ -586,10 +603,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     if changes.get("format") != "kenshi-session-diff/5":
         raise PublicationValidationError(f"Некорректный формат changes.json: {changes.get('format')}")
 
-    if "current_index" in artifacts:
-        from tools.current_layers import validate_layers
-
-        validate_layers(package_dir, artifacts, current, PublicationValidationError)
+    validate_start_set_size(package_dir, artifacts)
 
     to_ref = changes.get("to") or {}
     if to_ref.get("snapshot_id") != manifest.get("snapshot_id"):

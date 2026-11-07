@@ -208,6 +208,28 @@ class PublishTests(unittest.TestCase):
         publish(**kwargs)  # предупреждение не нарушает идемпотентность выпуска
         self.assertEqual((self.published_dir / "manifest.json").read_bytes(), manifest_bytes)
 
+    def test_publish_has_no_current_dir_and_legacy_manifest_stays_valid(self) -> None:
+        """Публикация не создаёт current/ и удаляет устаревший; манифест без current_index валиден, прежний с ним тоже."""
+        snap_id = "snap-nocurrent"
+        _create_sample_snapshot(self.snapshots_dir, snap_id)
+        (self.published_dir / "current").mkdir()
+        (self.published_dir / "current/index.json").write_text("{}", encoding="utf-8")
+        publish(snapshot_id=snap_id, snapshots_dir=self.snapshots_dir, diffs_dir=self.diffs_dir,
+                published_dir=self.published_dir)
+
+        self.assertFalse((self.published_dir / "current").exists())
+        manifest_path = self.published_dir / "manifest.json"
+        manifest = read_json(manifest_path.read_bytes())
+        self.assertNotIn("current_index", manifest["artifacts"])
+        self.assertEqual(validate_publication(self.published_dir)["status"], "passed")
+
+        (self.published_dir / "current").mkdir()
+        (self.published_dir / "current/index.json").write_text("{}", encoding="utf-8")
+        legacy = copy.deepcopy(manifest)
+        legacy["artifacts"]["current_index"] = "current/index.json"
+        manifest_path.write_bytes(canonical(legacy))
+        self.assertEqual(validate_publication(self.published_dir)["status"], "passed")
+
     def test_ac09_package_validation_and_rejected_escapes(self) -> None:
         """AC-09: валидация пакета, отвержение невалидных путей/ссылок/выходов за пределы."""
         snap_id = "snap-val"
@@ -308,7 +330,8 @@ class PublishTests(unittest.TestCase):
         self.assertIn("Хот Лон", brief1)
         self.assertIn("Кан", brief1)
         # Ссылки на артефакты
-        self.assertIn("[Индекс шардов состояния: бойцы, поселения, мир (current/index.json)](current/index.json)", brief1)
+        self.assertNotIn("current/index.json", brief1)
+        self.assertIn("(extended/current.json)", brief1)
         self.assertIn("[Детальные изменения (changes.json)](changes.json)", brief1)
         self.assertIn("[Полный состав отряда (squad.md)](squad.md)", brief1)
         # Сведения о местоположении: «не получено» в fallback-режиме без locations
