@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import io
 import json
 import os
 from pathlib import Path
@@ -12,9 +13,10 @@ from unittest import mock
 
 from tests.test_gdrive_native import FakeGoogle, make_native
 from tools.config import find_gdrive_root
-from tools.gdrive_native import DOC_MIME
-from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, build_plan, ensure_buffer,
-                               expand_profile, plan_prune, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place)
+from tools.campaign import main as campaign_main
+from tools.gdrive_native import DOC_MIME, GoogleApi, NativeUnavailable
+from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, build_plan, drive_outcome, ensure_buffer,
+                               expand_profile, plan_prune, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_drive_soft, sync_session, write_in_place)
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -161,7 +163,7 @@ class GDriveSyncTests(unittest.TestCase):
             "=== ВЫГРУЗКА S-20261103-1 ===\n---\ncampaign: Хроники\n---\n=== ФАЙЛ: Вложенный.md ===\nа\n=== КОНЕЦ ===\n", encoding="utf-8")
         (inbox / "note.txt").write_text("обычная заметка", encoding="utf-8")
 
-        report = ingest_inbox(self.root, companion, now=datetime(2026, 11, 4, 12, 0, tzinfo=timezone.utc))
+        report = ingest_inbox(self.root, companion, now=datetime(2026, 11, 4, 12, 0, tzinfo=timezone.utc), sync=False)
 
         self.assertEqual([item["packet"] for item in report["processed"]], ["good.md", "short.md"])
         self.assertEqual(report["processed"][0]["manual"], ["ПРАВКИ: Арка.md"])
@@ -187,11 +189,11 @@ class GDriveSyncTests(unittest.TestCase):
         for name in ("escape", "immutable", "bypass", "cut", "partial", "tail", "typo", "nested"):
             (inbox / f"{name}.md").unlink()
         git("remote", "set-url", "--push", "origin", str(self.tmp / "absent.git"))
-        failed = ingest_inbox(self.root, companion)
+        failed = ingest_inbox(self.root, companion, sync=False)
         self.assertEqual([item["packet"] for item in failed["rejected"]], ["later.md"])
         self.assertTrue((inbox / "later.md").is_file())
         git("remote", "set-url", "--push", "origin", str(remote))
-        self.assertEqual([item["packet"] for item in ingest_inbox(self.root, companion)["processed"]], ["later.md"])
+        self.assertEqual([item["packet"] for item in ingest_inbox(self.root, companion, sync=False)["processed"]], ["later.md"])
 
         (companion / "Campaign/Хроники/Черновик.md").write_text("не зафиксировано\n", encoding="utf-8")
         fake = FakeGoogle()
@@ -428,6 +430,156 @@ class GDriveSyncTests(unittest.TestCase):
             packet.write_text(f"=== ФАЙЛ: {directory}/x.md ===\nа\n=== КОНЕЦ ===\n", encoding="utf-8")
             with self.assertRaisesRegex(InboxError, f"{directory}/ не принимается"):
                 apply_packet(packet, companion)
+
+
+ARC = "# Арка\n\n## Начало\n" + "строка канона\n" * 20 + "\n## Финал\n" + "конец арки\n" * 20
+SESSIONS = "Campaign/Хроники/archive/sessions"
+
+
+def _block(path: str, body: str) -> str:
+    return f"=== ФАЙЛ: {path} ===\n{body}=== КОНЕЦ ===\n"
+
+
+class InboxGuardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.tmp = Path(holder.name)
+        self.root = self.tmp / "drive"
+        self.remote = self.tmp / "remote.git"
+        self.companion = self.tmp / "companion"
+        self.chronicle = self.companion / "Campaign" / "Хроники"
+        self.chronicle.mkdir(parents=True)
+        (self.chronicle / "Kenshi_Хронология.md").write_text(ARC, encoding="utf-8")
+        self.git("init", "--bare", "-b", "main", str(self.remote), cwd=self.tmp)
+        self.git("init", "-b", "main")
+        self.git("config", "user.name", "test")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("add", ".")
+        self.git("commit", "-m", "init")
+        self.git("remote", "add", "origin", str(self.remote))
+        self.git("push", "-u", "origin", "main")
+        ensure_buffer(self.root)
+        self.inbox = self.root / "tmp/inbox"
+
+    def git(self, *args: str, cwd: Path | None = None) -> str:
+        return subprocess.run(["git", *args], cwd=str(cwd or self.companion), check=True, capture_output=True,
+                              text=True, encoding="utf-8").stdout.strip()
+
+    def ingest(self, body: str, **kwargs):
+        (self.inbox / "p.md").write_text(body, encoding="utf-8")
+        kwargs.setdefault("sync", False)
+        return ingest_inbox(self.root, self.companion, **kwargs)
+
+    def test_each_guard_rejects_without_writing(self) -> None:
+        """Ловит приём урезанного файла, потерю заголовков ##, ссылок-обёрток Google, URL на файлы репозитория и
+        S-* без frontmatter campaign: отклонённый пакет не пишет в клон, не коммитится и остаётся во входящих."""
+        chronicle = "Campaign/Хроники/Kenshi_Хронология.md"
+        cases = [
+            ("короче версии", _block(chronicle, "# Арка\n\n## Начало\nстрока\n\n## Финал\nконец\n")),
+            ("потеряны заголовки", _block(chronicle, ARC.replace("## Финал", "### Финал"))),
+            ("ссылка-обёртка Google", _block(chronicle, ARC + "[x](https://www.google.com/search?q=kenshi)\n")),
+            ("ссылка-обёртка Google", _block(chronicle, ARC + "https://www.google.com/url?q=https://example.org\n")),
+            ("URL на файл репозитория", _block(chronicle, ARC + "https://github.com/asaf1n/Kenshi-Compain/blob/main/docs/x.md\n")),
+            ("URL на файл репозитория", _block(chronicle, ARC + "https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/main/x.md\n")),
+            ("без frontmatter", _block(f"{SESSIONS}/S-20261105-1.md", "текст без frontmatter\n")),
+        ]
+        head = self.git("rev-parse", "HEAD")
+        for expected, body in cases:
+            with self.subTest(expected=expected, body=body[-60:]):
+                report = self.ingest(body)
+                self.assertEqual((report["processed"], len(report["rejected"])), ([], 1))
+                self.assertIn(expected, " ".join(report["rejected"][0]["files"][0]["reasons"]))
+                self.assertEqual(self.git("rev-parse", "HEAD"), head)
+                self.assertEqual(self.git("status", "--porcelain"), "")
+                self.assertTrue((self.inbox / "p.md").is_file())
+                self.assertEqual((self.chronicle / "Kenshi_Хронология.md").read_text(encoding="utf-8"), ARC)
+                self.assertFalse((self.chronicle / "archive").exists())
+                (self.inbox / "p.md").unlink()
+
+        # Допустимое: усечение в пределах 20 %, чужая ссылка, S-* с frontmatter campaign.
+        ok = self.ingest(_block("Kenshi_Хронология.md", ARC[:-100] + "https://github.com/other/repo/blob/main/x.md\n")
+                         + _block(f"{SESSIONS}/S-20261105-2.md", "---\ncampaign: Хроники\n---\nтекст\n"))
+        self.assertEqual((len(ok["processed"]), ok["rejected"]), (1, []))
+
+    def test_accept_lifts_guard_only_for_named_file(self) -> None:
+        """Ловит --accept, снимающий защиту для всего пакета или не названного файла, и отсутствие SHA в отчёте."""
+        body = (_block("Campaign/Хроники/Kenshi_Хронология.md", "# Арка\n\n## Начало\nстрока\n\n## Финал\nконец\n")
+                + _block("Campaign/Хроники/Новый.md", "[x](https://google.com/search?q=a)\n"))
+        head = self.git("rev-parse", "HEAD")
+        partial = self.ingest(body, accept=["Kenshi_Хронология.md"])
+        self.assertEqual(len(partial["rejected"]), 1)
+        flags = {item["path"]: item["accepted"] for item in partial["rejected"][0]["files"]}
+        self.assertEqual(flags, {"Campaign/Хроники/Kenshi_Хронология.md": True, "Campaign/Хроники/Новый.md": False})
+        self.assertEqual((self.git("rev-parse", "HEAD"), self.git("status", "--porcelain")), (head, ""))
+        self.assertFalse((self.chronicle / "Новый.md").exists())
+
+        done = self.ingest(body, accept=["Хроники/Новый.md", "Campaign/Хроники/Kenshi_Хронология.md"])
+        self.assertEqual((done["rejected"], len(done["processed"])), ([], 1))
+        self.assertTrue(all(item["accepted"] for item in done["processed"][0]["guards"]))
+        self.assertEqual(done["processed"][0]["commit"], self.git("rev-parse", "--short", "main", cwd=self.remote))
+
+    def test_drive_sync_after_ingest_and_warning_when_unavailable(self) -> None:
+        """Ловит отсутствие переноса Campaign/ на Диск после приёма, отказ приёма из-за недоступного Диска и
+        синхронизацию при --no-push (пакет не отправлен в main)."""
+        text = "# Арка\n\n## Начало\nновое\n" + "строка канона\n" * 20 + "\n## Финал\n" + "конец арки\n" * 20
+        fake = FakeGoogle()
+        report = self.ingest(_block("Kenshi_Хронология.md", text), sync=True, api=fake.api(), push=False)
+        self.assertEqual((report["processed"], len(report["committed_not_pushed"])), ([], 1))
+        self.assertNotIn("drive_sync", report)
+        self.assertEqual(fake.mutations, [])
+
+        report = self.ingest(_block("Kenshi_Хронология.md", text), sync=True, api=fake.api())
+        self.assertEqual((len(report["processed"]), report["drive_sync"]["status"]), (1, "synced"))
+        self.assertIn("новое", fake.items[fake.find("Campaign/Хроники/Kenshi_Хронология", DOC_MIME)]["text"])
+
+        with mock.patch.object(GoogleApi, "open", side_effect=NativeUnavailable("токен не найден")):
+            report = self.ingest(_block("Другой.md", "а\n"), sync=True)
+        self.assertEqual((len(report["processed"]), report["rejected"]), (1, []))
+        self.assertEqual(report["drive_sync"]["status"], "failed")
+        self.assertIn("токен не найден", report["drive_sync"]["error"])
+
+
+class _NoDrive:
+    """Config без смонтированного Диска для CLI-проверки пропуска шага Диска."""
+    gdrive_root = None
+    screens = Path("absent-screens")
+
+
+class PipelineDriveWarningTests(unittest.TestCase):
+    def test_unavailable_drive_is_warning_not_failure(self) -> None:
+        """Ловит отказ конвейера (код 1) при недоступном Диске после успешной публикации и доставки."""
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        tmp = Path(holder.name)
+        published = {"publish": {"manifest": {"validation": {"status": "passed"}}}}
+        argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--published-dir", str(tmp),
+                "--deliver-to", str(tmp), "--sync-drive"]
+        causes = {
+            "gdrive_not_found": mock.patch("tools.campaign.Config.from_env", return_value=_NoDrive()),
+            "нет токена": mock.patch("tools.gdrive_sync.sync_drive", side_effect=RuntimeError("нет токена")),
+        }
+        for cause, patch in causes.items():
+            with self.subTest(cause), patch, \
+                    mock.patch("tools.campaign.run_pipeline", return_value=dict(published)), \
+                    mock.patch("tools.deliver_companion.deliver_to_companion", return_value={"status": "delivered"}):
+                out = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+                err = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+                with mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+                    code = campaign_main(argv)
+                out.flush()
+                err.flush()
+                result = json.loads(out.buffer.getvalue().decode("utf-8"))
+                self.assertEqual(code, 0)
+                self.assertRegex(result["drive"], rf"^(skipped|failed) \(.*{cause}")
+                self.assertIn("WARNING: drive:".encode("utf-8"), err.buffer.getvalue())
+
+    def test_drive_outcome_lines(self) -> None:
+        """Ловит потерю причины в итоговой строке шага Диска."""
+        self.assertEqual(drive_outcome({"status": "synced"}), "synced")
+        self.assertEqual(drive_outcome({"status": "failed", "reason": "gdrive_api_unavailable", "error": "нет пакетов"}),
+                         "failed (нет пакетов)")
+        self.assertEqual(sync_drive_soft(None, Path("."), None), {"status": "skipped", "reason": "gdrive_not_found"})
 
 
 if __name__ == "__main__":

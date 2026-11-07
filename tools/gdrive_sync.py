@@ -566,6 +566,13 @@ def _delete_to_trash(root: Path, relative: str) -> None:
     os.remove(root / relative)
 
 
+def _open_native(root: Path, state: dict[str, Any], api: GoogleApi | None, dry_run: bool, stamp: str) -> NativeSync:
+    """NativeSync на корне проекта в Drive; `NativeUnavailable`/`NativeError` - Google API или корень недоступны."""
+    api = api or GoogleApi.open()
+    return NativeSync(api, dict(state.get("native") or {}), resolve_root(api, state.get("native_root_id")),
+                      root, write_in_place, dry_run, stamp)
+
+
 def sync_drive(
     root: Path | None, published_dir: Path, companion_dir: Path | None, scope: str = "all",
     archive_dir: Path | None = None, dry_run: bool = False, prune: bool = False,
@@ -583,9 +590,7 @@ def sync_drive(
     state = _read_state(root)
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     try:
-        api = api or GoogleApi.open()
-        native = NativeSync(api, dict(state.get("native") or {}), resolve_root(api, state.get("native_root_id")),
-                            root, write_in_place, dry_run, stamp)
+        native = _open_native(root, state, api, dry_run, stamp)
     except (NativeUnavailable, NativeError) as error:
         _warn(f"Google API недоступен, нативные файлы не синхронизированы: {error}")
         return {"status": "failed", "reason": "gdrive_api_unavailable", "error": str(error)}
@@ -673,6 +678,30 @@ def sync_drive(
         result["status"] = "partial"
         _warn(f"ошибки синхронизации Google Диска: {'; '.join(errors)}")
     return result
+
+
+def drive_outcome(result: dict[str, Any]) -> str:
+    """Строка итога шага Диска для отчёта конвейера: `synced` либо `skipped|failed|partial (причина)`."""
+    status = str(result.get("status"))
+    if status == "synced":
+        return status
+    reason = result.get("error") or result.get("reason") or result.get("plan_error")
+    if not reason and status == "partial":
+        reason = "ошибки или отказ записи, см. отчёт gdrive"
+    return f"{status} ({reason})" if reason else status
+
+
+def sync_drive_soft(root: Path | None, published_dir: Path, companion_dir: Path | None, scope: str = "all",
+                    **kwargs: Any) -> dict[str, Any]:
+    """Шаг Диска конвейера: любой сбой (нет Диска, токена, сети, ошибка Drive API) - предупреждение, не отказ.
+
+    Публикация и доставка к этому моменту завершены, поэтому исключение превращается в `status=failed`.
+    """
+    try:
+        return sync_drive(root, published_dir, companion_dir, scope=scope, **kwargs)
+    except Exception as error:  # noqa: BLE001 - границы Google API и ФС неперечислимы
+        _warn(f"синхронизация Google Диска: {error}")
+        return {"status": "failed", "reason": "gdrive_error", "error": f"{type(error).__name__}: {error}"}
 
 
 def gdrive_export(path: str, root: Path | None, api: GoogleApi | None = None) -> tuple[bytes, dict[str, Any]]:
@@ -786,8 +815,81 @@ def _is_session_artifact(target: Path) -> bool:
     return target.parent.name == "sessions" and target.name.startswith("S-")
 
 
-def apply_packet(packet: Path, companion_dir: Path) -> dict[str, Any]:
-    """Проверяет все блоки, затем записывает их; при сбое записи возвращает прежнее состояние файлов."""
+LENGTH_LOSS_LIMIT_PERCENT = 20
+DEFAULT_REPO_SLUG = "asaf1n/Kenshi-Compain"
+_H2 = re.compile(r"^## +\S.*$", re.MULTILINE)
+_SEARCH_WRAPPER = re.compile(r"(?<![\w-])(?:www\.)?google\.[a-z.]{2,}/(?:search|url)\b", re.IGNORECASE)
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+
+
+class GuardError(InboxError):
+    """Пакет отклонён защитами; `files` - `{path, reasons, accepted}` по каждому файлу с нарушением."""
+
+    def __init__(self, message: str, files: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.files = files
+
+
+def repo_slugs(companion_dir: Path) -> list[str]:
+    """`владелец/репозиторий` игрового репозитория: из remote origin клона и канонический адрес."""
+    slugs = {DEFAULT_REPO_SLUG.lower()}
+    remote = run_git(companion_dir, "remote", "get-url", "origin").stdout.strip()
+    match = re.search(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", remote)
+    if match:
+        slugs.add(f"{match.group(1)}/{match.group(2)}".lower())
+    return sorted(slugs)
+
+
+def _repo_link_pattern(slugs: Iterable[str]) -> re.Pattern[str]:
+    alternatives = "|".join(re.escape(slug) for slug in slugs)
+    return re.compile(rf"https?://(?:www\.)?(?:github\.com|raw\.githubusercontent\.com)/(?:{alternatives})(?:\.git)?/\S",
+                      re.IGNORECASE)
+
+
+def packet_guards(relative: str, content: str, previous: str | None, link_pattern: re.Pattern[str]) -> list[str]:
+    """Нарушения защит файла пакета (пусто - файл допустим). `previous` - версия в main, None - файл новый."""
+    reasons: list[str] = []
+    if previous is not None:
+        lost_chars = len(previous) - len(content)
+        if lost_chars * 100 > len(previous) * LENGTH_LOSS_LIMIT_PERCENT:
+            reasons.append(f"короче версии в main на {lost_chars * 100 // len(previous)} % "
+                           f"({len(content)} против {len(previous)} символов, предел {LENGTH_LOSS_LIMIT_PERCENT} %)")
+        kept = {line.strip() for line in _H2.findall(content)}
+        lost = [line.strip() for line in _H2.findall(previous) if line.strip() not in kept]
+        if lost:
+            reasons.append("потеряны заголовки второго уровня: " + "; ".join(lost[:5]) + ("; ..." if len(lost) > 5 else ""))
+    wrapper = _SEARCH_WRAPPER.search(content)
+    if wrapper:
+        reasons.append(f"ссылка-обёртка Google: {wrapper.group(0)}")
+    own = link_pattern.search(content)
+    if own:
+        reasons.append(f"абсолютный URL на файл репозитория: {own.group(0)[:80]}")
+    if PurePosixPath(relative).parent.name == "sessions" and PurePosixPath(relative).name.startswith("S-"):
+        front = _FRONTMATTER.match(content)
+        if not (front and _CAMPAIGN.search(front.group(1))):
+            reasons.append("файл S-* без frontmatter с полем campaign")
+    return reasons
+
+
+def _accepted(relative: str, accept: Iterable[str]) -> bool:
+    """`--accept` совпадает с полным путём, окончанием пути или именем файла."""
+    return any(relative == name or relative.endswith("/" + name)
+               for name in (item.strip().replace("\\", "/").strip("/") for item in accept) if name)
+
+
+def _main_version(companion_dir: Path, relative: str) -> str | None:
+    """Текст файла в `HEAD` клона (после `sync_with_origin` - `main`); None - файла в main нет."""
+    try:
+        return _git_bytes(companion_dir, "show", f"HEAD:{relative}").decode("utf-8", "replace")
+    except GitSyncError:
+        return None
+
+
+def apply_packet(packet: Path, companion_dir: Path, accept: Iterable[str] = ()) -> dict[str, Any]:
+    """Проверяет все блоки и защиты, затем записывает файлы; при сбое записи возвращает прежнее состояние.
+
+    Нарушение защиты (`packet_guards`) в файле, не названном в `accept`, отклоняет весь пакет (`GuardError`) до записи.
+    """
     blocks, manual = parse_packet(packet.read_text(encoding="utf-8-sig"))
     targets: dict[Path, bytes] = {}
     for kind, name, content in blocks:
@@ -797,7 +899,10 @@ def apply_packet(packet: Path, companion_dir: Path) -> dict[str, Any]:
         targets[target] = content.encode("utf-8")
 
     dirty = _dirty_paths(companion_dir, GDRIVE_CHRONICLE_DIR) if targets else set()
+    base = companion_dir.resolve()
+    link_pattern = _repo_link_pattern(repo_slugs(companion_dir))
     writes: list[tuple[Path, bytes]] = []
+    guards: list[dict[str, Any]] = []
     for target, data in targets.items():
         if target.is_file() and target.read_bytes() == data:
             continue  # Повтор применённого пакета: push или перенос могли не состояться в прошлый раз.
@@ -805,7 +910,15 @@ def apply_packet(packet: Path, companion_dir: Path) -> dict[str, Any]:
             raise InboxError(f"Артефакт сессии неизменяем и уже существует: {target.name}")
         if target in dirty:
             raise InboxError(f"В целевом файле есть незакоммиченные правки: {target.name}")
+        relative = target.relative_to(base).as_posix()
+        reasons = packet_guards(relative, data.decode("utf-8"), _main_version(companion_dir, relative), link_pattern)
+        if reasons:
+            guards.append({"path": relative, "reasons": reasons, "accepted": _accepted(relative, accept)})
         writes.append((target, data))
+    refused = [item for item in guards if not item["accepted"]]
+    if refused:
+        raise GuardError("Защиты ingest-inbox, снятие флагом --accept <файл>: "
+                         + " | ".join(f"{item['path']}: {'; '.join(item['reasons'])}" for item in refused), guards)
 
     undo: list[tuple[Path, bytes | None]] = []
     try:
@@ -820,20 +933,53 @@ def apply_packet(packet: Path, companion_dir: Path) -> dict[str, Any]:
             else:
                 target.write_bytes(previous)
         raise InboxError(f"Сбой записи, пакет откатан: {error}") from error
-    base = companion_dir.resolve()
-    return {"applied": [target.relative_to(base).as_posix() for target in targets], "manual": manual}
+    return {"applied": [target.relative_to(base).as_posix() for target in targets], "manual": manual, "guards": guards}
 
 
-def _commit_and_push(companion_dir: Path, paths: list[str], packet_name: str) -> None:
-    """Фиксирует пути пакета в main. Push выполняется и без нового коммита: прошлый запуск мог упасть на сети."""
+def _commit_and_push(companion_dir: Path, paths: list[str], packet_name: str, push: bool = True) -> str:
+    """Фиксирует пути пакета в main и возвращает короткий SHA `HEAD`.
+
+    Push выполняется и без нового коммита: прошлый запуск мог упасть на сети.
+    """
     require_git(companion_dir, "add", "--", *paths)
     if run_git(companion_dir, "diff", "--cached", "--quiet", "--", *paths).returncode != 0:
         require_git(companion_dir, "commit", "-m", f"docs(chronicle): принять пакет {packet_name}", "--", *paths)
-    push_main(companion_dir)
+    if push:
+        push_main(companion_dir)
+    return require_git(companion_dir, "rev-parse", "--short", "HEAD").strip()
 
 
-def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = None) -> dict[str, Any]:
-    """Принимает пакеты из `tmp/inbox/`; в `tmp/processed/` пакет переносится только после push в GitHub `main`."""
+def sync_after_ingest(root: Path, companion_dir: Path, api: GoogleApi | None = None,
+                      now: datetime | None = None) -> dict[str, Any]:
+    """Диск - копия main: после принятого пакета `Campaign/` переносится на Диск (`sync_chronicle`).
+
+    Недоступный Диск или Google API - `status=failed` с причиной (предупреждение), приём остаётся успешным.
+    """
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        native = _open_native(root, _read_state(root), api, False, stamp)
+        # published/ не нужен: состав Campaign/ берётся из клона.
+        plan = build_plan(Path(os.devnull), companion_dir, root)
+        campaign = [pair for pair in plan["entries"] if pair[0].startswith(f"{GDRIVE_CHRONICLE_DIR}/")]
+        report = sync_chronicle(companion_dir, root, campaign, False, native, now)
+    except Exception as error:  # noqa: BLE001 - границы Google API, git и ФС неперечислимы
+        _warn(f"Диск не синхронизирован после приёма пакета: {error}")
+        return {"status": "failed", "error": f"{type(error).__name__}: {error}"}
+    problems = [*report.get("errors", []), *report.get("refused", [])]
+    if problems:
+        _warn(f"Диск синхронизирован не полностью: {'; '.join(problems)}")
+        return {"status": "partial", "error": "; ".join(problems), "written": report.get("written", 0)}
+    return {"status": "synced", "written": report.get("written", 0), "unchanged": report.get("unchanged", 0)}
+
+
+def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = None, accept: Iterable[str] = (),
+                 push: bool = True, sync: bool = True, api: GoogleApi | None = None) -> dict[str, Any]:
+    """Принимает пакеты из `tmp/inbox/`; в `tmp/processed/` пакет переносится только после push в GitHub `main`.
+
+    `accept` снимает защиты для названных файлов. `push=False`: коммит в клон без push, пакет остаётся во входящих.
+    После принятого и отправленного пакета выполняется `sync_after_ingest` (`sync=False` отключает).
+    """
+    accept = list(accept)
     report: dict[str, Any] = {"processed": [], "rejected": [], "ignored": []}
     if root is None or not root.is_dir():
         _warn("Google Диск не найден, приём пакетов пропущен (KENSHI_GDRIVE_DIR)")
@@ -853,14 +999,20 @@ def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = 
         return report
     for packet in packets:
         try:
-            result = apply_packet(packet, companion_dir)
+            result = apply_packet(packet, companion_dir, accept)
             if result["applied"]:
-                _commit_and_push(companion_dir, result["applied"], packet.name)
+                result["commit"] = _commit_and_push(companion_dir, result["applied"], packet.name, push)
+        except GuardError as error:
+            report["rejected"].append({"packet": packet.name, "reason": str(error), "files": error.files})
+            continue
         except (InboxError, GitSyncError, UnicodeDecodeError, OSError, subprocess.SubprocessError) as error:
             report["rejected"].append({"packet": packet.name, "reason": str(error)})
             continue
         if not result["applied"]:
             report["ignored"].append(packet.name)
+            continue
+        if not push:
+            report.setdefault("committed_not_pushed", []).append({"packet": packet.name, **result})
             continue
         # Суффикс оставляет заметными пакеты с частями для ручного применения.
         mark = "-manual" if result["manual"] else ""
@@ -870,4 +1022,6 @@ def ingest_inbox(root: Path | None, companion_dir: Path, now: datetime | None = 
         except OSError as error:
             result["move_error"] = str(error)
         report["processed"].append({"packet": packet.name, **result})
+    if report["processed"] and sync:
+        report["drive_sync"] = sync_after_ingest(root, companion_dir, api, now)
     return report

@@ -17,6 +17,8 @@
     относящаяся к кампании. Если ни одна не подходит, ошибка со списком проверенных папок, код 1.
     Перед публикацией pipeline в любом случае повторно сверяет состав персонажей с родительским снимком;
     при несовпадении публикации, доставки и синхронизации Диска нет, код возврата 1.
+    Синхронизация Диска (--sync-drive) выполняется по умолчанию после публикации и доставки; недоступный Диск или Google API
+    (нет токена, сети, G:, ошибка Drive API) - предупреждение "drive: skipped|failed (причина)", код возврата остаётся 0.
 
 .PARAMETER SaveFolder
     Имя или шаблон (wildcard) папки сохранения кампании.
@@ -170,8 +172,15 @@ try {
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
     Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
     $allowArgs = if ($AllowNewCampaign) { @('--allow-new-campaign') } else { @() }
-    & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs @allowArgs --deliver-to $companion --deliver-push --sync-drive
-    if ($LASTEXITCODE -ne 0) { throw "pipeline завершился с кодом $LASTEXITCODE (при отказе проверки кампании published/, доставка и Диск не затронуты)" }
+    $pipelineOut = & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs @allowArgs --deliver-to $companion --deliver-push --sync-drive
+    $pipelineCode = $LASTEXITCODE
+    $pipelineOut | ForEach-Object { Write-Host $_ }
+    if ($pipelineCode -ne 0) { throw "pipeline завершился с кодом $pipelineCode (при отказе проверки кампании published/, доставка и Диск не затронуты)" }
+    # Недоступный Диск или Google API - предупреждение: публикация и доставка уже выполнены.
+    $driveLine = $null
+    try { $driveLine = (($pipelineOut -join "`n") | ConvertFrom-Json).drive } catch { }
+    if ($driveLine -and $driveLine -ne 'synced') { Write-Warning "drive: $driveLine" }
+    elseif ($driveLine) { Write-Host 'drive: synced' }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.validation.status -ne 'passed') { throw "validation.status=$($manifest.validation.status)" }

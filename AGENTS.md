@@ -7,7 +7,7 @@
 | Область изменений | Обязательный источник | Проверка |
 |---|---|---|
 | Извлечение, diff, рендер и границы публикации (`tools/`) | `docs/architecture.md`, `docs/data-contract.md`, `docs/kenshi-settings.md` | `python -m unittest discover -s tests`; `python tests/run_evidence.py` |
-| Синхронизация с Google Диском (`tools/gdrive_sync.py`) | `docs/gdrive-sync.md` | `python -m unittest tests.test_gdrive_sync` |
+| Синхронизация с Google Диском (`tools/gdrive_sync.py`) | `docs/gdrive-sync.md` | `python -m unittest tests.test_gdrive_sync tests.test_gdrive_native tests.test_gdrive_api` |
 | Схемы и примеры (`contracts/`, `examples/`) | `docs/data-contract.md` | `python -m tools.campaign check-schemas`; `python -m unittest discover -s tests` |
 | Структура и документация | `README.md`, `docs/requirements.md`, `docs/acceptance.md`, `docs/kenshi-settings.md` | `python tests/check_seed.py`; `git diff --check` |
 

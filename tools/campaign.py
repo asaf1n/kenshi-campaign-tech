@@ -160,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов из tmp/inbox/ Google Диска: запись в Campaign/, commit и push в Kenshi-Compain")
     inbox_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     inbox_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске")
+    inbox_parser.add_argument("--accept", action="append", default=[], metavar="ФАЙЛ",
+                              help="Снять защиты ingest-inbox для файла пакета (путь, окончание пути или имя); можно повторять")
+    inbox_parser.add_argument("--no-push", action="store_true", help="Закоммитить в клон без push; пакет остаётся во входящих, Диск не синхронизируется")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -487,14 +490,13 @@ def main(argv: list[str] | None = None) -> int:
                 result["companion_delivery"] = deliv_res
             if getattr(args, "sync_drive", False) and not args.dry_run:
                 from tools.deliver_companion import companion_root
-                from tools.gdrive_sync import PIPELINE_SCOPE, sync_drive
-                try:
-                    result["gdrive"] = sync_drive(cfg.gdrive_root, (args.published_dir or ROOT / "published").resolve(),
-                                                  companion_root(args.deliver_to), scope=PIPELINE_SCOPE)
-                except Exception as sync_error:
-                    # Основная публикация уже завершена: сбой Диска её не отменяет.
-                    sys.stderr.buffer.write(f"WARNING: синхронизация Google Диска: {sync_error}\n".encode("utf-8"))
-                    result["gdrive"] = {"status": "failed"}
+                from tools.gdrive_sync import PIPELINE_SCOPE, drive_outcome, sync_drive_soft
+                # Основная публикация уже завершена: недоступный Диск или Google API - предупреждение, не отказ.
+                result["gdrive"] = sync_drive_soft(cfg.gdrive_root, (args.published_dir or ROOT / "published").resolve(),
+                                                   companion_root(args.deliver_to), scope=PIPELINE_SCOPE)
+                result["drive"] = drive_outcome(result["gdrive"])
+                if result["gdrive"].get("status") != "synced":
+                    sys.stderr.buffer.write(f"WARNING: drive: {result['drive']}\n".encode("utf-8"))
 
         elif args.command == "deliver-companion":
             from tools.deliver_companion import deliver_to_companion
@@ -528,7 +530,8 @@ def main(argv: list[str] | None = None) -> int:
             from tools.config import find_gdrive_root
             from tools.deliver_companion import companion_root
             from tools.gdrive_sync import ingest_inbox
-            result = ingest_inbox(args.gdrive_dir or find_gdrive_root(), companion_root(args.companion_dir))
+            result = ingest_inbox(args.gdrive_dir or find_gdrive_root(), companion_root(args.companion_dir),
+                                  accept=args.accept, push=not args.no_push)
 
         elif args.command == "build-world":
             from tools.world_reference import build_world_reference, save_world_reference

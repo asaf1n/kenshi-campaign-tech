@@ -90,18 +90,18 @@ class GitSyncTests(unittest.TestCase):
         now = datetime(2026, 11, 4, tzinfo=timezone.utc)
 
         self.git("checkout", "-b", "feature", cwd=self.clone)
-        report = ingest_inbox(self.drive, self.clone, now=now)
+        report = ingest_inbox(self.drive, self.clone, now=now, sync=False)
         self.assertIn("error", report)
         self.assertTrue(packet.is_file())
         self.git("checkout", "main", cwd=self.clone)
 
         self.git("remote", "set-url", "--push", "origin", str(self.tmp / "absent.git"), cwd=self.clone)
-        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now)["rejected"]), 1)
+        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now, sync=False)["rejected"]), 1)
         self.assertTrue(packet.is_file())
 
         self._remote_commit("Campaign/Кампания/Другой.md", "чужой\n")
         self.git("remote", "set-url", "--push", "origin", str(self.remote), cwd=self.clone)
-        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now)["processed"]), 1)
+        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now, sync=False)["processed"]), 1)
         self.assertFalse(packet.exists())
         self.assertEqual(self.git("show", "main:Campaign/Кампания/Новый.md", cwd=self.remote), "а\n")
 

@@ -12,6 +12,8 @@
 .\Initialize-Pipeline.ps1
 ```
 
+Шаг Диска (`--sync-drive`) выполняется по умолчанию; недоступный Диск или Google API (нет токена, сети, `G:`) даёт предупреждение `drive: skipped|failed (причина)`, а не отказ: публикация и доставка считаются успешными, код возврата 0.
+
 Все переменные окружения опциональны. `.env.example` содержит значения; `.env` читается при наличии. Канонический запуск на локальной машине пользователя:
 
 ```powershell
@@ -231,6 +233,7 @@ python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 ## Структура репозитория
 
 - `Initialize-Pipeline.ps1`: запуск конвейера и доставка в Kenshi Compain одной командой.
+- `Save-Packet.ps1`: буфер обмена -> пакет в `tmp/inbox` Диска -> `ingest-inbox` -> отчёт (принят с SHA / отклонён с причиной); `-Accept <файл>` снимает защиты приёма, `-NoPush` коммитит без push ([docs/gdrive-sync.md](docs/gdrive-sync.md)).
 - `tools/`: нативный изолированный движок (бинарный парсер GameData, индексатор GameDB, SaveReader, расчет характеристик экипировки, расчет протезов, табличные выгрузки (`tables.py`), экспорт сессий, diff, географический локатор, публикатор, таймлайн, доставщик в Kenshi-Compain).
 - `contracts/`, `examples/`: схемы index, manifest, timeline-event, world-reference, locations и валидные примеры.
 - `tests/`: модульные и интеграционные тесты; `tests/.evidence/` содержит доказательства прогонов для аудита.

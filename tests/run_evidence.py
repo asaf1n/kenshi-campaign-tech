@@ -17,6 +17,9 @@ EVIDENCE_DIR = ROOT / "tests" / ".evidence"
 SKIP_LINE = re.compile(r"\.\.\. skipped (['\"])(.*?)\1")
 ALLOWED_SKIP = re.compile(r"^LIVE-SLOT|не найден|отсутствует")
 
+# Внешний конвертер упразднён: шаг export зависит от его выгрузки и пропускается, если файла нет.
+EXTERNAL_EXPORT = Path("C:/Users/artem/kenshi-platoon-export/kenshi-session.json")
+
 
 def run_command(
     name: str,
@@ -253,6 +256,10 @@ def main() -> int:
                 "save-run.json",
             ),
         )
+
+    if not EXTERNAL_EXPORT.is_file():
+        print(f"SKIP: внешний экспорт не найден ({EXTERNAL_EXPORT}): шаг export")
+        commands = [command for command in commands if command[0] != "export"]
 
     for name, exec_args, display_cmd, log_name, run_name in commands:
         run_command(name, exec_args, display_cmd, log_name, run_name)
