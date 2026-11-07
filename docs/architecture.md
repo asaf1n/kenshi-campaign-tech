@@ -15,9 +15,11 @@ locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,extended/current.json,current/{index.json,characters/,bases/,*.json},changes.json,locations.json,
            world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,changes.md,
+           tables/{index.md + 17 CSV: отряд, экипировка, склады, цены, торговые записи, NPC, Town Overrides, дипломатия,
+                   реакции мира, справочник юнитов},
            screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR; screenshots_latest.pdf вне git}}
         |
-verified GitHub delivery + Google Drive sync (docs/gdrive-sync.md) / manual transport fallback
+verified GitHub delivery + Google Drive sync (allowlist-профили игрового блокнота и летописи, docs/gdrive-sync.md) / manual transport fallback
         |
 LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose plans and events
 ```
@@ -34,7 +36,7 @@ LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose 
 | `data/snapshots/` и `data/diffs/` | детерминированный pipeline | publisher | менять только инструментами, иммутабельность исторических снимков |
 | `timeline/events.jsonl` | подтверждённые записи пользователя/импорт | publisher и чат-ИИ | append-only по event ID; изменение — отдельное корректирующее событие |
 | `sessions/` | пользователь/чат-ИИ через подтверждённый импорт | planner/summary | планы и результаты без подмены игровых фактов |
-| `published/` | publisher | GitHub / чат-ИИ | полностью генерируемый release bundle, предыдущий успешный release не портить |
+| `published/` | publisher | GitHub / чат-ИИ | полностью генерируемый release bundle, предыдущий успешный release не портить; не коммитится в технический репозиторий, доставка через `deliver-companion` |
 | `docs/`, `contracts/` | разработчик и reviewer | все | изменения контрактов — через независимую проверку |
 
 ## Развилки и сравнение
@@ -74,10 +76,17 @@ LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose 
 - `tools.diff`: вычисление детерминированного diff по действующему контракту с сохранением устойчивого ID во всех категориях изменений, агрегацией transfers по ID и sid, запретом склеивания разных `ps:*` по имени, поддержкой baseline / non-baseline режимов и сохранением в `data/diffs/<diff_id>.json`.
 - `tools.rendering`: генерация русскоязычных `brief.md` и `squad.md` строго из валидированных JSON без внешних зависимостей и wall-clock времени, обеспечивая 100% детерминизм побайтового совпадения при повторном рендере.
 - `tools.screenshots`: безопасный сбор скриншотов из `<KENSHI_DIR>/_screens` (или `KENSHI_SCREENS_DIR`) за скользящее 7-дневное окно (`now - 7d`) без изменения оригиналов, защита от незавершённой записи, генерация `screenshots/index.json` (`kenshi-screenshots-index/1`) и `screenshots/index.md`, автоматическая ротация и очистка устаревших изображений. `tools.screenshot_publish`: уменьшение кадров до 1600 px, локальный архив `data/screenshots_archive/` и отбор 20–30 ключевых кадров для публикации.
+- `tools.tables` (с `tools.gamedb` и `tools.itemstats`): `tables/` из снимка, `locations.json` и справочника игры (индекс и записи по файлам набора модов снимка, кэш `game_cache_dir`, по умолчанию `data/cache`); чистые функции без обращения к сейву и сети. Граница слоёв: конвертер извлекает и выгружает значения игры (сырые `relation`, `state_code`, шаблоны, базовые цены) и сверенные `calc_*`; оценочных классов и выводов нет, их делает потребитель. Без справочника игры таблицы на его данных пусты с предупреждением, значения не подставляются.
 - `tools.validation`: валидация пакета по схемам `Draft202012Validator`, проверка доступности и локальности артефактов внутри `published/`, проверка целостности и хешей скриншотов, семантическая проверка связи `snapshot_id`/`parent_snapshot_id`, проверка отсутствия персональных путей пользователя (`C:\Users\...`) и токенов/секретов во всех артефактах.
 - `tools.publisher`: атомарная публикация release bundle на Windows с использованием протокола `staging -> backup -> switch -> cleanup`. Предыдущая успешная публикация сохраняется в `published.backup` до подтверждения валидности новой версии. При возникновении исключения или занятом файле выполняется автоматический откат к backup. Отслеживаемый файл `published/.gitkeep` переносится в staging и сохраняется побайтово. При аварийном завершении процесса самовосстановление выполняется при следующем запуске.
 
 Независимые проверки используют `unittest` и временные данные. `tests/check_converter.py` выполняет настоящую интеграцию парсера на синтетическом GameData; `tests/check_live.py` принимает явно указанный реальный вход, запускает CLI дважды и сохраняет хеши/коды/время. Синтетическая интеграция не заменяет приёмку на двух реальных сейвах. Команды и переменные окружения приведены в `README.md`.
+
+## Кадры при пересборке старого снимка (ограничение, предложение)
+
+Текущее поведение (`tools/publisher.py`, блок скриншотов; `screenshots.collect_recent_screenshots`): окно кадров — `[generated_at − 7 суток, generated_at + 5 минут]` по `st_mtime` файла. `generated_at` — аргумент `publish` либо текущее время; время снимка (`registered_at`, игровое время) не используется. При пересборке старого снимка окно привязано к дате пересборки: в выпуск попадают кадры новее снимка, а кадры, близкие к снимку, но старше 7 суток от пересборки, выпадают. Подтверждено чтением кода; прогон пересборки на кадрах не выполнялся.
+
+Предложение (решение за пользователем, код не менялся): брать кадры не новее `registered_at` снимка: верхняя граница окна — `registered_at` (с допуском 5 минут), нижняя — верхняя − 7 суток. Место изменения — вычисление `cutoff_dt`/`gen_dt` перед вызовом `collect_recent_screenshots`, который уже принимает обе границы. До принятия решения пересборка старого снимка с каталогом скриншотов даёт ленту, зависящую от даты пересборки; для приёмки таблиц публикация выполняется без каталога скриншотов.
 
 ## Доставка нескольких кампаний (решение за пользователем)
 

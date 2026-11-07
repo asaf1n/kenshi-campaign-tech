@@ -12,23 +12,23 @@ v11 сохраняет структуры характеристик, здоро
 
 | Поле | Содержимое и ограничения |
 |---|---|
-| `diplomacy` | `player_faction_sid`, `player_faction_name`, `relations`, `summary`. Отношения идентифицируются по `faction_sid`; сохраняются `relation`, `trust`, `trust_neg`, `standing`. Отсутствующая связь даёт `relation=null`, `standing="unknown"`, а не нейтральное отношение. |
-| `world_state` | `unique_npcs`, `town_overrides`, `summary`. Для NPC сохраняются `sid`, индекс записи, имена, `state_code`, `state`, признак игрока `player` и handle. Базовый код `2` обозначается `dead_or_captured`; дополнительно вычисляется `state_detail` (различает активное пленение отрядом `captured (carried by squad)` с фиксацией носителя `captured_by`, участие игрока `dead_or_captured (player involved)` и независимые события мира `dead_or_captured (world event)`). Города сохраняют `replacement_sid`, текущие сведения о фракциях и handle; причина смены состояния не выводится. |
+| `diplomacy` | `player_faction_sid`, `player_faction_name`, `relations`, `summary`. Отношения идентифицируются по `faction_sid`; сохраняются сырые `relation`, `trust`, `trust_neg`. Отсутствующая связь даёт `relation=null`, а не нейтральное отношение. Классов отношений (союзник, враг и т. п.) нет. |
+| `world_state` | `unique_npcs`, `town_overrides`, `summary`. Для NPC сохраняются `sid`, индекс записи, имена, `state_code`, признак игрока `player`, handle и носитель пленника `captured_by` (если пленник несётся отрядом игрока). Значения `state_code` — факт игры, описаны в разделе «Дипломатия и состояние мира». Города сохраняют `replacement_sid`, текущие сведения о фракциях и handle; причина смены состояния не выводится. |
 | `characters[].jobs` | `enabled`, постоянная очередь `primary`, временная `temporary` и `raw`. Запись работы содержит исходный индекс, `task_code`, `task_name`, `target_handle` и обогащенное читаемое имя цели `target_name` (название станка с родительским зданием, хранилища или имя союзника). Порядок соответствует числовым индексам сохранения; отсутствие записи работ даёт `enabled=null` и пустые очереди. |
 | `characters[].carrying` | `is_carrying`, `target_handle`, `target_name`, `carried_by`, `carried_by_name`, `raw`. При переноске handle и target_name относятся к переносимому объекту/персонажу; для переносимого персонажа carried_by/carried_by_name указывают носителя. Handle не подменяется, а дополняется разрешенным именем. |
 | `characters[].bounties` | `has_bounty`, `total_amount`, `entries`. Записи сохраняют индекс, `faction_sid`, `amount`, `crimes`; сумма строится из извлечённых сумм наград. |
 | `characters[].combat_modes` | `taunt`, `passive`, `ranged`, `defensive`, `chase`, `stealth`, `non_combat`: `true`, `false` либо `null`, если флаг не получен. |
 | `characters[].items` | Поштучный учёт предметов персонажа без агрегации (Тип 42 сохранения Kenshi): `instance_id` (порядковый ID экземпляра из контейнера), `item_sid`, `base_data_sid`, `container`, `quality`, `level`, `quantity`, `charges`, `wear`, `dam`, `stun`, `material_sid`, `color_sid`, `company_sid`, `inventory_xy`, `item_function`, `unique`, `owned_by`. Сохраняет индивидуальные параметры каждого экземпляра (включая запасные протезы, Мейто и износ). |
-| `characters[].physics_calculated` | Расчётные физические метрики (P0 #1, #2): `carried_weight_kg`, `weight_capacity_kg`, `encumbrance_pct`, `speed_run_mph_est`, `formula_notes`. Все формулы имеют статус `status: "unverified_engine_formula"`, разделяя сырые данные сохранения и расчётные оценки. |
-| `characters[].combat_calculated` | Расчётные боевые показатели (P0 #7): `weapon_requirements` (требования к Силе Req=max(2W, 40*Blunt), дефицит силы и штраф к скорости атаки), `armour_penalties` (штрафы скрытности, атлетики, скорости боя, уклонения), `body_coverage` (послойное покрытие зон тела и сопротивление урону). Статус `status: "unverified_engine_formula"`. |
 | `research` | Исследования игрока (запись 21). Включает `completed`, `in_progress`, `queue`, `paid`, `level_upgrades_completed`, вычисленный эффективный технологический уровень `tech_level` (P1 #8, базовый 1, максимум по завершенным апгрейдам) и список изученных чертежей `blueprints_completed`. |
 | `property.buildings[]` и вложенный `interior[]` | Производственные поля: `power_on`, `gets_battery`, `battery_charge`, `is_paused`, `is_repeat`, `production_progress`, `consumption`, `resource_mult`, `mining_resource_level`, `usage_nodes`; также сведения о замках, боезапасе и исходных предметах `storage_items`. Сохраняются прежние `storage`, имена, шаблоны и иерархия. Сопоставление выполняется рекурсивно по паре `(zone, id)` с наследованием зоны родительского здания для интерьера; складской diff (`_diff_base_storage`) учитывает как агрегированные `storage`, так и поштучные `storage_items` во всех интерьерных контейнерах. Сводный складской баланс по базам и поселениям агрегируется в `property.storage_by_location` (P1 #11). |
+
+Оценочные поля прежних версий конвертера (класс отношения фракции, строковые интерпретации состояния NPC, расчётные показатели физики и боя) не формируются. В ранее извлечённых снимках они могут присутствовать: схема их допускает, чтение и diff их не используют.
 
 Handle — JSON-массив `[TYPE, C, S, I, CS]` с возможными `null` в отдельных компонентах либо `null` целиком. Для ключей внутренних словарей используется tuple; в выходных данных остаётся list. Безадресные handles работ и переноски (`TYPE=11` либо нулевые компоненты адреса) нормализуются в `null`.
 
 В `provenance.source_format` и `manifest.source_format` записывается фактический `current.format`. Поддержка v10 не означает наличия новых категорий: отсутствующие или `null` разделы не трактуются как пустые подтверждённые данные. Diff новых категорий выполняется для пары v11 с доступными разделами; ограничения записываются в `not_compared`. Изменение отношения с неизвестным исходным значением не имеет числового `delta`.
 
-`brief.md` отображает доступную дипломатию, состояние мира и расширенные категории diff; `squad.md` — работы, боевые режимы и награды. Эти данные предназначены для чат-ИИ моделей (LLM ассистентов). Состав `kenshi-publication/1` остаётся указанным ниже; отдельный артефакт `diplomacy.md` в текущий bundle не входит.
+`brief.md` отображает доступную дипломатию (список «фракция: значение relation»), состояние мира и расширенные категории diff; `squad.md` — работы, боевые режимы и награды. Эти данные предназначены для чат-ИИ моделей (LLM ассистентов). Таблицы с полными значениями — `tables/` (раздел «Табличные выгрузки»). Состав `kenshi-publication/1` указан ниже; отдельный артефакт `diplomacy.md` в bundle не входит.
 
 ## Неизменяемый снимок: `kenshi-snapshot/1`
 
@@ -90,6 +90,11 @@ published/
   locations.json
   world_reference.json
   timeline.jsonl
+  tables/               # CSV и index.md, раздел «Табличные выгрузки»
+    index.md, squad.csv, equipment.csv, storage.csv, item_prices.csv, trade_modifiers.csv, unique_npcs.csv,
+    town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
+    unit_templates.csv, unit_template_gear.csv, squad_templates.csv, squad_members.csv,
+    squad_spawns.csv, faction_relations.csv, faction_hostility.csv
   screenshots/
     index.json
     index.md
@@ -98,7 +103,7 @@ published/
   .gitkeep
 ```
 
-`manifest.json` содержит: `format: "kenshi-publication/1"`, `generated_at` (UTC ISO-8601), `snapshot_id`, `campaign_id` (канонический `"hot-lon"` для релизной публикации), `source_kind` (`save`/`export`), `source_format`, `source_sha256` (хеш именно указанного source_kind), `artifacts` (пути относительно `published/`), `validation` (`passed` или `failed`), а также `world_ref_id` (`sha256-...`), связывающий пакет с детерминированным справочником мира. При успешном выпуске `validation.status="passed"`; неуспешный bundle не публикуется как актуальный. `snapshot_id` однозначно связывает файлы; в `changes.json` должна быть явная пара `from`/`to` или `valid:false` с причиной.
+`manifest.json` содержит: `format: "kenshi-publication/1"`, `generated_at` (UTC ISO-8601), `snapshot_id`, `campaign_id` (канонический `"hot-lon"` для релизной публикации), `source_kind` (`save`/`export`), `source_format`, `source_sha256` (хеш именно указанного source_kind), `artifacts` (пути относительно `published/`; `artifacts.tables` — `tables/index.md`, необязательный ключ), `validation` (`passed` или `failed`), а также `world_ref_id` (`sha256-...`), связывающий пакет с детерминированным справочником мира. При успешном выпуске `validation.status="passed"`; неуспешный bundle не публикуется как актуальный. `snapshot_id` однозначно связывает файлы; в `changes.json` должна быть явная пара `from`/`to` или `valid:false` с причиной.
 
 Схема допускает необязательные `parent_snapshot_id`, `branch_id`, `campaign_id`, `game_time` (`string | number | null`, игровое время). Определение принадлежности публикации ведётся строго по `campaign_id` (по умолчанию `"hot-lon"`); публикация в канонический `published/` с другим `campaign_id` блокируется с ошибкой `PublisherError`, а валидатор `validate_publication` сверяет `campaign_id` манифеста с записью в `data/index.json`. Относительные пути `artifacts.locations`, `artifacts.world_reference` и `artifacts.screenshots` (`"screenshots/index.json"`) регистрируют соответствующие артефакты в пакете публикации. Неизвестные свойства manifest запрещены.
 
@@ -281,19 +286,13 @@ Publisher читает журнал целиком, проверяет его, �
 - Дипломатия (`diplomacy`):
   - Отношения фракций мира к игроку сопоставляются по каноническому `gamedata stringID` из записей типа 37.
   - Значение `relation` — точное числовое значение `float` в диапазоне `[-100.0, 100.0]`.
-  - При отсутствии записи связи между фракцией и игроком подстановка нулей запрещена: `relation = null`, `standing = "unknown"`.
-  - Проектная классификация `standing` по порогам отношений:
-    - `"ally"`: `relation >= 50.0` (союзнический статус).
-    - `"friendly"`: `0.0 < relation < 50.0` (положительные отношения).
-    - `"neutral"`: `relation == 0.0` (подтверждённый нейтралитет).
-    - `"unfriendly"`: `-30.0 < relation < 0.0` (напряжённость).
-    - `"hostile"`: `relation <= -30.0` (враждебность, автоматическая агрессия).
-    - `"unknown"`: `relation is null` (связь не определена в сохранении).
+  - При отсутствии записи связи между фракцией и игроком подстановка нулей запрещена: `relation = null`.
+  - Сохраняются сырые `relation`, `trust`, `trust_neg`; классификации по порогам нет.
 - Состояние уникальных NPC (`world_state.unique_npcs`):
   - Читается из записи типа 56 (`usedUniques`).
   - Поле `player` читается строго из секции `bool` (`usedUniquesPlayer*`).
-  - Числовой код `state_code` сохраняется без домысливания: 0, 1, 2.
-  - Подтверждённое строковое состояние `state = "dead_or_captured"` присваивается только проверенному коду `state_code == 2` (соответствующему триггеру гибели/захвата в реакциях мира FCS). Для кодов 0 и 1 `state = null`.
+  - Числовой код `state_code` сохраняется без интерпретаций. Значения (факт игры, `Kenshi/fcs.def:1884-1885`, поле `NPC is` записей WORLD_EVENT_STATE): 0 — мёртв, 1 — жив и свободен, 2 — в плену. Строковых состояний и их вариантов в контракте нет.
+  - Носитель пленника фиксируется в `captured_by`, когда пленник несётся отрядом игрока.
   - Сводка `summary` ведётся по числовым кодам: `state_0_count`, `state_1_count`, `state_2_count`.
 - Переопределения городов (`world_state.town_overrides`):
   - Читаются из записей типа 94 (`Town state <имя>`) при наличии ключа `replacementTown`.
@@ -371,6 +370,70 @@ Publisher читает журнал целиком, проверяет его, �
     - `owned_by`: 5-компонентный handle законного владельца (`ownedbyTYPE..CS`). Пометка о краже на уровне хранилищ игрой не выставляется и не валидируется; поле документируется нейтрально как «handle владельца».
     - `raw`: изолированная копия исходных секций FCS.
 - Границы контракта: расширенные поля зафиксированы в контракте `kenshi-session/11` и схеме `contracts/session.schema.json`. Схема валидирует и исторический `kenshi-session/10`, и расширенный `kenshi-session/11`.
+
+## Табличные выгрузки: `published/tables/`
+
+Каталог строится при публикации из снимка, `locations.json` и справочника игры (индекс и записи игры из файлов набора модов снимка, `tools/gamedb.py`, кэш `data/cache`); код — `tools/tables.py`. Манифест ссылается на `tables/index.md` (`artifacts.tables`); валидатор проверяет snapshot_id в `index.md`, существование перечисленных CSV, совпадение числа строк с `index.md`, отсутствие BOM и CR и отсутствие неперечисленных CSV. Без справочника игры (игра или моды недоступны) таблицы цен, торговли, реакций и справочника юнитов пусты, причина указана в `index.md` и в `manifest.validation.warnings` (`tables: ...`); значения не подставляются.
+
+### Правила формата
+
+- UTF-8 без BOM, переводы строк LF, RFC 4180 (запятая; поля с запятой, кавычкой или переводом строки — в двойных кавычках), первая строка — заголовок.
+- Строки отсортированы по ключу таблицы; меток времени в содержимом нет; повторная публикация одного снимка побайтно идентична.
+- Пустая ячейка — значение отсутствует или не применимо. Числа — с точкой, без разделителей разрядов, не более 6 знаков после точки без хвостовых нулей; булевы — `true`/`false`; списки в ячейке разделены `; `.
+- Связи между таблицами — по идентификаторам (`sid`, `id`), а не по именам: имена могут совпадать.
+- Словарь колонок каждой таблицы — раздел «Словарь колонок» в `tables/index.md`; он формируется кодом и является единственным описанием колонок.
+
+### Состав
+
+| Файл | Ключ сортировки | Содержание |
+|---|---|---|
+| `index.md` | — | snapshot_id, игровое время, число строк таблиц, словарь колонок, неопубликованные поля, значения `state_code` |
+| `squad.csv` | `character_id` | персонаж отряда игрока: раса, отряд, местоположение (регион, поселение, статус разрешения), кровь, сытость, статусы, работы (`jobs_*`), протезы, награда, 4 атрибута и навыки (английские имена игры, включая значения ≤ 0) |
+| `equipment.csv` | `character_id`, `kind`, `slot`, `sid` | оружие, броня и протезы: `level`, `quality`, `grade`, `manufacturer` (раздельно), значения шаблона `tpl_*`, множители производителя и поправки грейда, итоговые `calc_*` |
+| `storage.csv` | `location_key`, `zone`, `building_id`, `container`, `item`, `item_sid` | предметы в хранилищах зданий игрока: поселение, здание, контейнер, предмет (имя из игры), количество, базовая цена |
+| `item_prices.csv` | `sid` | базовые цены записей игры (`value`, `value 1`) с источником и историей переопределений по порядку загрузки модов |
+| `trade_modifiers.csv` | `group`, `record_sid`, `field`, `ref_sid` | сырые торговые записи без вычисленных цен |
+| `unique_npcs.csv` | `sid` | уникальные NPC: `state_code`, `player`, `captured_by` |
+| `town_overrides.csv` | `replacement_sid`, `town` | города, заменённые записями override |
+| `diplomacy.csv` | `faction_sid` | сырые `relation`, `trust`, `trust_neg` фракций к игроку |
+| `world_reactions.csv` | `town_sid`, `override_sid`, `world_state_sid`, `condition`, `subject_sid` | условия вариантов городов, одна строка на условие World State |
+| `world_reaction_links.csv` | те же, `npc_sid` | условия `NPC is`/`NPC is NOT` с текущим `state_code` NPC из снимка; выполнение условия не вычисляется |
+| `unit_templates.csv`, `unit_template_gear.csv` | `sid`; `template_sid`, `category`, `ref_sid` | шаблоны персонажей и животных, их снаряжение (справочник юнитов) |
+| `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv` | `sid`; `squad_sid`, `role`, `member_sid`; `source`, `place_sid`, `squad_sid` | шаблоны отрядов, их состав по ролям, места появления отрядов |
+| `faction_relations.csv`, `faction_hostility.csv` | `faction_sid`, `kind`, `other_sid`; `faction_sid` | заданные в данных отношения фракций между собой; настройки фракций и расовый состав |
+
+Справочник юнитов (семь последних таблиц) публикует значения записей как хранятся в наборе модов снимка; смысл `v0..v2` ссылок — по подсказкам `fcs.def`. Вычисленных оценок, враждебности по расе, полу и протезам (в данных такого поля нет) и привязки групп биомов к зонам карты (в записях её нет) в нём нет.
+
+### Значения `state_code` и отношения
+
+`unique_npcs.csv.state_code`: 0 — мёртв, 1 — жив и свободен, 2 — в плену (факт игры: `Kenshi/fcs.def:1884-1885`, поле `NPC is`). `diplomacy.csv` содержит сырые `relation` (−100…100), `trust`, `trust_neg`; классов нет.
+
+### Колонки `calc_*` и `calc_status`
+
+- `calc_status`: `verified` — все публикуемые `calc_*` строки сверены с карточкой игры; `unverified_class` — сочетание без сверки (броня: класс × материал; оружие ближнего боя: класс × производитель; протез не на ноге); `unknown_level` — `level` предмета не определён; `unknown_template` — шаблон или константы игры не найдены в справочнике. При любом статусе, кроме `verified`, все `calc_*` пусты.
+- Сверенные сочетания задаёт код (`itemstats.CONFIRMED_ARMOUR_COMBOS`, `CONFIRMED_MELEE_COMBOS`, `CONFIRMED_PROSTHETIC_LIMBS`); арбалеты считаются для всех. Актуальный перечень — в `CALC_NOTE` и `index.md`.
+- `calc_*` публикуются без округления. Совпадение с карточкой игры — равенство после округления до точности интерфейса: нижняя граница урона усекается, верхняя округляется, скорость выстрела округляется, проценты и вес усекаются.
+- Параметры шаблонов берутся после применения модов снимка (порядок загрузки определяет итоговое значение).
+- Цены оружия и брони с уровнем и производителем не вычисляются; базовые цены — `item_prices.csv`.
+
+### Соответствие числовых типов записей игры
+
+Типы без имени в `gamedata.po` читаются по номеру:
+
+| Номер | Тип | Где используется |
+|---|---|---|
+| 52 | SQUAD_TEMPLATE | торговые поля (`is trader`, `buy mult`, `sell mult`), справочник отрядов |
+| 110 | WORLD_EVENT_STATE | условия реакций мира (`NPC is`: 0/1/2 как `state_code`) |
+| 104 | ITEMS_CULTURE | торговые культуры (`trade prices`) |
+| 51 | WEAPON_MANUFACTURER | производители оружия |
+| 27 | константы | глобальные константы (например, `bow damage`) для `calc_*` |
+| 13 | TOWN | города, переопределения, патрули (`roaming squads`) |
+| 10 | FACTION | отношения и настройки фракций |
+| 95 | BIOME_GROUP | бездомные отряды (`homeless spawns`) |
+| 25 | STATS | навыки и атрибуты шаблонов персонажей |
+| 1, 76 | CHARACTER, ANIMAL_CHARACTER | шаблоны персонажей и животных |
+
+Записи с `REMOVED` = true в справочник не входят.
 
 ## Проверка принадлежности сейва кампании
 

@@ -65,10 +65,15 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(find_gdrive_root({}, (self.tmp / "absent", self.root)), self.root)
 
     def test_profile_allowlists(self) -> None:
-        """Ловит попадание JSON, .jpg, README, prompts, drafts и чужого руководства в профили и потерю общих файлов."""
+        """Ловит попадание JSON, .jpg, README, prompts, drafts, чужого руководства и семи таблиц справочника юнитов
+        в профили и потерю общих файлов."""
         pool = [
             "published/brief.md", "published/changes.json", "published/timeline.jsonl", "published/manifest.json",
             "published/tables/index.md", "published/tables/squad.csv", "published/tables/x.json",
+            "published/tables/unit_templates.csv", "published/tables/unit_template_gear.csv",
+            "published/tables/squad_templates.csv", "published/tables/squad_members.csv",
+            "published/tables/squad_spawns.csv", "published/tables/faction_relations.csv",
+            "published/tables/faction_hostility.csv",
             "published/screenshots/index.json", "published/screenshots/a-1.jpg", "published/screenshots/feed.md",
             "Campaign/К/Kenshi_Хронология.md", "Campaign/К/Kenshi_Текущая_арка.md", "Campaign/К/Kenshi_Архетипы_и_билды.md",
             "Campaign/К/archive/Kenshi_Библия.md", "Campaign/К/archive/novel/Повесть.md", "Campaign/К/archive/sessions/S-1.md",

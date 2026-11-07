@@ -11,7 +11,7 @@
 | Каталог | Содержимое (в пределах allowlist) |
 |---|---|
 | `published/` | `brief.md`, `changes.md`, `squad.md` |
-| `published/tables/` | все `*.csv` и `index.md` (состав берётся перечислением каталога выпуска) |
+| `published/tables/` | `*.csv` и `index.md` выпуска, кроме семи таблиц справочника юнитов (раздел «Профили») |
 | `published/screenshots/` | `index.md`, `feed.md` (при содержательном OCR), `screenshots_latest.pdf` |
 | `Campaign/<кампания>/` | рабочие документы и `archive/` по профилям; рабочая копия игрока, правила в разделе «Campaign/: рабочая копия игрока» |
 | `docs/`, `templates/` | руководства, справочники и шаблон сессии по профилям |
@@ -21,18 +21,22 @@
 
 ## Профили
 
-Профиль - allowlist (`Profile` в `tools/gdrive_sync.py`: `name`, `include` - пути и маски относительно корня репозитория, `root_dir`). `*` действует внутри каталога, `**/` - на любую вложенность. Один файл Диска подключается к обоим блокнотам. Источник файла: `published/` технического репозитория либо клон `Kenshi-Compain` (`HEAD`; в `--dry-run` - `FETCH_HEAD`).
+Профиль - allowlist (`Profile` в `tools/gdrive_sync.py`: `name`, `include` - пути и маски относительно корня репозитория, `root_dir`, `exclude` - точные пути, исключаемые из совпавших по `include`). `*` действует внутри каталога, `**/` - на любую вложенность. Один файл Диска подключается к обоим блокнотам. Источник файла: `published/` технического репозитория либо клон `Kenshi-Compain` (`HEAD`; в `--dry-run` - `FETCH_HEAD`).
 
 | Профиль | Состав |
 |---|---|
-| `game` - игровой блокнот | `published/`: `brief.md`, `changes.md`, `squad.md`, `tables/*.csv`, `tables/index.md`, `screenshots/index.md`, `screenshots/feed.md`, `screenshots/screenshots_latest.pdf`; `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `Kenshi_Текущая_арка.md`, `Kenshi_Архетипы_и_билды.md`; `docs/`: `companion-guide.md`, `session-protocol.md`, `response-formatting.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md`, `reference/*.md` (без `drafts/`); `templates/template-session.md` |
+| `game` - игровой блокнот | `published/`: `brief.md`, `changes.md`, `squad.md`, `tables/*.csv` (без `UNIT_REFERENCE_TABLES`), `tables/index.md`, `screenshots/index.md`, `screenshots/feed.md`, `screenshots/screenshots_latest.pdf`; `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `Kenshi_Текущая_арка.md`, `Kenshi_Архетипы_и_билды.md`; `docs/`: `companion-guide.md`, `session-protocol.md`, `response-formatting.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md`, `reference/*.md` (без `drafts/`); `templates/template-session.md` |
 | `chronicle` - блокнот летописи | `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `archive/sessions/**/*.md`, `archive/Kenshi_Библия.md`, `archive/novel/**/*.md`; `docs/`: `chronicler-guide.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md` |
+
+Из `game` исключены константой `UNIT_REFERENCE_TABLES` семь таблиц справочника юнитов: `unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv` (около 1,15 млн символов; маска `tables/*.csv` их совпала бы). Решение пользователя: пока не входят; включение - осознанное (правка `UNIT_REFERENCE_TABLES` и повторный `sync-drive`). Таблицы остаются в `published/tables/` и доставляются в GitHub.
 
 Не входят ни в один профиль: JSON, отдельные `.jpg`, `README.md`, `prompts/`, `sites/`, `docs/setup-decision.md`. `docs/chronicler-guide.md` только в `chronicle`, `archive/` только в `chronicle`.
 
 `squad.md` остаётся в `game`: таблицы `tables/*.csv` не покрывают инвентарь и содержимое рюкзака (`Инвентарь`), пояс, рюкзак как предмет и счётчик «Количество участников» отряда; навыки со значением <= 0 в `squad.md` скрыты, в CSV выгружаются; `Работы (отключены)` есть в `squad.csv` как `jobs_enabled`.
 
-Ориентир - не более 30 файлов на профиль (лимит Gemini Notebook - 50 источников); при превышении отчёт содержит `over_limit` и `WARNING` в stderr, синхронизация не прерывается. Отчёт `sync-drive` выводит по каждому профилю `count`, `files` (пути для ручного подключения источников блокнота), `over_limit`. `root_dir` профиля (по умолчанию пусто) позволяет позже разнести профили по каталогам Диска: файлы профиля получают новые `file_id`, их пути перечислены в `relink`. Файлы `Campaign/`, существующие только на Диске и подходящие под маски профиля (например, новые `S-*`), входят в список профиля, но в GitHub не переносятся.
+Размер профилей на выпуске Day 133 06:03: `game` - 33 файла, 809 669 символов (без PDF; 17 файлов `published/`, 3 `Campaign/`, 12 `docs/`, 1 `templates/`), `chronicle` - 9 файлов, 127 141 символов; пересечение профилей: `Kenshi_Хронология.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md` (один файл Диска - один источник в каждом блокноте). Запас до лимита 50 источников: 17 на `game`, 41 на `chronicle`.
+
+Ориентир - не более 30 файлов на профиль (лимит Gemini Notebook - 50 источников); при превышении отчёт содержит `over_limit` и `WARNING` в stderr, синхронизация не прерывается. Отчёт `sync-drive` выводит по каждому профилю `count`, `files`, `over_limit`. Источники блокнота подключаются вручную по `files`: новый файл набора получает `file_id` при первой записи, подключается к блокноту один раз и далее обновляется на месте. `root_dir` профиля (по умолчанию пусто) позволяет позже разнести профили по каталогам Диска: файлы профиля получают новые `file_id`, их пути перечислены в `relink`. Файлы `Campaign/`, существующие только на Диске и подходящие под маски профиля (например, новые `S-*`), входят в список профиля, но в GitHub не переносятся.
 
 ## Запись и `file_id`
 

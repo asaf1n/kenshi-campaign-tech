@@ -52,13 +52,21 @@ class Profile:
 
     `include` - пути относительно корня репозитория (`*` - в пределах каталога, `**/` - любая вложенность). Файл
     остаётся на своём пути на Диске; `root_dir` (по умолчанию пусто) на случай переноса профиля в отдельный каталог
-    Диска: тогда файл получает новый `file_id` и источник блокнота подключается заново.
+    Диска: тогда файл получает новый `file_id` и источник блокнота подключается заново. `exclude` - точные пути,
+    исключаемые из совпавших по `include`.
     """
     name: str
     title: str
     include: tuple[str, ...]
     root_dir: str = ""
+    exclude: tuple[str, ...] = ()
 
+
+# Решение пользователя: пока не входят; включение - осознанное. Семь таблиц справочника юнитов (около 1,15 млн
+# символов) лежат в `published/tables/` (маска `*.csv` их совпала бы), но на Диск не попадают.
+UNIT_REFERENCE_TABLES: tuple[str, ...] = tuple(f"published/tables/{name}.csv" for name in (
+    "unit_templates", "unit_template_gear", "squad_templates", "squad_members",
+    "squad_spawns", "faction_relations", "faction_hostility"))
 
 PROFILE_GAME = Profile(
     "game", "Игровой блокнот",
@@ -69,6 +77,7 @@ PROFILE_GAME = Profile(
         "Campaign/*/Kenshi_Хронология.md", "Campaign/*/Kenshi_Текущая_арка.md", "Campaign/*/Kenshi_Архетипы_и_билды.md",
         *DOCS_FILES, f"{DOCS_REFERENCE_DIR}/*.md",
     ),
+    exclude=UNIT_REFERENCE_TABLES,
 )
 PROFILE_CHRONICLE = Profile(
     "chronicle", "Блокнот летописи",
@@ -183,7 +192,8 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
 def expand_profile(profile: Profile, candidates: Iterable[str]) -> list[str]:
     """Пути кандидатов (относительно корня репозитория), попавшие в allowlist профиля."""
     patterns = [_glob_regex(pattern) for pattern in profile.include]
-    return sorted({path for path in candidates if any(pattern.match(path) for pattern in patterns)})
+    excluded = set(profile.exclude)
+    return sorted({path for path in candidates if path not in excluded and any(pattern.match(path) for pattern in patterns)})
 
 
 def drive_path(profile: Profile, relative: str) -> str:
