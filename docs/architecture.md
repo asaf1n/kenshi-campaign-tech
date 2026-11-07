@@ -37,6 +37,7 @@ LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose 
 | `timeline/events.jsonl` | подтверждённые записи пользователя/импорт | publisher и чат-ИИ | append-only по event ID; изменение — отдельное корректирующее событие |
 | `sessions/` | пользователь/чат-ИИ через подтверждённый импорт | planner/summary | планы и результаты без подмены игровых фактов |
 | `published/` | publisher | GitHub / чат-ИИ | полностью генерируемый release bundle, предыдущий успешный release не портить; не коммитится в технический репозиторий, доставка через `deliver-companion` |
+| Клон `Kenshi-Compain` при доставке | `deliver-companion` | чат-ИИ / GitHub | порядок: fetch -> fast-forward до `origin/main` -> запись `published/` и `docs/reference/encounters.md` -> коммит -> push; грязный или расходящийся клон и незавершённый rebase/merge - отказ до записи; при отклонённом push - одна повторная попытка (доставочный коммит пересоздаётся поверх нового `origin/main`), конфликт отменяет rebase, `status=failed` |
 | `docs/`, `contracts/` | разработчик и reviewer | все | изменения контрактов — через независимую проверку |
 
 ## Развилки и сравнение

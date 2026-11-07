@@ -192,6 +192,14 @@ try {
     $pipelineOut | ForEach-Object { Write-Host $_ }
     # stderr (в т.ч. WARNING шага Диска) - предупреждения, не причина отказа: решает только код возврата.
     $run.Err | ForEach-Object { Write-Warning ($_ -replace '^WARNING:\s*', '') }
+    if ($pipelineCode -ne 0) {
+        $delivery = $null
+        try { $delivery = (($pipelineOut -join "`n") | ConvertFrom-Json).companion_delivery } catch { }
+        if ($delivery -and $delivery.status -eq 'failed') {
+            throw ("Доставка в Kenshi Compain не выполнена: $($delivery.git_error)`n" +
+                "Публикация published/ готова. Устраните причину в клоне $companion (незавершённый rebase: git rebase --abort; правки: закоммитьте или откатите) и повторите запуск: доставка идемпотентна.")
+        }
+    }
     if ($pipelineCode -ne 0) { throw "pipeline завершился с кодом $pipelineCode (при отказе проверки кампании published/, доставка и Диск не затронуты)" }
     # Недоступный Диск или Google API - предупреждение: публикация и доставка уже выполнены.
     $driveLine = $null

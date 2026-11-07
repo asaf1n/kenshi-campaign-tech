@@ -592,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "screenshots-index" and result["indexed"] < result["frames"]:
             return 1
         delivery = result.get("companion_delivery") if args.command == "pipeline" else result
-        if args.command in ("pipeline", "deliver-companion") and delivery and delivery.get("status") == "partial":
+        if args.command in ("pipeline", "deliver-companion") and delivery and delivery.get("status") in ("partial", "failed"):
             return 1
         if args.command == "ingest-inbox" and (
                 result.get("rejected") or result.get("error") or any("move_error" in item for item in result["processed"])):

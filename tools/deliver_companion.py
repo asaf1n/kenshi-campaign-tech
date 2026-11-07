@@ -10,7 +10,7 @@ import sys
 from typing import Any
 
 from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
-from tools.git_sync import GitSyncError, push_main, require_git, run_git
+from tools.git_sync import GitSyncError, abort_unfinished, prepare_clone, push_delivery, require_git, run_git
 from tools.io_utils import linked
 
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
@@ -94,6 +94,50 @@ def _write_encounters(pub_path: Path, target_repo: Path, game_time: str) -> str:
     return "written"
 
 
+def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> str:
+    """Записывает published/ и encounters.md в клон; идемпотентно. Возвращает статус encounters."""
+    target_published = target_repo / "published"
+    target_published.mkdir(parents=True, exist_ok=True)
+
+    # 1. Корневые артефакты и .gitkeep
+    for art in REQUIRED_ARTIFACTS:
+        src = pub_path / art
+        if src.is_file():
+            shutil.copy2(src, target_published / art)
+    for legacy in LEGACY_ARTIFACTS:
+        if not (pub_path / legacy).is_file():
+            (target_published / legacy).unlink(missing_ok=True)
+
+    gitkeep = pub_path / ".gitkeep"
+    if gitkeep.is_file():
+        shutil.copy2(gitkeep, target_published / ".gitkeep")
+
+    # 2. Каталоги выпуска; удаление устаревших файлов строго внутри этих каталогов
+    for name in SYNCED_DIRS:
+        if (pub_path / name).is_dir():
+            _sync_dir(pub_path / name, target_published / name)
+
+    for name in LEGACY_DIRS:
+        legacy_dir = target_published / name
+        if legacy_dir.is_dir() and not linked(legacy_dir):
+            _prune(legacy_dir, legacy_dir, set())
+            if not any(legacy_dir.iterdir()):
+                legacy_dir.rmdir()
+
+    return _write_encounters(pub_path, target_repo, game_time)
+
+
+def _commit_release(target_repo: Path, game_time: str, snap_short: str) -> bool:
+    paths = ["published/"]
+    if (target_repo / OUTPUT_RELATIVE).is_file():
+        paths.append(OUTPUT_RELATIVE.as_posix())
+    require_git(target_repo, "add", *paths)
+    if run_git(target_repo, "diff", "--cached", "--quiet").returncode == 0:
+        return False
+    require_git(target_repo, "commit", "-m", f"chore(published): доставить выгрузку {game_time} ({snap_short})")
+    return True
+
+
 def companion_root(companion_dir: Path | None = None) -> Path:
     return (companion_dir or Path(os.environ.get("KENSHI_COMPANION_DIR", DEFAULT_COMPANION_DIR))).resolve()
 
@@ -124,66 +168,58 @@ def deliver_to_companion(
     if validation.get("status") != "passed":
         raise ValueError(f"Публикация не прошла валидацию: status={validation.get('status')}")
 
-    target_published.mkdir(parents=True, exist_ok=True)
-
-    # 1. Корневые артефакты и .gitkeep
-    for art in REQUIRED_ARTIFACTS:
-        src = pub_path / art
-        if src.is_file():
-            shutil.copy2(src, target_published / art)
-    for legacy in LEGACY_ARTIFACTS:
-        if not (pub_path / legacy).is_file():
-            (target_published / legacy).unlink(missing_ok=True)
-
-    gitkeep = pub_path / ".gitkeep"
-    if gitkeep.is_file():
-        shutil.copy2(gitkeep, target_published / ".gitkeep")
-
-    # 2. Каталоги выпуска; удаление устаревших файлов строго внутри этих каталогов
-    for name in SYNCED_DIRS:
-        if (pub_path / name).is_dir():
-            _sync_dir(pub_path / name, target_published / name)
-
-    for name in LEGACY_DIRS:
-        legacy_dir = target_published / name
-        if legacy_dir.is_dir() and not linked(legacy_dir):
-            _prune(legacy_dir, legacy_dir, set())
-            if not any(legacy_dir.iterdir()):
-                legacy_dir.rmdir()
-
     game_time = manifest.get("game_time", "Unknown")
-    encounters = _write_encounters(pub_path, target_repo, game_time)
-
-    warnings = validation.get("warnings", [])
-    if warnings:
-        sys.stderr.write(f"Предупреждения выпуска: {'; '.join(warnings)}\n")
-
+    snapshot_id = manifest.get("snapshot_id", "")
+    snap_short = snapshot_id[:15] if snapshot_id else ""
+    use_git = (target_repo / ".git").is_dir() and auto_commit
     committed = False
     pushed = False
     git_error: str | None = None
-    snapshot_id = manifest.get("snapshot_id", "")
-    snap_short = snapshot_id[:15] if snapshot_id else ""
+    encounters = "skipped"
 
-    # 3. Git операции в целевом репозитории (если это git repo)
-    if (target_repo / ".git").is_dir() and auto_commit:
-        try:
-            paths = ["published/"]
-            if (target_repo / OUTPUT_RELATIVE).is_file():
-                paths.append(OUTPUT_RELATIVE.as_posix())
-            require_git(target_repo, "add", *paths)
-            if run_git(target_repo, "diff", "--cached", "--quiet").returncode != 0:
-                require_git(target_repo, "commit", "-m", f"chore(published): доставить выгрузку {game_time} ({snap_short})")
-                committed = True
+    def write_release() -> str:
+        return _write_release(pub_path, target_repo, game_time)
+
+    def commit_release() -> bool:
+        return _commit_release(target_repo, game_time, snap_short)
+
+    # Порядок: fetch -> fast-forward -> запись -> коммит -> push. Запись поверх актуальной базы исключает конфликты
+    # перезаписываемых файлов; при отказе подготовки клон и выгрузка не затронуты.
+    prepared = False
+    written = False
+    try:
+        if use_git:
+            prepare_clone(target_repo)
+            prepared = True
+        encounters = write_release()
+        written = True
+        warnings = validation.get("warnings", [])
+        if warnings:
+            sys.stderr.write(f"Предупреждения выпуска: {'; '.join(warnings)}\n")
+        if use_git:
+            committed = commit_release()
             if auto_push:
                 # Вне условия коммита: повтор отправляет коммит, застрявший при прошлом сбое сети.
-                push_main(target_repo)
+                own = run_git(target_repo, "rev-parse", "HEAD").stdout.strip() if committed else None
+
+                def rebuild() -> None:
+                    nonlocal committed, encounters
+                    encounters = write_release()
+                    committed = commit_release()
+
+                push_delivery(target_repo, own, rebuild)
                 pushed = True
-        except GitSyncError as err:
-            git_error = str(err)
-            sys.stderr.buffer.write(f"WARNING: git-операции в Kenshi Compain: {err}\n".encode("utf-8"))
+    except GitSyncError as err:
+        git_error = (f"{err}. Выгрузка в {target_published} {'сохранена в клоне' if written else 'не записана, клон не изменён'}; "
+                     "после устранения причины повторите доставку (идемпотентно)")
+        sys.stderr.buffer.write(f"WARNING: git-операции в Kenshi Compain: {git_error}\n".encode("utf-8"))
+    finally:
+        # Прерываем только свой rebase: чужое незавершённое состояние до prepare_clone не трогаем.
+        if prepared:
+            abort_unfinished(target_repo)
 
     result: dict[str, Any] = {
-        "status": "partial" if git_error else "delivered",
+        "status": "failed" if git_error else "delivered",
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),
