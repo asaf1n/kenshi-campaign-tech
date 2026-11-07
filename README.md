@@ -69,6 +69,7 @@ python -m tools.campaign timeline validate
 - **Источник**: стандартная папка `<KENSHI_DIR>/_screens` (например, `C:\Program Files (x86)\Steam\steamapps\common\Kenshi\_screens`) либо каталог из переменной `KENSHI_SCREENS_DIR` / флага `--screens-dir`. Каталог всегда используется в режиме **read-only**, оригинальные скриншоты никогда не изменяются и не удаляются.
 - **Окно 7 суток и ключевые кадры**: из изображений (`.jpg`, `.jpeg`, `.png`) моложе 7 суток (`now - 7d`) детерминированно отбираются 20–30 ключевых кадров (по эпизодам и равномерно по времени); остальные в выпуск не попадают. Старые кадры удаляются из релиза.
 - **Уменьшение и архив**: кадры уменьшаются до 1600 px по длинной стороне (JPEG). Полный уменьшенный набор окна хранится в `data/screenshots_archive/` вне git (каталог можно связать junction с диском, синхронизируемым с облачным хранилищем). Для обработки нужен пакет `av` (`pip install av`).
+- **Google API (задача 07, этап 0)**: `pip install google-api-python-client google-auth-oauthlib google-auth-httplib2`; разовый вход `python scripts/gdrive_auth.py` (client_secret и token.json — в `%LOCALAPPDATA%kenshi-campaign-tech`, вне репозитория).
 - **Артефакты**:
   - `published/screenshots/index.json` — машиночитаемый хронологический индекс (`kenshi-screenshots-index/1`) с метаданными, хешами SHA-256 и прямыми Raw/Blob URL.
   - `published/screenshots/index.md` — новые кадры снимка и архивный хвост с первичной разметкой и ссылками; `annotations.jsonl` и `feed.md` публикуются только при содержательном OCR.
