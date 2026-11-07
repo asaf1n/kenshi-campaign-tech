@@ -148,7 +148,11 @@ try {
             $res = Test-SaveFolder $folder $campaignId $branchId
             $report += $res.Line
             Write-Host $res.Line
-            if ($res.Belongs) { $save = $folder; break }
+            # -CheckOnly показывает все кандидаты; выбор - первая подходящая.
+            if ($res.Belongs) {
+                if (-not $save) { $save = $folder }
+                if (-not $CheckOnly) { break }
+            }
         }
         if (-not $save -and $CheckOnly) { Write-Host 'ни одна не подходит'; exit 1 }
         if (-not $save) {
