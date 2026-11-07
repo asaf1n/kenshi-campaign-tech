@@ -95,6 +95,8 @@ python -m tools.campaign deliver-companion [--push]
 ```
 или автоматически флагом `--deliver-to "C:\Users\artem\Kenshi Compain"` при выполнении `pipeline`.
 
+Вместе с выгрузкой доставка генерирует `docs/reference/encounters.md` в `Kenshi-Compain` из таблиц справочника юнитов (пять из семи: `squad_*`, `faction_*`; `tools/encounters.py`, подробнее — `docs/data-contract.md`); файл входит в тот же коммит и не затрагивается, если таблиц в выпуске нет.
+
 ### Состав release bundle
 
 Каталог `published/` содержит 10 взаимосвязанных артефактов (файлы и каталоги: `extended/`, `tables/` — по 1 пункту) и служебный `.gitkeep`. Каталог `published/` генерируется конвейером, в `kenshi-campaign-tech` не коммитится (`.gitignore`), доставляется в `Kenshi-Compain` через `deliver-companion`:

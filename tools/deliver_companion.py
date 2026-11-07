@@ -9,6 +9,7 @@ import shutil
 import sys
 from typing import Any
 
+from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
 from tools.git_sync import GitSyncError, push_main, require_git, run_git
 from tools.io_utils import linked
 
@@ -69,6 +70,30 @@ def _sync_dir(src: Path, dst: Path) -> None:
         _prune(dst, dst, src_files)
 
 
+def _write_encounters(pub_path: Path, target_repo: Path, game_time: str) -> str:
+    """Пишет docs/reference/encounters.md из published/tables; возвращает written | unchanged | skipped.
+
+    Файл генерируется, а не копируется: игровой репозиторий получает его в том же коммите, что и выгрузку. Выпуск без
+    таблиц справочника юнитов (прежний) файл не затрагивает.
+    """
+    tables_dir = pub_path / "tables"
+    tables = load_tables(tables_dir) if tables_dir.is_dir() else {}
+    absent = missing_tables(tables)
+    target = target_repo / OUTPUT_RELATIVE
+    if absent:
+        sys.stderr.write(f"Предупреждение: {OUTPUT_RELATIVE.as_posix()} не обновлён, нет таблиц: {', '.join(absent)}\n")
+        return "skipped"
+    if any(linked(parent) for parent in (target.parent, target.parent.parent) if parent.exists()):
+        sys.stderr.write(f"Предупреждение: {OUTPUT_RELATIVE.as_posix()} не обновлён, каталог назначения - ссылка\n")
+        return "skipped"
+    data = build_encounters(tables, game_time).encode("utf-8")
+    if target.is_file() and target.read_bytes() == data:
+        return "unchanged"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return "written"
+
+
 def companion_root(companion_dir: Path | None = None) -> Path:
     return (companion_dir or Path(os.environ.get("KENSHI_COMPANION_DIR", DEFAULT_COMPANION_DIR))).resolve()
 
@@ -126,6 +151,9 @@ def deliver_to_companion(
             if not any(legacy_dir.iterdir()):
                 legacy_dir.rmdir()
 
+    game_time = manifest.get("game_time", "Unknown")
+    encounters = _write_encounters(pub_path, target_repo, game_time)
+
     warnings = validation.get("warnings", [])
     if warnings:
         sys.stderr.write(f"Предупреждения выпуска: {'; '.join(warnings)}\n")
@@ -133,14 +161,16 @@ def deliver_to_companion(
     committed = False
     pushed = False
     git_error: str | None = None
-    game_time = manifest.get("game_time", "Unknown")
     snapshot_id = manifest.get("snapshot_id", "")
     snap_short = snapshot_id[:15] if snapshot_id else ""
 
     # 3. Git операции в целевом репозитории (если это git repo)
     if (target_repo / ".git").is_dir() and auto_commit:
         try:
-            require_git(target_repo, "add", "published/")
+            paths = ["published/"]
+            if (target_repo / OUTPUT_RELATIVE).is_file():
+                paths.append(OUTPUT_RELATIVE.as_posix())
+            require_git(target_repo, "add", *paths)
             if run_git(target_repo, "diff", "--cached", "--quiet").returncode != 0:
                 require_git(target_repo, "commit", "-m", f"chore(published): доставить выгрузку {game_time} ({snap_short})")
                 committed = True
@@ -159,6 +189,7 @@ def deliver_to_companion(
         "target_directory": str(target_published),
         "committed": committed,
         "pushed": pushed,
+        "encounters": encounters,
     }
     if git_error:
         result["git_error"] = git_error
