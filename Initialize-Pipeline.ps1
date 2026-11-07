@@ -31,6 +31,12 @@
 .PARAMETER BranchId
     branch_id вместо значения из published/manifest.json.
 
+.PARAMETER CheckOnly
+    Только проверка: выбор/перебор папок и "check-save" для каждой (имя, время, общих id, доля, вердикт),
+    итог "выбран бы: <папка>" либо "ни одна не подходит"; код 0 (подходящая найдена) или 1 (нет).
+    pipeline, доставка и синхронизация Диска не запускаются, каталог Kenshi Compain не нужен, data/ и published/ не пишутся.
+    При явном выборе (-SaveFolder, KENSHI_SAVE_PATTERN, KENSHI_SAVE_NAME) проверяется только выбранная папка.
+
 .PARAMETER MaxCandidates
     Сколько последних папок сохранений проверять при автоматическом выборе (по умолчанию 6).
 #>
@@ -39,7 +45,8 @@ param(
     [switch]$AllowNewCampaign,
     [string]$CampaignId,
     [string]$BranchId,
-    [int]$MaxCandidates = 6
+    [int]$MaxCandidates = 6,
+    [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -54,6 +61,26 @@ function Find-KenshiDir {
     }
     $candidates += 'C:\Program Files (x86)\Steam\steamapps\common\Kenshi'
     $candidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'kenshi_x64.exe')) } | Select-Object -First 1
+}
+
+function Test-SaveFolder([System.IO.DirectoryInfo]$Folder, [string]$Campaign, [string]$Branch) {
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    $raw = & python -m tools.campaign check-save --source $Folder.FullName --campaign-id $Campaign --branch-id $Branch
+    $code = $LASTEXITCODE
+    $when = $Folder.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
+    $verdict = 'ошибка проверки (код {0})' -f $code
+    $belongs = $false
+    if ($code -eq 0 -or $code -eq 1) {
+        $r = $null
+        try { $r = ($raw -join "`n") | ConvertFrom-Json } catch { }
+        if ($r) {
+            $belongs = ($code -eq 0)
+            $what = if ($r.status -eq 'skipped') { "проверка пропущена: $($r.reason)" }
+                    else { 'общих id {0} из {1}, доля {2}' -f $r.shared, $r.parent_size, ([double]$r.share).ToString('0.00', $inv) }
+            $verdict = '{0} -> {1}' -f $what, $(if ($belongs) { 'относится' } else { 'не относится' })
+        }
+    }
+    [pscustomobject]@{ Belongs = $belongs; Line = ('  {0}  {1}  {2}' -f $Folder.Name, $when, $verdict) }
 }
 
 $Root = $PSScriptRoot
@@ -75,8 +102,10 @@ try {
     if ((& python -c 'import sys; print(sys.version_info >= (3, 12))') -ne 'True') { throw 'Нужен Python 3.12+.' }
     & python -c 'import jsonschema' 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Не установлен jsonschema: pip install jsonschema' }
-    & python -c 'import reportlab' 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
+    if (-not $CheckOnly) {
+        & python -c 'import reportlab' 2>$null
+        if ($LASTEXITCODE -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
+    }
 
     $folders = @($env:KENSHI_SAVE_DIRS -split ';' | Where-Object { $_ } | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory })
 
@@ -103,40 +132,33 @@ try {
         if (-not $matched) { throw "Папка сохранения не найдена по условию '$(if ($pattern) { $pattern } else { $exact })' в KENSHI_SAVE_DIRS." }
         $save = $matched | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($matched.Count -gt 1) { Write-Host "Шаблон совпал с $($matched.Count) папками; берётся свежайшая." }
+        if ($CheckOnly) {
+            $res = Test-SaveFolder $save $campaignId $branchId
+            Write-Host $res.Line
+            if ($res.Belongs) { Write-Host "выбран бы: $($save.Name)"; exit 0 }
+            Write-Host 'ни одна не подходит'; exit 1
+        }
     }
     else {
         # Папка сохранений общая для всех прохождений: единственная защита - состав персонажей (check-save).
         if ($AllowNewCampaign) { throw 'С -AllowNewCampaign проверка состава не выполняется: укажите папку явно (-SaveFolder, KENSHI_SAVE_PATTERN или KENSHI_SAVE_NAME).' }
         $save = $null
         $report = @()
-        $inv = [System.Globalization.CultureInfo]::InvariantCulture
         foreach ($folder in ($folders | Sort-Object LastWriteTime -Descending | Select-Object -First $MaxCandidates)) {
-            $raw = & python -m tools.campaign check-save --source $folder.FullName --campaign-id $campaignId --branch-id $branchId
-            $code = $LASTEXITCODE
-            $when = $folder.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
-            $verdict = 'ошибка проверки (код {0})' -f $code
-            $belongs = $false
-            if ($code -eq 0 -or $code -eq 1) {
-                $r = $null
-                try { $r = ($raw -join "`n") | ConvertFrom-Json } catch { }
-                if ($r) {
-                    $belongs = ($code -eq 0)
-                    $what = if ($r.status -eq 'skipped') { "проверка пропущена: $($r.reason)" }
-                            else { 'общих id {0} из {1}, доля {2}' -f $r.shared, $r.parent_size, ([double]$r.share).ToString('0.00', $inv) }
-                    $verdict = '{0} -> {1}' -f $what, $(if ($belongs) { 'относится' } else { 'не относится' })
-                }
-            }
-            $line = '  {0}  {1}  {2}' -f $folder.Name, $when, $verdict
-            $report += $line
-            Write-Host $line
-            if ($belongs) { $save = $folder; break }
+            $res = Test-SaveFolder $folder $campaignId $branchId
+            $report += $res.Line
+            Write-Host $res.Line
+            if ($res.Belongs) { $save = $folder; break }
         }
+        if (-not $save -and $CheckOnly) { Write-Host 'ни одна не подходит'; exit 1 }
         if (-not $save) {
             throw ("Ни одна из последних $MaxCandidates папок сохранений не относится к кампании $campaignId (ветка $branchId); " +
                 "публикация, доставка и синхронизация Диска не выполнялись. Проверено (свежие сверху):`n" + ($report -join "`n") +
                 "`nУкажите папку явно (-SaveFolder), увеличьте -MaxCandidates либо используйте -AllowNewCampaign для нового старта.")
         }
     }
+
+    if ($CheckOnly) { Write-Host "выбран бы: $($save.Name)"; exit 0 }
 
     $companion = if ($env:KENSHI_COMPANION_DIR) { $env:KENSHI_COMPANION_DIR } else { Join-Path (Split-Path -Parent $Root) 'Kenshi Compain' }
     if (-not (Test-Path -LiteralPath $companion)) { throw "Каталог Kenshi Compain не найден: $companion (задайте KENSHI_COMPANION_DIR)." }
