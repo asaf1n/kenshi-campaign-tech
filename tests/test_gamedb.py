@@ -248,6 +248,23 @@ class GameDBTests(unittest.TestCase):
         self.assertEqual(records["units"], json.loads(json.dumps(units)))
         self.assertEqual(gamedb.load_records(self.cache, [base], self.po)[1]["cache"], "hit")
 
+    def test_race_records_follow_load_order(self) -> None:
+        """Ловит иммунитет расы из базы вместо rebirth (порядок загрузки), потерю источника поля и записи в кэше."""
+        base = self.write(self.root / "base.mod", _mod(
+            _record("r-1", "Skel", kind=7, data={"int": {"weather immunity0": 0, "speed max skill": 100}, "float": {"bleed rate": 0.5}},
+                    refs={"combat anatomy": {"head": [10, 150, 0]}}),
+            _record("r-gone", "Dead", kind=7, data={"bool": {"REMOVED": True}})))
+        mod = self.write(self.root / "rebirth.mod", _mod(_record(
+            "r-1", "Skel", kind=7, data={"int": {"weather immunity0": 1, "weather immunity1": 4}})))
+        races = gamedb.race_records(gamedb.build([base, mod], self.po))
+        self.assertEqual([r["sid"] for r in races], ["r-1"])
+        race = races[0]
+        self.assertEqual((race["int"]["weather immunity0"], race["int"]["weather immunity1"], race["int"]["speed max skill"]),
+                         (1, 4, 100))
+        self.assertEqual((race["field_files"]["weather immunity0"], race["field_files"]["bleed rate"]), ("rebirth.mod", "base.mod"))
+        self.assertEqual(race["weather_by_file"], {"base.mod": [0], "rebirth.mod": [1, 4]})
+        self.assertEqual(gamedb.load_records(self.cache, [base, mod], self.po)[0]["races"], json.loads(json.dumps(races)))
+
     @unittest.skipUnless((Path(gamedb.KENSHI) / "data/gamedata.base").is_file(), "Kenshi/data/gamedata.base отсутствует")
     def test_real_game_data(self) -> None:
         base = Path(gamedb.KENSHI) / "data/gamedata.base"

@@ -356,70 +356,177 @@ def calc_prosthetic(p: dict[str, Any], t: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
+GEAR_TYPES: frozenset[str] = frozenset({"ARMOUR", "WEAPON", "CROSSBOW", "LIMB_REPLACEMENT"})
+# Значение шаблона `slot` брони (itemstats.SLOT_*) -> имя слота, как у надетой брони.
+ARMOUR_SLOT_NAMES: dict[int, str] = {itemstats.SLOT_HAT: "head", itemstats.SLOT_SHIRT: "shirt", itemstats.SLOT_BODY: "body",
+                                     itemstats.SLOT_LEGS: "legs", itemstats.SLOT_BOOTS: "boots"}
+# Раздел предмета в items[] -> (контейнер inventory.csv, слот). Предметы внутри рюкзака (container `inventory>...`)
+# получают контейнер backpack и слот из раздела (backpack_content).
+SECTION_PLACES: dict[str, tuple[str, str]] = {
+    "back": ("body", "weapon_back"), "hip": ("body", "weapon_hip"), "head": ("body", "head"), "shirt": ("body", "shirt"),
+    "armour": ("body", "body"), "legs": ("body", "legs"), "boots": ("body", "boots"),
+    "backpack_attach": ("body", "backpack"), "backpack": ("body", "backpack"),
+    "belt": ("belt", "belt"), "main": ("inventory", "main"),
+}
+CONTAINER_ORDER: tuple[str, ...] = ("body", "belt", "backpack", "inventory", "unknown")
+LOCATION_ORDER: tuple[str, ...] = ("worn", "other_slot", "belt", "inventory", "backpack", "storage")
+
+
+def _instance_grade(index: dict[str, list[Any]] | None, sid: str | None, level: Any, material_sid: str | None) -> str | None:
+    """Грейд экземпляра: оружие - запись material, броня и арбалет - по уровню (itemstats), протез - prosthetics."""
+    kind = _type_of(index, sid or "")
+    if kind == "WEAPON":
+        return _label(index, material_sid) if material_sid else None
+    if kind in ("ARMOUR", "CROSSBOW"):
+        return itemstats.grade_for(kind, level)
+    if kind == "LIMB_REPLACEMENT" and level is not None:
+        return prosthetics.CONFIRMED_GRADES.get(level)
+    return None
+
+
+def _spare_entry(index: dict[str, list[Any]] | None, sid: str, level: Any, stolen: bool,
+                 material_sid: str | None, company_sid: str | None) -> tuple[str, dict[str, Any]]:
+    """Запись предмета вне слотов (инвентарь, рюкзак, склад) в виде записей надетого: (kind, entry)."""
+    kind = _type_of(index, sid)
+    en, ru = _names(index, sid)
+    entry: dict[str, Any] = {"name": ru or en, "name_en": en if en != ru else None, "sid": sid, "level": level}
+    if stolen:
+        entry["stolen"] = True
+    t = _stats(index, sid)
+    if kind == "WEAPON":
+        entry |= {"type": "melee", "grade": _label(index, material_sid) if material_sid else None,
+                  "manufacturer": _label(index, company_sid) if company_sid else None}
+        return "weapon", entry
+    if kind == "CROSSBOW":
+        return "weapon", entry | {"type": "crossbow", "grade": itemstats.grade_for("CROSSBOW", level)}
+    if kind == "ARMOUR":
+        view = itemstats.armour_view(t, level, lambda s: _label(index, s) or s, lambda s: _names(index, s)[0] == "Chest")
+        return "armour", entry | view | {"slot": ARMOUR_SLOT_NAMES.get(t.get("slot"))}
+    slot = t.get("slot")
+    limb = prosthetics.LIMBS[slot - prosthetics.LIMB_SLOT_BASE] if (
+        isinstance(slot, int) and 0 <= slot - prosthetics.LIMB_SLOT_BASE < len(prosthetics.LIMBS)) else None
+    return "prosthetic", entry | {"limb": limb, "grade": _instance_grade(index, sid, level, None)}
+
+
+def _gear_row(owner: dict[str, Any], kind: str, entry: dict[str, Any], slot: str | None, inst: dict[str, Any],
+              index: dict[str, list[Any]] | None, const: dict[str, Any]) -> dict[str, Any]:
+    """Строка equipment.csv: общая часть, значения шаблона, множители и calc_* (одинаково для надетого, запасного и складского)."""
+    row: dict[str, Any] = {
+        **owner, "kind": kind, "slot": slot, "item_name": entry.get("name"), "item_name_en": entry.get("name_en"),
+        "sid": entry.get("sid"), "item_type": entry.get("type"), "level": entry.get("level"),
+        "quality": inst.get("quality"), "grade": entry.get("grade"), "stolen": entry.get("stolen"),
+    }
+    stats = _stats(index, entry.get("sid"))
+    if kind == "weapon":
+        crossbow = entry.get("type") == "crossbow"
+        _tpl(row, stats, CROSSBOW_TPL if crossbow else WEAPON_TPL)
+        manuf: dict[str, Any] = {}
+        if not crossbow:
+            row["grade_sid"], row["manufacturer"] = inst.get("material_sid") or None, entry.get("manufacturer")
+            row["manufacturer_sid"] = inst.get("company_sid") or None
+            for field, col in GRADE_FIELDS:
+                row[col] = _stats(index, row["grade_sid"]).get(field)
+            manuf = _stats(index, row["manufacturer_sid"])
+            for field, col in MANUFACTURER_FIELDS:
+                row[col] = manuf.get(field)
+        row |= calc_weapon(entry, stats, manuf, const, _names(index, row.get("manufacturer_sid"))[0])
+    elif kind == "armour":
+        row["item_type"] = None
+        row["armour_class"], row["armour_material"] = entry.get("class"), entry.get("material")
+        cov = entry.get("coverage") or {}
+        row["coverage"] = _join(f"{k}={cell(v)}" for k, v in sorted(cov.items()))
+        row["template_unshown"] = _join(f"{k}={cell(v)}" for k, v in sorted((entry.get("template_unshown") or {}).items()))
+        _tpl(row, stats, ARMOUR_TPL)
+        for col, cat in (("tpl_races", "refs:races"), ("tpl_races_exclude", "refs:races exclude")):
+            row[col] = _join(_label(index, s) or s for s in sorted(stats.get(cat) or {}))
+        row |= calc_armour(entry, stats, index)
+    else:
+        _tpl(row, stats, LIMB_TPL)
+        row |= calc_prosthetic({"limb": entry.get("limb"), "level": entry.get("level")}, stats)
+    return row
+
+
+def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None,
+                    locations: dict[str, Any] | None = None, zone_places: dict[str, str] | None = None) -> Table:
     rows: list[dict[str, Any]] = []
     const = _constants(index)
     for c in current.get("characters") or []:
+        owner = {"character_id": c.get("id"), "character_name": c.get("name")}
         # Количественные поля экземпляра (quality, sid грейда и производителя) берутся из items[] по слоту и sid.
         instances: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for it in c.get("items") or []:
             slot = WEAPON_SECTIONS.get(it.get("section")) or ARMOUR_SECTIONS.get(it.get("section"))
             if slot and it.get("container") == "inventory":
                 instances[(slot, it.get("base_data_sid"))].append(it)
+        used: set[int] = set()
 
         def take(slot: str, sid: str | None) -> dict[str, Any]:
             queue = instances.get((slot, sid or ""))
-            return queue.pop(0) if queue else {}
+            if not queue:
+                return {}
+            inst = queue.pop(0)
+            used.add(id(inst))
+            return inst
 
-        def head(kind: str, slot: str, e: dict[str, Any], inst: dict[str, Any]) -> dict[str, Any]:
-            return {
-                "character_id": c.get("id"), "character_name": c.get("name"), "kind": kind, "slot": slot,
-                "item_name": e.get("name"), "item_name_en": e.get("name_en"), "sid": e.get("sid"),
-                "item_type": e.get("type"), "level": e.get("level"), "quality": inst.get("quality"),
-                "grade": e.get("grade"), "stolen": e.get("stolen"),
-            }
+        def worn(kind: str, slot: str, entry: dict[str, Any], inst: dict[str, Any]) -> None:
+            row = _gear_row(owner, kind, entry, slot, inst, index, const)
+            row["location_kind"], row["quantity"] = "worn", inst.get("quantity")
+            rows.append(row)
 
         for w in c.get("weapons") or []:
-            inst = take(w.get("slot"), w.get("sid"))
-            row = head("weapon", w.get("slot"), w, inst)
-            stats = _stats(index, w.get("sid"))
-            _tpl(row, stats, CROSSBOW_TPL if w.get("type") == "crossbow" else WEAPON_TPL)
-            if w.get("type") != "crossbow":
-                row["grade_sid"], row["manufacturer"] = inst.get("material_sid") or None, w.get("manufacturer")
-                row["manufacturer_sid"] = inst.get("company_sid") or None
-                for field, col in GRADE_FIELDS:
-                    row[col] = _stats(index, row["grade_sid"]).get(field)
-                for field, col in MANUFACTURER_FIELDS:
-                    row[col] = _stats(index, row["manufacturer_sid"]).get(field)
-            manuf = _stats(index, row.get("manufacturer_sid")) if w.get("type") != "crossbow" else {}
-            row |= calc_weapon(w, stats, manuf, const, _names(index, row.get("manufacturer_sid"))[0])
-            rows.append(row)
+            worn("weapon", w.get("slot"), w, take(w.get("slot"), w.get("sid")))
         for slot, a in (c.get("armour") or {}).items():
-            if not isinstance(a, dict):
-                continue
-            inst = take(a.get("slot") or slot, a.get("sid"))
-            row = head("armour", a.get("slot") or slot, a, inst)
-            row["item_type"] = None
-            row["armour_class"], row["armour_material"] = a.get("class"), a.get("material")
-            cov = a.get("coverage") or {}
-            row["coverage"] = _join(f"{k}={cell(v)}" for k, v in sorted(cov.items()))
-            unshown = a.get("template_unshown") or {}
-            row["template_unshown"] = _join(f"{k}={cell(v)}" for k, v in sorted(unshown.items()))
-            _tpl(row, _stats(index, a.get("sid")), ARMOUR_TPL)
-            row |= calc_armour(a, _stats(index, a.get("sid")), index)
-            rows.append(row)
+            if isinstance(a, dict):
+                worn("armour", a.get("slot") or slot, a, take(a.get("slot") or slot, a.get("sid")))
         for p in c.get("prosthetics") or []:
-            row = head("prosthetic", p.get("limb"), p, {})
-            _tpl(row, _stats(index, p.get("sid")), LIMB_TPL)
-            row |= calc_prosthetic(p, _stats(index, p.get("sid")))
+            worn("prosthetic", p.get("limb"), p, {})
+        # Остальные экземпляры брони, оружия и протезов персонажа: запасные в инвентаре, рюкзаке, на поясе.
+        by_item_sid = {it.get("item_sid"): it for it in c.get("items") or []}
+        for it in c.get("items") or []:
+            sid = it.get("base_data_sid")
+            if id(it) in used or _type_of(index, sid or "") not in GEAR_TYPES:
+                continue
+            cont, sec = it.get("container") or "", it.get("section")
+            holder = ""
+            if cont.startswith("inventory>"):
+                kind_loc = "backpack"
+                parent = by_item_sid.get(cont.rsplit(">", 1)[1]) or {}
+                holder = _label(index, parent.get("base_data_sid")) or ""
+            elif sec == "belt":
+                kind_loc = "belt"
+            elif sec == "main":
+                kind_loc = "inventory"
+            else:
+                kind_loc = "other_slot"  # предмет в слоте надетого сверх показанного в weapons/armour
+            kind, entry = _spare_entry(index, sid, it.get("level"), bool(it.get("is_stolen")),
+                                       it.get("material_sid") or None, it.get("company_sid") or None)
+            row = _gear_row(owner, kind, entry, entry.get("slot") or entry.get("limb"), it, index, const)
+            row |= {"location_kind": kind_loc, "container": holder or None, "quantity": it.get("quantity")}
             rows.append(row)
-    rows.sort(key=lambda r: (str(r["character_id"]), r["kind"], str(r["slot"]), str(r["sid"])))
+    # Склады: все экземпляры брони, оружия и протезов в зданиях игрока.
+    srows, _nodes = storage_rows((current.get("property") or {}).get("buildings") or [], locations, index, zone_places)
+    for r in srows:
+        if _type_of(index, r["base_sid"] or "") not in GEAR_TYPES:
+            continue
+        kind, entry = _spare_entry(index, r["base_sid"], r["level"], r["stolen"], r["material_sid"], r["company_sid"])
+        row = _gear_row({}, kind, entry, entry.get("slot") or entry.get("limb"), r, index, const)
+        row |= {"location_kind": "storage", "container": r["container"], "quantity": r["quantity"],
+                "building_id": r["building_id"], "building": r["building"], "settlement": r["settlement"], "zone": r["zone"]}
+        rows.append(row)
+
+    def order(r: dict[str, Any]) -> tuple[Any, ...]:
+        where = (str(r.get("settlement") or "~"), str(r.get("zone")), str(r.get("building_id")), str(r.get("container")))
+        return (LOCATION_ORDER.index(r["location_kind"]), str(r.get("character_id") or ""),
+                where if r["location_kind"] == "storage" else (), r["kind"], str(r["slot"]), str(r["sid"]),
+                r["level"] if isinstance(r["level"], (int, float)) else -1, str(cell(r.get("quality"))))
+    rows.sort(key=order)
 
     tpl_fields = list(dict.fromkeys([*WEAPON_TPL, *CROSSBOW_TPL, *ARMOUR_TPL, *LIMB_TPL]))
     columns = [
-        ("character_id", "ID персонажа"), ("character_name", "Имя персонажа"),
+        ("character_id", "ID персонажа; пусто у складских предметов"), ("character_name", "Имя персонажа"),
         ("kind", "weapon, armour или prosthetic"),
-        ("slot", "weapon_back/weapon_hip, head/shirt/body/legs/boots или конечность протеза (left_leg...)"),
+        ("slot", "weapon_back/weapon_hip, head/shirt/body/legs/boots или конечность протеза (left_leg...); у запасных и "
+                 "складских - слот или конечность по шаблону предмета, у оружия пусто"),
         ("item_name", "Название (ru)"), ("item_name_en", "Название (en), если отличается"),
         ("sid", "sid записи предмета в данных игры"), ("item_type", "melee или crossbow для оружия"),
         ("level", "Уровень экземпляра"), ("quality", "quality экземпляра из items[] (оружие и броня)"),
@@ -437,12 +544,88 @@ def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None)
     columns += [(tpl_column(f), f"Поле шаблона игры `{f}`; пусто - не применимо к виду предмета")
                 for f in tpl_fields]
     columns += list(CALC_COLUMNS)
-    return Table("equipment.csv", "character_id, kind, slot, sid",
-                 "Оружие, броня и протезы персонажей: значения шаблона, множители и итоговые `calc_*`",
-                 columns, rows)
+    columns += [
+        ("location_kind", "Где экземпляр: worn - надето (строки прежнего вида; протез установлен), inventory - основной "
+                          "инвентарь персонажа, backpack - внутри рюкзака, belt - пояс, storage - склад здания, "
+                          "other_slot - второй предмет в слоте надетого (не показан в weapons/armour)"),
+        ("quantity", "Количество в стопке; у надетого - из items[], у протезов пусто"),
+        ("container", "backpack: название рюкзака; storage: контейнер внутри здания (как в storage.csv); иначе пусто"),
+        ("building_id", "storage: ID здания в сохранении"), ("building", "storage: название здания"),
+        ("settlement", "storage: поселение; пусто, если не определено"), ("zone", "storage: зона карты"),
+        ("tpl_races", "Брони: расы, только которым разрешено её надевать (`races`); пусто - ограничения нет"),
+        ("tpl_races_exclude", "Брони: расы, которым запрещено её надевать (`races exclude`)"),
+    ]
+    return Table("equipment.csv", "location_kind, character_id / здание, kind, slot, sid, level, quality",
+                 "Все экземпляры оружия, брони и протезов (надетые, запасные у персонажей, на складах): значения шаблона, "
+                 "множители и итоговые `calc_*`", columns, rows)
+
+
+# --------------------------------------------------------------------------- инвентарь
+
+def inventory_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for c in current.get("characters") or []:
+        items = c.get("items") or []
+        by_item_sid = {it.get("item_sid"): it for it in items}
+        groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+        for it in items:
+            cont, sec = it.get("container") or "", it.get("section") or ""
+            sid, holder_sid = it.get("base_data_sid"), None
+            if cont.startswith("inventory>"):
+                place = ("backpack", sec or "backpack_content")
+                holder_sid = (by_item_sid.get(cont.rsplit(">", 1)[1]) or {}).get("base_data_sid")
+            else:
+                place = SECTION_PLACES.get(sec, ("unknown", sec))
+            name = _label(index, sid)
+            row = {
+                "character_id": c.get("id"), "character_name": c.get("name"), "container": place[0], "slot": place[1],
+                "backpack_name": _label(index, holder_sid) if holder_sid else None, "backpack_sid": holder_sid,
+                "item_name": name, "item_type": _type_of(index, sid or ""), "base_sid": sid, "item_sid": it.get("item_sid"),
+                "level": it.get("level"), "quality": it.get("quality"),
+                "grade": _instance_grade(index, sid, it.get("level"), it.get("material_sid") or None),
+                "quantity": it.get("quantity"), "stolen": True if it.get("is_stolen") else None,
+                "charges": it.get("charges"), "unique": it.get("unique"), "unresolved": True if name is None else None,
+            }
+            groups[(c.get("id"), sid, it.get("level"), place[1])].append(row)
+        for group in groups.values():
+            group.sort(key=lambda r: (str(r["backpack_sid"]), str(cell(r["quality"])), str(cell(r["charges"])),
+                                      str(r["stolen"]), str(r["quantity"]), str(r["item_sid"])))
+            for n, row in enumerate(group, 1):
+                row["dup_no"] = n
+                rows.append(row)
+    rows.sort(key=lambda r: (str(r["character_id"]), CONTAINER_ORDER.index(r["container"]), r["slot"], str(r["base_sid"]),
+                             r["level"] if isinstance(r["level"], (int, float)) else -1, r["dup_no"]))
+    columns = [
+        ("character_id", "ID персонажа"), ("character_name", "Имя персонажа"),
+        ("container", "body - надето (оружие, броня, надетый рюкзак); belt - пояс; backpack - внутри рюкзака; "
+                      "inventory - основной инвентарь; unknown - раздел не распознан (значение в `slot`)"),
+        ("slot", "weapon_back, weapon_hip, head, shirt, body, legs, boots, backpack (надетый рюкзак), belt; main - основной "
+                 "инвентарь; backpack_content - содержимое рюкзака"),
+        ("backpack_name", "Для container = backpack: название рюкзака, в котором лежит предмет"),
+        ("backpack_sid", "Для container = backpack: base_sid рюкзака"),
+        ("item_name", "Название предмета (игра, ru); пусто, если sid нет в данных игры"),
+        ("item_type", "Тип записи: ITEM, WEAPON, CROSSBOW, ARMOUR, CONTAINER, LIMB_REPLACEMENT..."),
+        ("base_sid", "sid записи предмета в данных игры; стабилен между сейвами"),
+        ("item_sid", "sid экземпляра в сейве; уникален только внутри снимка, между сейвами меняется - для сравнения "
+                     "снимков не использовать"),
+        ("level", "Уровень экземпляра как в сейве (у расходников 0)"),
+        ("quality", "quality экземпляра как в сейве (у брони и оружия 100, у прочих 1; смысл у расходников не установлен)"),
+        ("grade", "Грейд: оружие - запись material, броня и арбалет - по уровню, протез - по уровню; пусто - не определён"),
+        ("quantity", "Количество в стопке"), ("stolen", "true - предмет краденый; пусто - нет"),
+        ("charges", "charges как в сейве (для еды - питательность на единицу)"), ("unique", "Признак unique из сейва"),
+        ("unresolved", "true - base_sid не найден в данных игры"),
+        ("dup_no", "Порядковый номер среди экземпляров с одинаковым (character_id, base_sid, level, slot): ключ сравнения "
+                   "снимков - (character_id, base_sid, level, slot, dup_no)"),
+    ]
+    return Table("inventory.csv", "character_id, container, slot, base_sid, level, dup_no",
+                 "Все предметы персонажей отряда поэкземплярно: надетое, пояс, рюкзаки, инвентарь", columns, rows)
 
 
 # --------------------------------------------------------------------------- склады и цены
+
+def _num_key(value: Any) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else -1.0
+
 
 def storage_table(current: dict[str, Any], locations: dict[str, Any] | None,
                   index: dict[str, list[Any]] | None, zone_places: dict[str, str] | None = None) -> Table:
@@ -458,9 +641,14 @@ def storage_table(current: dict[str, Any], locations: dict[str, Any] | None,
             "item": r["item"], "item_sid": r["item_sid"], "quantity": r["quantity"],
             "base_price": r["base_price"], "base_price_source": r["base_price_source"],
             "unresolved": r["unresolved"],
+            # Экземпляры разного уровня и качества остаются отдельными строками: сворачивать по base_sid нельзя.
+            "level": r["level"], "quality": r["quality"],
+            "grade": _instance_grade(index, r["base_sid"], r["level"], r["material_sid"]),
+            "charges": r["charges"], "stolen": True if r["stolen"] else None, "unique": r["unique"],
         })
-    rows.sort(key=lambda r: tuple(str(r[k] or "") for k in
-                                  ("location_key", "zone", "building_id", "container", "item", "item_sid")))
+    rows.sort(key=lambda r: (*(str(r[k] or "") for k in
+                               ("location_key", "zone", "building_id", "container", "item", "item_sid")),
+                             _num_key(r["level"]), _num_key(r["quality"]), _num_key(r["charges"])))
     columns = [
         ("settlement", "Поселение; пусто, если не определено"),
         ("location_key", "Ключ места: поселение или «зона N (поселение не определено)»"),
@@ -471,9 +659,14 @@ def storage_table(current: dict[str, Any], locations: dict[str, Any] | None,
         ("base_price", "Базовая цена `value` (последний файл в порядке загрузки модов)"),
         ("base_price_source", "Файл, задающий цену"),
         ("unresolved", "Предмет не найден в данных игры"),
+        ("level", "Уровень экземпляра как в сейве (у расходников 0)"),
+        ("quality", "quality экземпляра как в сейве (у брони и оружия 100, у прочих 1; смысл у расходников не установлен)"),
+        ("grade", "Грейд: оружие - запись material, броня и арбалет - по уровню, протез - по уровню; пусто - не определён"),
+        ("charges", "charges как в сейве (для еды - питательность на единицу)"),
+        ("stolen", "true - краденый; пусто - нет"), ("unique", "Признак unique из сейва"),
     ]
     return Table("storage.csv", "location_key, zone, building_id, container, item, item_sid",
-                 "Предметы в хранилищах зданий игрока", columns, rows)
+                 "Предметы в хранилищах зданий игрока: строка на запись сейва (стопка), экземпляры разного уровня раздельно", columns, rows)
 
 
 def item_prices_table(index: dict[str, list[Any]] | None) -> Table:
@@ -1006,6 +1199,109 @@ def faction_hostility_table(records: dict[str, Any] | None, index: dict[str, lis
                  "протезам в данных нет", columns, rows)
 
 
+# --------------------------------------------------------------------------- расы
+
+# Коды WeatherAffecting: перечисление в fcs.def/fcs_enums.def не задано; 1-4 сверены с карточками брони (itemstats.WEATHER).
+WEATHER_RU: dict[int, str] = {1: "песчаная буря", 2: "кислотный дождь", 3: "жара", 4: "газ"}
+WEATHER_PREFIX: str = "weather immunity"
+# Поле записи RACE -> (колонка, секция сырых данных): значения как хранятся; отсутствие поля - пустая ячейка.
+RACE_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("playable", "playable", "bool"), ("is robot", "is_robot", "bool"), ("single gender", "single_gender", "bool"),
+    ("no hats", "no_hats", "bool"), ("no shirts", "no_shirts", "bool"), ("no shoes", "no_shoes", "bool"),
+    ("speed min skill", "speed_min_skill", "int"), ("speed max skill", "speed_max_skill", "int"),
+    ("walk speed", "walk_speed", "float"), ("combat move speed mult", "combat_move_speed_mult", "float"),
+    ("swim speed mult", "swim_speed_mult", "float"), ("swim speed", "swim_speed", "int"),
+    ("strength", "strength_mult", "float"), ("dexterity", "dexterity_mult", "float"),
+    ("bleed rate", "bleed_rate", "float"), ("heal rate", "heal_rate", "float"), ("hunger rate", "hunger_rate", "float"),
+    ("min blood", "min_blood", "float"), ("max blood", "max_blood", "float"),
+    ("extra attack slots", "extra_attack_slots", "int"),
+)
+RACE_FIELD_NOTES: dict[str, str] = {
+    "playable": "Игрок может выбрать расу", "is_robot": "Робот: атрибуты фиксированы и растут только протезами",
+    "single_gender": "Один пол", "no_hats": "Нет слота шлема: шлемы не надеваются",
+    "no_shirts": "Нет слота рубахи: рубахи не надеваются", "no_shoes": "Нет слота обуви: обувь не надевается",
+    "speed_min_skill": "Скорость бега при минимальной Атлетике", "speed_max_skill": "Скорость бега при максимальной Атлетике",
+    "walk_speed": "Скорость шага", "combat_move_speed_mult": "Множитель боевой скорости (fcs.def: 1.0 - человек)",
+    "swim_speed_mult": "Множитель скорости плавания", "swim_speed": "Скорость плавания, целое как хранится",
+    "strength_mult": "Множитель атрибута Сила", "dexterity_mult": "Множитель атрибута Ловкость",
+    "bleed_rate": "Множитель кровотечения (0 - без крови)", "heal_rate": "Множитель лечения",
+    "hunger_rate": "Скорость голода (множитель)", "min_blood": "Кровь при минимальной силе/возрасте",
+    "max_blood": "Кровь при максимальной силе/возрасте", "extra_attack_slots": "Добавка к числу атакующих слотов",
+}
+RACE_PUBLISHED_KEYS: frozenset[str] = frozenset({f for f, _c, _s in RACE_FIELDS} | {"natural armour", "combat anatomy"})
+
+
+def races_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    races = (records or {}).get("races") or []
+    # Ограничения брони: у ARMOUR поле `races` (только эти расы) и `races exclude` (кроме этих рас).
+    only: dict[str, list[str]] = defaultdict(list)
+    excluded: dict[str, list[str]] = defaultdict(list)
+    whitelisted = 0
+    for sid, entry in (index or {}).items():
+        if entry[2] != "ARMOUR" or len(entry) < 5 or not entry[4]:
+            continue
+        stats = entry[4]
+        whitelisted += 1 if stats.get("refs:races") else 0
+        for race in stats.get("refs:races") or {}:
+            only[race].append(_label(index, sid) or sid)
+        for race in stats.get("refs:races exclude") or {}:
+            excluded[race].append(_label(index, sid) or sid)
+    rows: list[dict[str, Any]] = []
+    for rec in races:
+        sid, files = rec["sid"], rec.get("files") or []
+        by_file = rec.get("weather_by_file") or {}
+        ints = rec.get("int") or {}
+        codes = [ints[k] for k in sorted((k for k in ints if k.startswith(WEATHER_PREFIX)),
+                                         key=lambda k: int(k[len(WEATHER_PREFIX):] or 0))]
+        decoded = [WEATHER_RU.get(c, f"код {c} (не установлен)") for c in codes if c != 0]
+        armour = (rec.get("refs") or {}).get("natural armour") or []
+        anatomy = (rec.get("refs") or {}).get("combat anatomy") or []
+        field_files = rec.get("field_files") or {}
+        history = "; ".join(f"{f}={'/'.join(str(c) for c in v)}" for f, v in by_file.items()) if len(by_file) > 1 else None
+        row: dict[str, Any] = {
+            "sid": sid, "name_en": rec.get("name") or None, "name_ru": _names(index, sid)[1], "files": _join(files),
+            "weather_immunity_codes": _join(codes),
+            "weather_immunity": (_join(decoded) or "нет") if codes else None,
+            "weather_immunity_source": field_files.get(WEATHER_PREFIX + "0"),
+            "weather_immunity_by_file": history,
+            "natural_armour_sids": _join(a for a, _v in armour),
+            "natural_armour_names": _join(_label(index, a) for a, _v in armour),
+            "natural_armour_template": _join(f"{k}={cell(v)}" for a, _v in armour
+                                             for k, v in sorted(_stats(index, a).items()) if not k.startswith("refs:")),
+            "combat_anatomy": _join(f"{_label(index, p) or p}={cell(v[0])}/{cell(v[1])}" for p, v in anatomy),
+            "armour_only_for_race": _join(sorted(only.get(sid, []))),
+            "armour_excluded_for_race": _join(sorted(excluded.get(sid, []))),
+        }
+        for field, col, section in RACE_FIELDS:
+            row[col] = (rec.get(section) or {}).get(field)
+        overridden = [k for k, f in field_files.items()
+                      if files and f != files[0] and (k in RACE_PUBLISHED_KEYS or k.startswith(WEATHER_PREFIX))]
+        row["overridden_fields"] = _join(f"{k}={field_files[k]}" for k in sorted(overridden))
+        rows.append(row)
+    rows.sort(key=lambda r: r["sid"])
+    columns = [
+        ("sid", "sid записи RACE (тип 7)"), ("name_en", "Имя записи (en)"), ("name_ru", "Имя записи (ru, gamedata.po)"),
+        ("files", "Файлы, определяющие запись, в порядке загрузки: поле последнего файла заменяет предыдущие (rebirth после базы)"),
+        ("weather_immunity_codes", "Коды `weather immunity0..N` как хранятся, через `; `; 0 - WA_NONE (иммунитета нет); пусто - полей нет"),
+        ("weather_immunity", "Расшифровка: 1 песчаная буря, 2 кислотный дождь, 3 жара, 4 газ (перечисление WeatherAffecting "
+                             "в fcs.def не задано, коды сверены с карточками брони); прочие коды помечены «не установлен»"),
+        ("weather_immunity_source", "Файл последнего определения кодов"),
+        ("weather_immunity_by_file", "Коды по файлам `файл=коды`, если запись определена в нескольких файлах; слияние идёт по "
+                                     "ключам weather immunityN, удаление кода перекрывающим файлом не распознаётся"),
+        ("natural_armour_sids", "sid ARMOUR естественной брони (`natural armour`): добавляется к надетой; уровень в записи расы не задан"),
+        ("natural_armour_names", "Название"), ("natural_armour_template", "Поля шаблона этой брони `поле=значение` как хранятся"),
+        ("combat_anatomy", "Части тела `часть=доля попадания/здоровье` как хранятся (val0/val1 ссылки LOCATIONAL_DAMAGE)"),
+        ("armour_only_for_race", "Броня, у которой в `races` указана эта раса. Броня с непустым `races`, где расы нет, "
+                                 f"для неё недоступна (таких записей брони в данных: {whitelisted})"),
+        ("armour_excluded_for_race", "Броня, у которой эта раса указана в `races exclude`"),
+    ]
+    columns += [(col, f"`{field}`: {RACE_FIELD_NOTES[col]}; пусто - поле не хранится (значение по умолчанию fcs.def)")
+                for field, col, _section in RACE_FIELDS]
+    columns.append(("overridden_fields", "Поля, чьё значение задано не первым файлом записи: `поле=файл последнего определения`"))
+    return Table("races.csv", "sid", "Расы игры (RACE) с учётом порядка загрузки модов: иммунитет к погоде, естественная броня, "
+                 "скорости, множители, анатомия", columns, rows)
+
+
 # --------------------------------------------------------------------------- сборка и index.md
 
 def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table], game_mods: list[str] | None,
@@ -1031,7 +1327,12 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
     lines += [f"- {n}" for n in game_notes]
     lines += [
         CALC_NOTE + " Значения шаблона (`tpl_*`), множители производителя и поправки грейда даны отдельными колонками.",
-        "- Содержимое инвентаря и рюкзаков персонажей, сведения о построенных зданиях и исследованиях в таблицы не входят.",
+        "- Предметы персонажей поэкземплярно - `inventory.csv` (контейнеры body, belt, backpack, inventory; ключ сравнения снимков "
+        "(character_id, base_sid, level, slot, dup_no), `item_sid` действует внутри снимка). Оружие, броня и протезы "
+        "независимо от места - `equipment.csv` (`location_kind`). Вес экземпляров и параметры рюкзаков, здоровье по частям "
+        "тела, сведения о построенных зданиях и исследованиях в таблицы не входят.",
+        "- `races.csv`: поля записей RACE после слияния файлов в порядке загрузки; пустая ячейка - поле не хранится "
+        "(действует значение по умолчанию fcs.def). Расшифровка кодов погоды 1-4 сверена с карточками брони, прочие не расшифрованы.",
         "- Смысл `v[1]`, `v[2]` у ссылок `world state`/`NPC is` в документах игры не описан; значения публикуются без трактовки.",
         "- Справочник юнитов (`unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, "
         "`squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv`): значения шаблонов как хранятся в данных набора "
@@ -1062,10 +1363,12 @@ def build_tables(
     world_ref: dict[str, Any] | None = None,
 ) -> dict[str, bytes]:
     """Файлы tables/: имя -> содержимое. Без справочника игры колонки шаблонов и таблицы реакций пусты; это названо в index.md."""
+    zone_places = zone_settlements(locations, world_ref)
     tables = [
         squad_table(current, locations),
-        equipment_table(current, game_index),
-        storage_table(current, locations, game_index, zone_settlements(locations, world_ref)),
+        equipment_table(current, game_index, locations, zone_places),
+        inventory_table(current, game_index),
+        storage_table(current, locations, game_index, zone_places),
         item_prices_table(game_index),
         trade_modifiers_table(game_records, game_index),
         unique_npcs_table(current),
@@ -1080,6 +1383,7 @@ def build_tables(
         squad_spawns_table(game_records, game_index),
         faction_relations_table(game_records, game_index),
         faction_hostility_table(game_records, game_index),
+        races_table(game_records, game_index),
     ]
     mods = ((current.get("meta") or {}).get("game_data") or {}).get("mods") if game_index else None
     notes = list(game_notes)
@@ -1088,7 +1392,7 @@ def build_tables(
                      "и названия по sid не заполнены.")
     if game_records is None:
         notes.append("Записи реакций и торговли недоступны: `trade_modifiers.csv`, `world_reactions.csv`, "
-                     "`world_reaction_links.csv`, `unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
+                     "`world_reaction_links.csv`, `races.csv`, `unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
                      "`faction_*.csv` пусты.")
     files = {t.name: csv_bytes(t) for t in tables}
     files[INDEX_NAME] = render_index(current, snapshot_id, tables, mods, notes).encode("utf-8")

@@ -86,7 +86,7 @@ published/
   world_reference.json
   timeline.jsonl
   tables/               # CSV и index.md, раздел «Табличные выгрузки»
-    index.md, squad.csv, equipment.csv, storage.csv, item_prices.csv, trade_modifiers.csv, unique_npcs.csv,
+    index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, races.csv, item_prices.csv, trade_modifiers.csv, unique_npcs.csv,
     town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
     unit_templates.csv, unit_template_gear.csv, squad_templates.csv, squad_members.csv,
     squad_spawns.csv, faction_relations.csv, faction_hostility.csv
@@ -386,8 +386,10 @@ Publisher читает журнал целиком, проверяет его, �
 |---|---|---|
 | `index.md` | — | snapshot_id, игровое время, число строк таблиц, словарь колонок, неопубликованные поля, значения `state_code` |
 | `squad.csv` | `character_id` | персонаж отряда игрока: раса, отряд, местоположение (регион, поселение, статус разрешения), кровь, сытость, статусы, работы (`jobs_*`), протезы, награда, 4 атрибута и навыки (английские имена игры, включая значения ≤ 0) |
-| `equipment.csv` | `character_id`, `kind`, `slot`, `sid` | оружие, броня и протезы: `level`, `quality`, `grade`, `manufacturer` (раздельно), значения шаблона `tpl_*`, множители производителя и поправки грейда, итоговые `calc_*` |
-| `storage.csv` | `location_key`, `zone`, `building_id`, `container`, `item`, `item_sid` | предметы в хранилищах зданий игрока: поселение, здание, контейнер, предмет (имя из игры), количество, базовая цена |
+| `equipment.csv` | `location_kind`, `character_id` (у склада — здание), `kind`, `slot`, `sid`, `level`, `quality` | все экземпляры оружия, брони и протезов: `location_kind` (worn — надето, строки прежнего вида; inventory, backpack, belt — запасные у персонажа; storage — склад; other_slot — второй предмет в слоте надетого), `level`, `quality`, `grade`, `manufacturer` (раздельно), значения шаблона `tpl_*`, множители производителя и поправки грейда, итоговые `calc_*` (при неизвестном уровне экземпляра — `unknown_level`), ограничения брони по расе `tpl_races`, `tpl_races_exclude` |
+| `inventory.csv` | `character_id`, `container`, `slot`, `base_sid`, `level`, `dup_no` | все предметы персонажей поэкземплярно: контейнер (body — надето, belt, backpack — внутри рюкзака, inventory — основной инвентарь), слот, название из игры, `base_sid` (стабилен), `item_sid` (только внутри снимка; между сейвами меняется), `level`, `quality`, `grade`, `quantity`, `stolen`, `charges`. Ключ сравнения снимков — (`character_id`, `base_sid`, `level`, `slot`, `dup_no`); уникальность проверяет `validate_tables` |
+| `storage.csv` | `location_key`, `zone`, `building_id`, `container`, `item`, `item_sid` | предметы в хранилищах зданий игрока: поселение, здание, контейнер, предмет (имя из игры), количество, базовая цена, `level`, `quality`, `grade`, `charges`, `stolen`, `unique`; экземпляры разного уровня — отдельными строками, суммы количеств по зонам и поселениям от разбиения не зависят |
+| `races.csv` | `sid` | расы (запись RACE, тип 7) после слияния файлов в порядке загрузки модов (rebirth после базы): коды иммунитета к погоде (`weather immunity`) и расшифровка 1 песчаная буря, 2 кислотный дождь, 3 жара, 4 газ (перечисление в fcs.def не задано, коды сверены с карточками брони, прочие помечены «не установлен»), естественная броня, скорости, множители атрибутов, кровь, `combat anatomy`, флаги слотов (`no_hats`, `no_shirts`, `no_shoes`), броня с ограничением по расе, файл-источник перекрытий |
 | `item_prices.csv` | `sid` | базовые цены записей игры (`value`, `value 1`) с источником и историей переопределений по порядку загрузки модов |
 | `trade_modifiers.csv` | `group`, `record_sid`, `field`, `ref_sid` | сырые торговые записи без вычисленных цен |
 | `unique_npcs.csv` | `sid` | уникальные NPC: `state_code`, `player`, `captured_by` |

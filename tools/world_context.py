@@ -110,6 +110,9 @@ def storage_rows(
                 "item": name or sid or "Неизвестный предмет", "item_sid": sid, "unresolved": name is None,
                 "quantity": int(qty) if isinstance(qty, (int, float)) and qty > 0 else 1,
                 "base_price": price, "base_price_source": price_src,
+                "base_sid": sid, "level": it.get("level"), "quality": it.get("quality"), "charges": it.get("charges"),
+                "stolen": bool(it.get("is_stolen")), "unique": it.get("unique"),
+                "material_sid": it.get("material_sid") or None, "company_sid": it.get("company_sid") or None,
             })
         for sub in b.get("interior") or []:
             walk(sub, (settlement, how) if settlement else parent, zone)

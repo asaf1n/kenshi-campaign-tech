@@ -442,6 +442,67 @@ class CalcCardBatchesTests(unittest.TestCase):
         self.assertEqual(view["skill_modifiers"]["stealth_multiplier"], 1.1)
 
 
+class InstanceTablesTests(unittest.TestCase):
+    def test_instances_stay_separate_in_every_place(self) -> None:
+        """Ловит склейку экземпляров разного уровня в storage, потерю запасных и складских предметов в equipment,
+        сдвиг прежних worn-строк и зависимость inventory (ключ, dup_no) от порядка предметов."""
+        idx = {**INDEX, "bp": ["Backpack", "Рюкзак", "CONTAINER", "x.mod", None]}
+
+        def item(sid: str, section: str, container: str = "inventory", **kw: Any) -> dict[str, Any]:
+            return {"base_data_sid": sid, "section": section, "container": container, "quality": 100.0,
+                    "item_sid": kw.pop("item_sid", f"i-{sid}-{section}-{kw.get('level')}-{kw.get('quantity')}"), **kw}
+
+        items = [
+            item("476-gamedata.base", "back", level=40, item_sid="w0"),
+            item("bp", "backpack_attach", level=0, item_sid="bp0"),
+            item("476-gamedata.base", "main", level=55, item_sid="w1"),
+            item("476-gamedata.base", "backpack_content", "inventory>bp0", level=None, item_sid="w2"),
+            item("1965-gamedata.base", "main", level=0, quantity=1, item_sid="h1"),
+            item("1965-gamedata.base", "main", level=0, quantity=3, item_sid="h2"),
+        ]
+        cur = mini_snapshot()
+        cur["characters"][1]["items"] = items
+        cur["characters"][1]["weapons"][0]["sid"] = "476-gamedata.base"
+        cur["property"]["buildings"][0]["storage_items"] = [
+            {"base_data_sid": "476-gamedata.base", "quantity": 1, "container": "storage>c1", "level": 40, "quality": 100.0},
+            {"base_data_sid": "476-gamedata.base", "quantity": 1, "container": "storage>c1", "level": 60, "quality": 100.0},
+            {"base_data_sid": "1965-gamedata.base", "quantity": 11, "container": "storage>c1", "level": 0, "quality": 1.0}]
+        files = build_tables(cur, None, SNAPSHOT_ID, idx, RECORDS, world_ref=WORLD_REF)
+
+        katana = [r for r in parse(files, "storage.csv") if r["item"] == "Катана"]
+        self.assertEqual([(r["level"], r["quantity"]) for r in katana], [("40", "1"), ("60", "1")])
+        equipment = [r for r in parse(files, "equipment.csv") if r["kind"] == "weapon"]
+        self.assertEqual([(r["location_kind"], r["level"], r["calc_status"], r["container"]) for r in equipment],
+                         [("worn", "40", "unverified_class", ""), ("inventory", "55", "unverified_class", ""),
+                          ("backpack", "", "unknown_level", "Рюкзак"), ("storage", "40", "unverified_class", "c1"),
+                          ("storage", "60", "unverified_class", "c1")])
+        inventory = parse(files, "inventory.csv")
+        self.assertEqual([(r["container"], r["slot"], r["base_sid"][:3], r["dup_no"]) for r in inventory
+                          if r["character_id"] == "ps:1"],
+                         [("body", "backpack", "bp", "1"), ("body", "weapon_back", "476", "1"), ("backpack", "backpack_content", "476", "1"),
+                          ("inventory", "main", "196", "1"), ("inventory", "main", "196", "2"), ("inventory", "main", "476", "1")])
+        shuffled = copy.deepcopy(cur)
+        shuffled["characters"][1]["items"].reverse()
+        again = build_tables(shuffled, None, SNAPSHOT_ID, idx, RECORDS, world_ref=WORLD_REF)
+        self.assertEqual(files["inventory.csv"], again["inventory.csv"])
+
+    def test_races_decode_weather_and_keep_unknown_codes(self) -> None:
+        """Ловит подмену неизвестного кода погоды расшифровкой, потерю кода 0 (нет иммунитета) и источника перекрытия."""
+        records = {"races": [
+            {"sid": "r-1", "name": "Skel", "files": ["gamedata.base", "rebirth.mod"],
+             "int": {"weather immunity0": 1, "weather immunity1": 5, "speed max skill": 110},
+             "field_files": {"weather immunity0": "rebirth.mod", "weather immunity1": "rebirth.mod", "speed max skill": "gamedata.base"},
+             "weather_by_file": {"gamedata.base": [0], "rebirth.mod": [1, 5]}},
+            {"sid": "r-2", "name": "Human", "files": ["gamedata.base"], "int": {"weather immunity0": 0},
+             "field_files": {"weather immunity0": "gamedata.base"}, "weather_by_file": {"gamedata.base": [0]}}]}
+        rows = {r["sid"]: r for r in parse(build_tables(mini_snapshot(), None, SNAPSHOT_ID, INDEX, records), "races.csv")}
+        self.assertEqual((rows["r-1"]["weather_immunity_codes"], rows["r-1"]["weather_immunity"],
+                          rows["r-1"]["weather_immunity_by_file"], rows["r-1"]["speed_max_skill"]),
+                         ("1; 5", "песчаная буря; код 5 (не установлен)", "gamedata.base=0; rebirth.mod=1/5", "110"))
+        self.assertEqual((rows["r-1"]["overridden_fields"], rows["r-2"]["weather_immunity"], rows["r-2"]["overridden_fields"]),
+                         ("weather immunity0=rebirth.mod; weather immunity1=rebirth.mod", "нет", ""))
+
+
 class TableValidationTests(unittest.TestCase):
     def test_manifest_and_index_mismatches(self) -> None:
         """Манифест ссылается на отсутствующую таблицу или число строк расходится с index.md - публикация отклоняется."""

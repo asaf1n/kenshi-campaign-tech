@@ -24,7 +24,7 @@ PO_RU: str = f"{KENSHI}/locale/ru_RU/gamedata.po"
 BASE_FILES: dict[str, str] = {"base": "gamedata.base", "Newwworld": "Newwworld.mod", "Dialogue": "Dialogue.mod",
               "rebirth": "rebirth.mod"}
 # Повышать при изменении состава полей индекса — старый кэш будет пересобран.
-INDEX_VERSION: int = 10
+INDEX_VERSION: int = 11
 
 # Поля шаблонов, нужные для характеристик предметов (itemstats.py). Остальное в индекс не попадает.
 STAT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -60,7 +60,7 @@ STAT_FIELDS: dict[str, tuple[str, ...]] = {
     # Торговые поля (fcs.def: SQUAD_TEMPLATE.buy mult/sell mult; ITEMS_CULTURE.trade prices).
     "SQUAD_TEMPLATE": ("is trader", "buy mult", "sell mult"),
 }
-STAT_REFS: dict[str, tuple[str, ...]] = {"ARMOUR": ("part coverage",), "CROSSBOW": ("ammo",),
+STAT_REFS: dict[str, tuple[str, ...]] = {"ARMOUR": ("part coverage", "races", "races exclude"), "CROSSBOW": ("ammo",),
                                          "RESEARCH": ("enable buildings",),
                                          "ITEMS_CULTURE": ("trade prices",), "TOWN": ("trade culture", "trade prices"),
                                          "FACTION": ("trade culture",)}
@@ -192,6 +192,17 @@ def build(files: Sequence[PathLike] | None = None, po_path: PathLike | None = No
             e.setdefault("data", {})
             for sec in ("float", "int", "bool", "string"):
                 e["data"].setdefault(sec, {}).update(rec[sec])
+            if rec["type"] == RACE_TYPE_ID:
+                # Источник каждого поля расы: последний файл порядка загрузки; история - для кодов защиты от погоды.
+                ff = e.setdefault("field_files", {})
+                wh = e.setdefault("weather_history", {})
+                for sec in ("float", "int", "bool", "string"):
+                    for key, val in rec[sec].items():
+                        ff[key] = src
+                        if key.startswith(WEATHER_IMMUNITY):
+                            wh.setdefault(src, {})[key] = val
+                for cat in rec["refs"]:
+                    ff[cat] = src
             if "value" in rec["int"]:
                 # Итоговая цена определяется последним файлом порядка загрузки; история нужна для указания источника.
                 e.setdefault("value_history", []).append([src, rec["int"]["value"]])
@@ -274,6 +285,9 @@ UNIT_REFS: tuple[str, ...] = ("faction", "race", "stats", "weapons", "crossbows"
 SQUAD_REFS: tuple[str, ...] = ("faction", "leader", "squad", "squad2", "animals", "animals2", "choosefrom list",
                                "prisoners", "slaves", "housemates", "race override", "world state")
 FACTION_REFS: tuple[str, ...] = ("relations", "coexistence", "legal system", "races")
+RACE_TYPE_ID: int = 7
+WEATHER_IMMUNITY: str = "weather immunity"
+RACE_REFS: tuple[str, ...] = ("combat anatomy", "natural armour")
 
 
 def _ref_pairs(refs: dict[str, dict[str, Any]], cats: Sequence[str] | None = None) -> dict[str, list[list[Any]]]:
@@ -404,6 +418,24 @@ def unit_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+def race_records(db: dict[str, Any]) -> list[dict[str, Any]]:
+    """Записи RACE (7) после слияния файлов в порядке загрузки: поля как хранятся, источник каждого поля, коды погоды по файлам."""
+    records = db["records"]
+    tmap = type_map(db)
+    out: list[dict[str, Any]] = []
+    for sid in sorted(records):
+        e = records[sid]
+        if e["type_id"] != RACE_TYPE_ID or _removed(e):
+            continue
+        row = _raw_record(sid, e, tmap, cats=RACE_REFS)
+        row["field_files"] = dict(sorted((e.get("field_files") or {}).items()))
+        history = e.get("weather_history") or {}
+        row["weather_by_file"] = {src: [v for _k, v in sorted(keys.items(), key=lambda kv: int(kv[0][len(WEATHER_IMMUNITY):] or 0))]
+                                  for src, keys in history.items()}
+        out.append(row)
+    return out
+
+
 def _cache_key(fp: list[list[Any]]) -> str:
     return hashlib.sha1(json.dumps(fp).encode("utf-8")).hexdigest()[:16]
 
@@ -435,7 +467,7 @@ def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike |
     _write_json(os.path.join(cache_dir, f"gamedb_{key}.json"), {"fingerprint": fp, "index": index})
     _write_json(os.path.join(cache_dir, f"{RECORDS_PREFIX}{key}.json"),
                 {"fingerprint": fp, "reactions": reaction_records(db), "trade": trade_records(db),
-                 "units": unit_records(db)})
+                 "units": unit_records(db), "races": race_records(db)})
     return index
 
 
@@ -452,7 +484,8 @@ def load_records(
             with open(cache_path, encoding="utf-8") as fh:
                 cached = json.load(fh)
             if isinstance(cached, dict) and cached.get("fingerprint") == fp:
-                return ({"reactions": cached["reactions"], "trade": cached["trade"], "units": cached["units"]},
+                return ({"reactions": cached["reactions"], "trade": cached["trade"], "units": cached["units"],
+                         "races": cached["races"]},
                         {"cache": state, "files": len(files), "cache_file": os.path.basename(cache_path)})
         except (OSError, ValueError, KeyError):
             pass

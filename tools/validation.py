@@ -512,6 +512,12 @@ def validate_tables(package_dir: Path, manifest: dict[str, Any]) -> None:
             raise PublicationValidationError(
                 f"Таблица {name}: в файле {len(rows) - 1} строк, в tables/index.md указано {declared}"
             )
+        if name == "inventory.csv":
+            # Ключ сравнения снимков (character_id, base_sid, level, slot, dup_no) должен быть уникален.
+            cols = {c: i for i, c in enumerate(rows[0])}
+            keys = [tuple(r[cols[c]] for c in ("character_id", "base_sid", "level", "slot", "dup_no")) for r in rows[1:]]
+            if len(set(keys)) != len(keys):
+                raise PublicationValidationError("Таблица inventory.csv: ключ (character_id, base_sid, level, slot, dup_no) не уникален")
     extra = sorted(p.name for p in (package_dir / "tables").glob("*.csv") if p.name not in listed)
     if extra:
         raise PublicationValidationError(f"Таблицы не перечислены в tables/index.md: {', '.join(extra)}")
