@@ -62,8 +62,10 @@ try {
         $text = "=== ВЫГРУЗКА $sessionId ===`n" + $text.TrimEnd("`n") + "`n=== КОНЕЦ ===`n"
     }
 
-    $driveRoot = (& python -c 'from tools.config import find_gdrive_root; print(find_gdrive_root() or "")' | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { throw 'Не удалось определить каталог Диска (python -c ...).' }
+    $driveOut = @(& python -c "from tools.config import find_gdrive_root; print(find_gdrive_root() or '')")
+    $driveExit = $LASTEXITCODE
+    $driveRoot = if ($driveOut.Count -gt 0) { "$($driveOut[0])".Trim() } else { '' }
+    if ($driveExit -ne 0) { throw 'Не удалось определить каталог Диска (python -c ...).' }
     if (-not $driveRoot -or -not (Test-Path -LiteralPath $driveRoot)) { throw 'Каталог Google Диска не найден: задайте KENSHI_GDRIVE_DIR или смонтируйте G:.' }
     $inbox = Join-Path $driveRoot 'tmp\inbox'
     New-Item -ItemType Directory -Force -Path $inbox | Out-Null
