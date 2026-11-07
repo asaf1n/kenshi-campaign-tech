@@ -63,19 +63,20 @@ class CampaignCheckTests(unittest.TestCase):
         self.assertEqual(code, 0)
         publish.assert_called_once()
 
-    def test_continuation_variants_pass(self) -> None:
-        """Продолжения: прежний состав, потеря/рост состава, старый сейв; одноимённые чужие персонажи не засчитываются."""
-        base = [f"ps:{n}" for n in range(10)]
-        cases = {
-            "same": (base, True),
-            "old_save_fewer": (base[:3], True),
-            "grown": (base + [f"ps:new{n}" for n in range(20)], True),
-            "foreign_same_names": ([f"ps:x{n}" for n in range(10)], False),
-            "empty": ([], False),
-        }
-        for label, (ids, belongs) in cases.items():
-            with self.subTest(label):
-                self.assertEqual(compare_with_parent(state(base), state(ids))["belongs"], belongs)
+    def test_membership_thresholds(self) -> None:
+        """Доля от родителя и минимум общих id: (размер родителя, общих, рост состава, ожидание).
+        2 из 2 - ранняя чужая игра с общим стартом (при делении на меньший состав давала 1,00);
+        8 из 30 - ниже минимума id; 11 из 40 - ниже доли; 9 из 30 и 12 из 40 - границы; одноимённые чужие не засчитываются."""
+        cases = [
+            (30, 30, 0, True), (30, 30, 20, True), (30, 16, 0, True),
+            (30, 9, 0, True), (30, 8, 0, False), (40, 12, 0, True), (40, 11, 0, False),
+            (2, 2, 0, False), (10, 0, 10, False), (10, 0, 0, False),
+        ]
+        for parent_n, shared_n, extra, belongs in cases:
+            with self.subTest(parent=parent_n, shared=shared_n, extra=extra):
+                parent = state([f"ps:{n}" for n in range(parent_n)])
+                child = state([f"ps:{n}" for n in range(shared_n)] + [f"ps:x{n}" for n in range(extra)])
+                self.assertEqual(compare_with_parent(parent, child)["belongs"], belongs)
         self.assertTrue(issubclass(CampaignMismatchError, ValueError))
 
 
