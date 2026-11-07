@@ -11,11 +11,13 @@ import types
 import unittest
 from unittest import mock
 
+from tools import gdrive_native
 from tools.gdrive_native import (BOM, CELL_CHAR_LIMIT, DOC_CHAR_LIMIT, DOC_MIME, FOLDER_MIME, SHEET_MIME, GoogleApi, NativeSync,
                                  NativeUnavailable, RefusedError, normalize_csv_export, normalize_doc_export, prepare,
                                  resolve_root, source_text, trailing_lf)
 from tools.gdrive_sync import gdrive_export, sync_drive, write_in_place
 
+gdrive_native.SETTLE_PAUSE = 0.0  # пауза перечитывания метаданных нужна только реальному Диску
 KENSHI_COMPAIN = Path(r"C:\Users\artem\Kenshi Compain")
 PROJECT_PUBLISHED = Path(__file__).resolve().parents[1] / "published"
 
@@ -67,6 +69,8 @@ class FakeGoogle:
         self.items: dict[str, dict] = {"root": {"name": "My Drive", "mime": FOLDER_MIME, "parents": []}}
         self.mutations: list[str] = []
         self.clock = 0
+        self.drift = False  # после ответа на files.update Диск сдвигает modifiedTime на 0,29 с назад
+        self.gets = 0
         self.counter = 0
         self.drive = types.SimpleNamespace(files=lambda: _Files(self))
         self.docs = types.SimpleNamespace(documents=lambda: _Documents(self))
@@ -149,6 +153,7 @@ class _Files:
         return _Request(lambda: {"files": found})
 
     def get(self, fileId: str, fields: str) -> _Request:  # noqa: N803
+        self.fake.gets += 1
         return _Request(lambda: self.fake.meta(fileId))
 
     def create(self, body: dict, fields: str) -> _Request:
@@ -163,7 +168,10 @@ class _Files:
             self.fake.mutations.append("files.update")
             self.fake.items[fileId]["props"].update(body["appProperties"])
             self.fake.touch(fileId)
-            return self.fake.meta(fileId)
+            answer = self.fake.meta(fileId)
+            if self.fake.drift:
+                self.fake.items[fileId]["modified"] = answer["modifiedTime"][:-7] + "59.710Z"
+            return answer
         return _Request(run)
 
     def export(self, fileId: str, mimeType: str) -> _Request:  # noqa: N803
@@ -356,6 +364,26 @@ class NativeFilesTests(unittest.TestCase):
         self.assertEqual(edited["summary"]["native_files"][0]["action"], "conflict")
         self.assertEqual(len(edited["summary"]["conflicts"]), 1)
         self.assertEqual(self.fake.items[doc_id]["text"], "# A\n\ntext\n")
+
+    def test_modified_time_is_reread_after_write_and_drift_is_stabilized(self) -> None:
+        """Ловит сохранение в sync-state modifiedTime из ответа на запись, когда Диск позже сдвигает значение: следующий
+        прогон видел бы правку, экспортировал файл и записывал content-equal-modified."""
+        self.fake.drift = True
+        (self.published / "brief.md").write_text("# A\n", encoding="utf-8")
+        self.run_sync()
+        doc_id = self.fake.find("published/brief", DOC_MIME)
+        settled = self.fake.items[doc_id]["modified"]
+        self.assertTrue(settled.endswith("59.710Z"))
+        self.assertEqual(load_state(self.root)["native"]["published/brief.md"]["drive_modified_time"], settled)
+        again = self.run_sync()
+        self.assertEqual(again["summary"]["native_files"][0]["action"], "unchanged")
+
+        # Значение не устанавливается: чтений не больше SETTLE_ATTEMPTS, остаётся последнее прочитанное.
+        counter = iter(range(100))
+        native = make_native(self.fake, self.root)
+        with mock.patch.object(GoogleApi, "get_state", side_effect=lambda _id: {"modifiedTime": f"t{next(counter)}"}) as reread:
+            result = native._settle(doc_id, {"modifiedTime": "t-start"})
+        self.assertEqual((reread.call_count, result["modifiedTime"]), (gdrive_native.SETTLE_ATTEMPTS, "t2"))
 
     def test_own_file_is_found_by_kenshi_source_and_foreign_same_name_is_untouched(self) -> None:
         """Ловит поиск своего файла по имени (захват чужого одноимённого документа), потерю метки kenshi_source и

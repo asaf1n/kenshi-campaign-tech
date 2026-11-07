@@ -12,7 +12,7 @@
 .\Initialize-Pipeline.ps1
 ```
 
-Шаг Диска (`--sync-drive`) выполняется по умолчанию; недоступный Диск или Google API (нет токена, сети, `G:`) даёт предупреждение `drive: skipped|failed (причина)`, а не отказ: публикация и доставка считаются успешными, код возврата 0.
+Основной канал доставки - GitHub (проекты ChatGPT читают `main` и `published/` через `Kenshi-Compain`); Google Диск - односторонняя резервная копия `main` и выгрузки в нативных форматах Google (Docs, Sheets), источник блокнотов Gemini при возврате к Gemini (работа с Gemini приостановлена). Шаг Диска (`--sync-drive`) выполняется по умолчанию; недоступный Диск или Google API (нет токена, сети, `G:`) даёт предупреждение `drive: skipped|failed (причина)`, а не отказ: публикация и доставка считаются успешными, код возврата 0.
 
 Все переменные окружения опциональны. `.env.example` содержит значения; `.env` читается при наличии. Канонический запуск на локальной машине пользователя:
 
@@ -75,7 +75,7 @@ python -m tools.campaign timeline validate
 - **Артефакты**:
   - `published/screenshots/index.json` — машиночитаемый хронологический индекс (`kenshi-screenshots-index/1`) с метаданными, хешами SHA-256 и прямыми Raw/Blob URL.
   - `published/screenshots/index.md` — новые кадры снимка и архивный хвост с первичной разметкой и ссылками; `annotations.jsonl` и `feed.md` публикуются только при содержательном OCR.
-  - `published/screenshots/screenshots_latest.pdf` — кадры дельты с текстовой шапкой для Gemini Notebook; вне git, читается с Google Диска ([docs/gdrive-sync.md](docs/gdrive-sync.md)).
+  - `published/screenshots/screenshots_latest.pdf` — кадры дельты с текстовой шапкой; вне git, копия на Google Диске ([docs/gdrive-sync.md](docs/gdrive-sync.md)).
   - `published/screenshots/annotations.jsonl` и `feed.md` — машинная разметка кадров (день, время, выбранный персонаж, задачи) и лента серий; публикуются при содержательном OCR. Локальный индекс всех кадров: `python -m tools.campaign screenshots-index --all`, поиск: `screenshots-find` (`docs/screenshots.md`).
   - `published/screenshots/*.jpg` — уменьшенные ключевые кадры; имя `<исходное имя>-<8 символов sha256 оригинала>.jpg`.
 - **Доступ LLM**: изображения открываются по прямым Raw-ссылкам репозитория Kenshi Compain (`https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/...`) либо загружаются в чат.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 import os
@@ -33,6 +34,11 @@ SHEET_REQUEST_LIMIT = 12 * 1024 * 1024
 BOM = "﻿"
 CRLF, LF = b"\r\n", b"\n"
 META_FIELDS = "id,name,mimeType,modifiedTime,headRevisionId,trashed,appProperties"
+SETTLE_FIELDS = "id,modifiedTime,headRevisionId,appProperties"
+# Drive может сдвинуть modifiedTime (~0,3 с назад) уже после ответа на запись: значение перечитывается, пока два чтения подряд
+# не совпадут; не более SETTLE_ATTEMPTS чтений с паузой SETTLE_PAUSE (с), иначе остаётся последнее прочитанное.
+SETTLE_ATTEMPTS = 3
+SETTLE_PAUSE = 0.5
 SOURCE_PROPERTY = "kenshi_source"
 # Drive: ключ + значение одного appProperties не длиннее 124 байт UTF-8; длинный (кириллица) путь заменяется хешем.
 PROPERTY_LIMIT_BYTES = 124
@@ -186,6 +192,15 @@ class GoogleApi:
                 return None
             raise
 
+    def get_state(self, file_id: str) -> dict[str, Any] | None:
+        """Метаданные для сверки после записи (`id,modifiedTime,headRevisionId,appProperties`)."""
+        try:
+            return self._run(self.drive.files().get(fileId=file_id, fields=SETTLE_FIELDS), "files.get")
+        except NativeError as error:
+            if error.status == 404:
+                return None
+            raise
+
     def find_files(self, parent_id: str, name: str, mime: str) -> list[dict[str, Any]]:
         query = f"'{parent_id}' in parents and name = '{_quote(name)}' and mimeType = '{mime}' and trashed = false"
         result = self._run(self.drive.files().list(q=query, spaces="drive", pageSize=10, orderBy="createdTime",
@@ -309,13 +324,26 @@ class NativeSync:
         if meta is not None and all((meta.get("appProperties") or {}).get(name) == value for name, value in wanted.items()):
             after = meta
         else:
-            after = self.api.set_properties(file_id, wanted)
+            after = self._settle(file_id, self.api.set_properties(file_id, wanted))
         entry = {"file_id": file_id, "kind": kind, "source_sha256": sha, "drive_modified_time": after.get("modifiedTime"),
                  "eol_final": trailing > 0, "trailing_lf": trailing, "chars": chars}
         if after.get("headRevisionId"):
             entry["head_revision_id"] = after["headRevisionId"]
         self.entries[key] = entry
         return after.get("modifiedTime")
+
+    def _settle(self, file_id: str, written: dict[str, Any]) -> dict[str, Any]:
+        """Метаданные после записи, перечитанные до совпадения двух чтений подряд (ответ на запись - первое чтение)."""
+        latest = written
+        for _ in range(SETTLE_ATTEMPTS):
+            time.sleep(SETTLE_PAUSE)
+            current = self.api.get_state(file_id)
+            if current is None:
+                break
+            previous, latest = latest, {**latest, **current}
+            if current.get("modifiedTime") == previous.get("modifiedTime"):
+                break
+        return latest
 
     def _journal(self, key: str, action: str, before: str | None, after: str | None, **extra: Any) -> None:
         self.files[key] = {"path": key, "action": action, "drive_modified_before": before, "drive_modified_after": after, **extra}

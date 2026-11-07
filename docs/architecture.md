@@ -19,7 +19,7 @@ published/{manifest.json,extended/current.json,current/{index.json,characters/,b
                    реакции мира, справочник юнитов},
            screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR; screenshots_latest.pdf вне git}}
         |
-verified GitHub delivery + Google Drive sync (allowlist-профили игрового блокнота и летописи, docs/gdrive-sync.md) / manual transport fallback
+verified GitHub delivery (основной канал: проекты ChatGPT читают main) + Google Drive sync (односторонняя копия main и выгрузки в нативных Docs/Sheets; allowlist-профили, docs/gdrive-sync.md) / manual transport fallback
         |
 LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose plans and events
 ```
