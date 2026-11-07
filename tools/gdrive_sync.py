@@ -1,7 +1,9 @@
-"""Синхронизация выгрузки и канона с локально примонтированным Google Диском и приём входящих пакетов.
+"""Синхронизация выгрузки и канона с Google Диском и приём входящих пакетов.
 
-Drive for desktop хранит `file_id` за файлом: удаление или подмена файла через `os.replace` создаёт новый документ и
-разрывает привязку источников Gemini Notebook. Поэтому существующие файлы перезаписываются только на месте.
+`.md` и `.csv` на Диске - нативные Google Docs и Sheets (запись через API, `tools/gdrive_native.py`), PDF и служебные
+файлы (`tmp/`) пишутся через смонтированный Диск. Drive for desktop хранит `file_id` за файлом: удаление или подмена
+файла через `os.replace` создаёт новый документ и разрывает привязку источников. Поэтому существующие файлы
+обновляются только на месте.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ from functools import lru_cache
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -24,6 +26,8 @@ from tools.config import (
     GDRIVE_PROCESSED_DIR,
     GDRIVE_SESSION_DIR,
 )
+from tools.gdrive_native import (EXPORT_MIME, URL_BY_KIND, GoogleApi, NativeError, NativeSync, NativeUnavailable, RefusedError,
+                                 kind_of, locate, normalize_export, resolve_root)
 from tools.git_sync import BRANCH, GitSyncError, push_main, require_git, run_git, sync_with_origin
 from tools.io_utils import linked
 from tools.screenshot_delta import PDF_NAME
@@ -95,10 +99,11 @@ LEGACY_PUBLISHED = tuple(f"{PUBLISHED_PREFIX}{name}" for name in (
 # Области Диска под управлением sync; всё остальное (tmp/, ручные файлы в корне) не трогается.
 MANAGED_AREAS = (GDRIVE_SESSION_DIR, "docs", "templates", GDRIVE_CHRONICLE_DIR)
 SCOPE_AREAS = {
-    "all": (GDRIVE_SESSION_DIR, "docs", "templates"), "session": (GDRIVE_SESSION_DIR,), "docs": ("docs", "templates"),
-    "chronicle": (GDRIVE_CHRONICLE_DIR,), "pipeline": (GDRIVE_SESSION_DIR, "docs", "templates"),
+    "all": (GDRIVE_SESSION_DIR, "docs", "templates", GDRIVE_CHRONICLE_DIR), "session": (GDRIVE_SESSION_DIR,),
+    "docs": ("docs", "templates"), "chronicle": (GDRIVE_CHRONICLE_DIR,),
 }
 CONFLICTS_DIR = "tmp/conflicts"
+NATIVE_SHORTCUTS = (".gdoc", ".gsheet")
 SYNC_STATE = "tmp/sync-state.json"
 # Источник этих каталогов - main; пакет ingest-inbox их не меняет.
 NON_PACKET_DIRS = ("docs", "prompts", "templates")
@@ -159,7 +164,39 @@ def _put(data: bytes, target: Path, dry_run: bool) -> str | None:
 
 
 def _new_report(**extra: Any) -> dict[str, Any]:
-    return {"written": 0, "unchanged": 0, "errors": [], "files_planned": [], **extra}
+    return {"written": 0, "unchanged": 0, "errors": [], "refused": [], "conflicts": [], "files_planned": [], **extra}
+
+
+def _publish(native: NativeSync | None, root: Path, key: str, data: bytes, report: dict[str, Any], dry_run: bool,
+             stamp: str | None = None) -> str | None:
+    """`.md`/`.csv` - нативный файл Google, остальное (PDF) - запись на месте на смонтированном Диске."""
+    if kind_of(key) is None:
+        return _put(data, root / key, dry_run)
+    if native is None:
+        raise OSError(f"{key}: Google API недоступен, нативный файл не записан")
+    return native.put(key, data, report, stamp)
+
+
+def _publish_all(items: Iterable[tuple[str, Any]], native: NativeSync | None, root: Path, report: dict[str, Any],
+                 dry_run: bool, stamp: str | None = None) -> None:
+    """Запись набора `(ключ, читатель данных)`; сбой или отказ одного файла не прерывает остальные."""
+    for key, read in items:
+        try:
+            _record(report, _publish(native, root, key, read(), report, dry_run, stamp), key, dry_run)
+        except RefusedError as error:
+            report["refused"].append(str(error))
+        except (GitSyncError, OSError) as error:
+            report["errors"].append(f"{key}: {error}")
+
+
+def _flush_native(root: Path, native: NativeSync | None) -> None:
+    """Секция `native` и id корня Диска - в sync-state (чужие секции сохраняются)."""
+    if native is None or native.dry_run:
+        return
+    state = _read_state(root)
+    state["native"] = native.entries
+    state["native_root_id"] = native.root_id
+    _write_state(root, state)
 
 
 def _record(report: dict[str, Any], action: str | None, path: str, dry_run: bool) -> None:
@@ -219,17 +256,17 @@ def _published_candidates(published_dir: Path) -> list[str]:
 
 
 def sync_session(published_dir: Path, root: Path, entries: list[tuple[str, str]] | None = None,
-                 dry_run: bool = False) -> dict[str, Any]:
-    """Опубликованная часть игрового профиля (Markdown, CSV, PDF); JSON и кадры .jpg на Диск не пишутся."""
+                 dry_run: bool = False, native: NativeSync | None = None) -> dict[str, Any]:
+    """Опубликованная часть игрового профиля: Markdown и CSV - нативные Docs/Sheets, PDF - файл; JSON и .jpg не пишутся."""
     if entries is None:
         entries = profile_entries(_published_candidates(published_dir), (PUBLISHED_PREFIX,))
     report = _new_report()
-    for source, target in entries:
-        try:
-            data = (published_dir / source.removeprefix(PUBLISHED_PREFIX)).read_bytes()
-            _record(report, _put(data, root / target, dry_run), target, dry_run)
-        except OSError as error:
-            report["errors"].append(f"{target}: {error}")
+    _publish_all(((target, lambda source=source: (published_dir / source.removeprefix(PUBLISHED_PREFIX)).read_bytes())
+                  for source, target in entries), native, root, report, dry_run)
+    try:
+        _flush_native(root, native)
+    except OSError as error:
+        report["errors"].append(f"{SYNC_STATE}: {error}")
     return report
 
 
@@ -242,18 +279,6 @@ def _dirty_paths(companion_dir: Path, pathspec: str) -> set[Path]:
         cwd=str(companion_dir), capture_output=True, text=True, encoding="utf-8", check=True,
     )
     return {(companion_dir / entry[3:]).resolve() for entry in status.stdout.split("\0") if len(entry) > 3}
-
-
-CRLF, LF = bytes((13, 10)), bytes((10,))
-
-
-def _normalized(data: bytes) -> bytes:
-    """Drive for desktop и Git по-разному хранят окончания строк: сравнение идёт после CRLF -> LF."""
-    return data.replace(CRLF, LF)
-
-
-def _digest(data: bytes) -> str:
-    return hashlib.sha256(_normalized(data)).hexdigest()
 
 
 def _read_state(root: Path) -> dict[str, Any]:
@@ -270,16 +295,16 @@ def _write_state(root: Path, state: dict[str, Any]) -> None:
 
 
 def sync_chronicle(companion_dir: Path, root: Path, entries: list[tuple[str, str]] | None = None,
-                   dry_run: bool = False) -> dict[str, Any]:
-    """Файлы Campaign/ из зафиксированного клона на Диск; Диск - рабочая копия игрока, его правки не перезаписываются.
+                   dry_run: bool = False, native: NativeSync | None = None, now: datetime | None = None) -> dict[str, Any]:
+    """Файлы Campaign/ из зафиксированного клона в нативные Google Docs: Диск - копия `main`.
 
     `entries` - пары `(путь в клоне, путь на Диске)` из allowlist профилей; без них копируются все `*.md` каталога.
-    Существующий файл Диска перезаписывается на месте, только если он (после CRLF -> LF) совпадает с базой из
-    `tmp/sync-state.json` (секция `campaign`) или с любой версией пути в истории клона. Иначе он попадает в
-    `modified_on_drive` и не трогается. Файлы только на Диске перечисляются в `only_on_drive`. Ничего не удаляется.
+    Нативный файл, изменённый на Диске после нашей записи, сохраняется как `.md` в `tmp/conflicts/` и перезаписывается
+    версией из клона (`conflicts`). Файлы только на Диске перечисляются в `only_on_drive` и не удаляются. Файлы клона с
+    незакоммиченными правками пропускаются (`skipped_uncommitted`). Функция вызываема отдельно (после `ingest-inbox`).
     """
     source = companion_dir / GDRIVE_CHRONICLE_DIR
-    report = _new_report(skipped_uncommitted=[], modified_on_drive=[], only_on_drive=[])
+    report = _new_report(skipped_uncommitted=[], only_on_drive=[])
     if not source.is_dir():
         report["errors"].append(f"Каталог не найден: {GDRIVE_CHRONICLE_DIR}")
         return report
@@ -288,45 +313,48 @@ def sync_chronicle(companion_dir: Path, root: Path, entries: list[tuple[str, str
     except (subprocess.SubprocessError, OSError) as error:
         report["errors"].append(f"git status: {error}")
         return report
-    target_dir = root / GDRIVE_CHRONICLE_DIR
     repo_files = [path for path in sorted(source.glob("*/**/*.md")) if path.is_file() and not linked(path)]
     if entries is None:
         pairs = [(path.relative_to(companion_dir).as_posix(),) * 2 for path in repo_files]
     else:
         pairs = [(src, dst) for src, dst in entries
                  if (companion_dir / src).is_file() and not linked(companion_dir / src)]
-    state = _read_state(root)
-    base: dict[str, str] = dict(state.get("campaign") or {})
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    items: list[tuple[str, Any]] = []
     for relative, drive_relative in pairs:
         path = companion_dir / relative
         if path.resolve() in dirty:
             report["skipped_uncommitted"].append(path.name)
             continue
-        target = root / drive_relative
-        try:
-            data = path.read_bytes()
-            if target.is_file():
-                current = _digest(target.read_bytes())
-                if (current != _digest(data) and current != base.get(drive_relative)
-                        and current not in _history_hashes(companion_dir, relative)):
-                    report["modified_on_drive"].append(drive_relative)
-                    continue
-            _record(report, _put(data, target, dry_run), drive_relative, dry_run)
-            base[drive_relative] = _digest(data)
-        except (GitSyncError, OSError) as error:
-            report["errors"].append(f"{path.name}: {error}")
-    known = {path.relative_to(companion_dir).as_posix() for path in repo_files}
-    if target_dir.is_dir():
-        report["only_on_drive"] = sorted(
-            path.relative_to(root).as_posix() for path in target_dir.glob("*/**/*.md")
-            if path.is_file() and path.relative_to(root).as_posix() not in known)
-    state["campaign"] = base
-    if not dry_run:
-        try:
-            _write_state(root, state)
-        except OSError as error:
-            report["errors"].append(f"{SYNC_STATE}: {error}")
+        items.append((drive_relative, path.read_bytes))
+    _publish_all(items, native, root, report, dry_run, stamp)
+    known = {drive_relative for _, drive_relative in pairs} | {path.relative_to(companion_dir).as_posix() for path in repo_files}
+    report["only_on_drive"] = sorted(path for path in _campaign_on_drive(root) if path not in known)
+    try:
+        _flush_native(root, native)
+    except OSError as error:
+        report["errors"].append(f"{SYNC_STATE}: {error}")
     return report
+
+
+def _drive_document_paths(base: Path, area: str) -> list[str]:
+    """Документы области на смонтированном Диске: `.md` и ярлыки нативных Docs (`.gdoc` -> путь `.md`)."""
+    top = base / area
+    if not top.is_dir():
+        return []
+    found = set()
+    for path in top.rglob("*"):
+        if path.is_file() and not is_os_junk(path.name):
+            relative = path.relative_to(base).as_posix()
+            if path.suffix.lower() == ".md":
+                found.add(relative)
+            elif path.suffix.lower() == ".gdoc":
+                found.add(relative[: -len(path.suffix)] + ".md")
+    return sorted(found)
+
+
+def _campaign_on_drive(root: Path) -> list[str]:
+    return _drive_document_paths(root, GDRIVE_CHRONICLE_DIR)
 
 
 def _git_bytes(repo: Path, *args: str) -> bytes:
@@ -336,31 +364,21 @@ def _git_bytes(repo: Path, *args: str) -> bytes:
     return result.stdout
 
 
-def _history_hashes(repo: Path, path: str) -> set[str]:
-    """sha256 (после CRLF -> LF) всех версий пути в истории `HEAD`: совпадение - прежняя версия, а не ручная правка."""
-    commits = _git_bytes(repo, "log", "--format=%H", "HEAD", "--", path).decode("ascii").split()
-    hashes: set[str] = set()
-    for commit in commits:
-        result = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=str(repo), capture_output=True, check=False)
-        if result.returncode == 0:
-            hashes.add(_digest(result.stdout))
-    return hashes
-
-
 def _companion_files(companion_dir: Path, ref: str) -> list[str]:
     """Файлы клона на `ref` (пути в UTF-8, без экранирования)."""
     output = _git_bytes(companion_dir, "ls-tree", "-r", "-z", "--name-only", ref)
     return [name.decode("utf-8") for name in output.split(b"\0") if name]
 
 
-def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None, dry_run: bool = False) -> dict[str, Any]:
-    """Документы профилей из `origin/main` на Диск: запись на месте, ручные правки Диска сохраняются в tmp/conflicts.
+def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None, dry_run: bool = False,
+              native: NativeSync | None = None) -> dict[str, Any]:
+    """Документы профилей из `origin/main` в нативные Google Docs: Диск - копия `main`.
 
-    Состав - `docs/` и `templates/` из allowlist профилей. Файл Диска, не совпадающий ни с одной версией пути в
-    истории `main`, копируется в `tmp/conflicts/` до перезаписи. Ничего не удаляется. `tmp/sync-state.json` фиксирует
-    SHA `origin/main` и sha256 записанного набора. В dry-run клон не меняется (только `fetch`), читается `FETCH_HEAD`.
+    Состав - `docs/` и `templates/` из allowlist профилей. Нативный файл, изменённый на Диске после нашей записи,
+    сохраняется как `.md` в `tmp/conflicts/` до перезаписи. Ничего не удаляется. `tmp/sync-state.json` фиксирует SHA
+    `origin/main` и sha256 набора. В dry-run клон не меняется (только `fetch`), читается `FETCH_HEAD`.
     """
-    report = _new_report(files_written=[], files_unchanged=[], conflicts=[])
+    report = _new_report(files_written=[], files_unchanged=[])
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     try:
         if dry_run:
@@ -380,27 +398,27 @@ def sync_docs(companion_dir: Path, root: Path, now: datetime | None = None, dry_
         return report
     report["origin_main"] = origin
     hashes: dict[str, str] = {}
-    for source, name in entries:
-        try:
+
+    def reader(source: str, name: str) -> Any:
+        def read() -> bytes:
             if (companion_dir / source).resolve() in dirty:
                 raise OSError("незакоммиченные правки в клоне")
             data = _git_bytes(companion_dir, "show", f"{ref}:{source}")
-            target = root / name
-            if target.is_file() and _digest(target.read_bytes()) != _digest(data):
-                if _digest(target.read_bytes()) not in _history_hashes(companion_dir, source):
-                    copy = root / CONFLICTS_DIR / f"{name.removesuffix('.md')}-{stamp}.md"
-                    if not dry_run:
-                        write_in_place(target.read_bytes(), copy)
-                    report["conflicts"].append({"path": name, "copy": copy.relative_to(root).as_posix()})
-            action = _put(data, target, dry_run)
-            _record(report, action, name, dry_run)
-            if not dry_run:
-                report["files_written" if action else "files_unchanged"].append(name)
             hashes[name] = hashlib.sha256(data).hexdigest()
-        except (GitSyncError, OSError) as error:
-            report["errors"].append(f"{name}: {error}")
+            return data
+        return read
+
+    for source, name in entries:
+        written, problems = report["written"], (len(report["errors"]), len(report["refused"]))
+        _publish_all([(name, reader(source, name))], native, root, report, dry_run, stamp)
+        if not dry_run and (len(report["errors"]), len(report["refused"])) == problems:
+            report["files_written" if report["written"] != written else "files_unchanged"].append(name)
+    try:
+        _flush_native(root, native)
+    except OSError as error:
+        report["errors"].append(f"{SYNC_STATE}: {error}")
     if not report["errors"] and not dry_run:
-        # Секция `campaign` принадлежит sync_chronicle и сохраняется.
+        # Секции `native`, `synced` и прочие сохраняются.
         _write_state(root, {**_read_state(root), "origin_main": origin, "files": hashes})
     return report
 
@@ -411,8 +429,8 @@ def ensure_buffer(root: Path) -> None:
         (root / name).mkdir(parents=True, exist_ok=True)
 
 
-# all и pipeline = сессия + docs; Campaign/ конвертер пишет только явной `--scope chronicle`: на Диске это рабочая копия игрока.
-PIPELINE_SCOPE = "pipeline"
+# all = сессия + docs + Campaign/: Диск - резервная копия main и выгрузки; конвейер синхронизирует всё.
+PIPELINE_SCOPE = "all"
 MANAGED_PREFIXES = tuple(f"{area}/" for area in MANAGED_AREAS)
 
 
@@ -465,9 +483,7 @@ def build_plan(published_dir: Path, companion_dir: Path | None, root: Path, ref:
     for profile in profiles:
         base = _base(root, profile)
         campaign = base / GDRIVE_CHRONICLE_DIR
-        on_drive = ([path.relative_to(base).as_posix() for path in campaign.rglob("*.md")
-                    if path.is_file() and not is_os_junk(path.name)]
-                    if campaign.is_dir() else [])
+        on_drive = _drive_document_paths(base, GDRIVE_CHRONICLE_DIR)
         pool = {*published, *repo, *on_drive}
         relatives = expand_profile(profile, pool)
         files = [drive_path(profile, relative) for relative in relatives]
@@ -502,6 +518,9 @@ def plan_prune(root: Path, plan: dict[str, Any], state: dict[str, Any], archive_
               if archive.is_dir() else [])
     known = {*plan["repo_files"], *plan["published_files"], *LEGACY_PUBLISHED, *frames}
     synced = set(state.get("synced") or [])
+    # Нативные файлы Google отображаются на смонтированном Диске ярлыками `.gdoc`/`.gsheet`: это не посторонние файлы.
+    native_shortcuts = {key[: -len(PurePosixPath(key).suffix)] + ext
+                        for key in (state.get("native") or {}) for ext in NATIVE_SHORTCUTS}
     to_delete: list[str] = []
     outside: list[str] = []
     for profile in profiles:
@@ -516,12 +535,30 @@ def plan_prune(root: Path, plan: dict[str, Any], state: dict[str, Any], archive_
                     continue
                 on_drive = path.relative_to(root).as_posix()
                 relative = path.relative_to(base).as_posix()
-                if on_drive in plan["in_set"]:
+                if on_drive in plan["in_set"] or (path.suffix.lower() in NATIVE_SHORTCUTS and on_drive in native_shortcuts):
                     continue
                 deletable = (covered and area != GDRIVE_CHRONICLE_DIR and not linked(path)
                              and (relative in known or on_drive in synced))
                 (to_delete if deletable else outside).append(on_drive)
     return sorted(set(to_delete)), sorted(set(outside))
+
+
+def plan_legacy(root: Path, plan: dict[str, Any], areas: tuple[str, ...], native: NativeSync) -> tuple[list[str], list[str]]:
+    """`(к удалению, ждут)`: прежние `.md`/`.csv` на смонтированном Диске, файлы репозитория (пары набора).
+
+    К удалению - только файл, нативная копия которого создана и существует по API (`native.verified`); остальные
+    ждут. Файлы `Campaign/`, которых нет в репозитории, сюда не попадают (пары набора строятся по репозиторию).
+    """
+    delete: list[str] = []
+    waiting: list[str] = []
+    for _, target in plan["entries"]:
+        if kind_of(target) is None or not target.startswith(tuple(f"{area}/" for area in areas)):
+            continue
+        path = root / target
+        if not path.is_file() or linked(path):
+            continue
+        (delete if target in native.verified else waiting).append(target)
+    return sorted(set(delete)), sorted(set(waiting))
 
 
 def _delete_to_trash(root: Path, relative: str) -> None:
@@ -532,20 +569,32 @@ def _delete_to_trash(root: Path, relative: str) -> None:
 def sync_drive(
     root: Path | None, published_dir: Path, companion_dir: Path | None, scope: str = "all",
     archive_dir: Path | None = None, dry_run: bool = False, prune: bool = False,
+    api: GoogleApi | None = None, now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Синхронизация выбранной области; недоступный Диск — предупреждение, а не отказ публикации.
+    """Синхронизация выбранной области; недоступный Диск или Google API - предупреждение, а не отказ публикации.
 
-    `dry_run` ничего не пишет и не удаляет, а печатает план. Выпавшие файлы удаляются только с `prune`.
+    `.md`/`.csv` пишутся нативными Google Docs/Sheets через API (`api` подменяется в тестах), PDF и `tmp/` - через
+    смонтированный Диск `root`. `dry_run` ничего не пишет и не удаляет (API - только чтение), а печатает план. Выпавшие
+    файлы и прежние `.md`/`.csv` с созданной нативной копией удаляются только с `prune`.
     """
     if root is None or not root.is_dir():
         _warn("Google Диск не найден, синхронизация пропущена (KENSHI_GDRIVE_DIR)")
         return {"status": "skipped", "reason": "gdrive_not_found"}
+    state = _read_state(root)
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        api = api or GoogleApi.open()
+        native = NativeSync(api, dict(state.get("native") or {}), resolve_root(api, state.get("native_root_id")),
+                            root, write_in_place, dry_run, stamp)
+    except (NativeUnavailable, NativeError) as error:
+        _warn(f"Google API недоступен, нативные файлы не синхронизированы: {error}")
+        return {"status": "failed", "reason": "gdrive_api_unavailable", "error": str(error)}
     if not dry_run:
         ensure_buffer(root)
     result: dict[str, Any] = {"status": "synced", "dry_run": dry_run, "prune": prune}
     have_repo = companion_dir is not None
-    if scope in ("all", "docs", PIPELINE_SCOPE) and have_repo:
-        result["docs"] = sync_docs(companion_dir, root, dry_run=dry_run)
+    if scope in ("all", "docs") and have_repo:
+        result["docs"] = sync_docs(companion_dir, root, now, dry_run, native)
     errors: list[str] = list(result.get("docs", {}).get("errors", []))
     try:
         # В dry-run клон не переносится на origin: состав читается с FETCH_HEAD (fetch выполнил sync_docs либо ниже).
@@ -560,27 +609,31 @@ def sync_drive(
         result["plan_error"] = str(error)
         _warn(f"состав профилей Google Диска не определён: {error}")
         return result
-    if scope in ("all", "session", PIPELINE_SCOPE):
+    if scope in ("all", "session"):
         published_entries = [pair for pair in plan["entries"] if pair[0].startswith(PUBLISHED_PREFIX)]
-        result["session"] = sync_session(published_dir, root, published_entries, dry_run)
-    if scope == "chronicle" and have_repo:
+        result["session"] = sync_session(published_dir, root, published_entries, dry_run, native)
+    if scope in ("all", "chronicle") and have_repo:
         campaign = [pair for pair in plan["entries"] if pair[0].startswith(f"{GDRIVE_CHRONICLE_DIR}/")]
-        result["chronicle"] = sync_chronicle(companion_dir, root, campaign, dry_run)
+        result["chronicle"] = sync_chronicle(companion_dir, root, campaign, dry_run, native, now)
     errors += [error for part in ("session", "chronicle") for error in result.get(part, {}).get("errors", [])]
+    parts = [result[name] for name in ("session", "chronicle", "docs") if name in result]
+    refused = [message for part in parts for message in part.get("refused", [])]
 
     areas = tuple(area for area in SCOPE_AREAS.get(scope, ()) if have_repo or area == GDRIVE_SESSION_DIR)
-    to_delete, outside = plan_prune(root, plan, _read_state(root), archive_dir, areas)
+    to_delete, outside = plan_prune(root, plan, {**_read_state(root), "native": native.entries}, archive_dir, areas)
+    legacy, legacy_waiting = plan_legacy(root, plan, areas, native)
     deleted: list[str] = []
     if prune and not dry_run and not errors:
-        for relative in list(to_delete):
+        for relative in [*to_delete, *legacy]:
             try:
                 _delete_to_trash(root, relative)
             except OSError as error:
                 errors.append(f"{relative}: {error}")
                 continue
             deleted.append(relative)
-            to_delete.remove(relative)
-    if not dry_run and not errors and scope in ("all", "session", "docs", PIPELINE_SCOPE):
+        to_delete = [path for path in to_delete if path not in deleted]
+        legacy = [path for path in legacy if path not in deleted]
+    if not dry_run and not errors and scope in ("all", "session", "docs"):
         synced = {target for _, target in plan["entries"]
                   if not target.startswith(f"{GDRIVE_CHRONICLE_DIR}/") and (root / target).is_file()}
         state = _read_state(root)
@@ -590,15 +643,21 @@ def sync_drive(
         except OSError as error:
             errors.append(f"{SYNC_STATE}: {error}")
 
-    parts = [result[name] for name in ("session", "chronicle", "docs") if name in result]
     planned = [item for part in parts for item in part.get("files_planned", [])]
     if dry_run and prune:
-        planned += [f"delete {path}" for path in to_delete]
+        planned += [f"delete {path}" for path in [*to_delete, *legacy]]
     result["profiles"] = plan["profiles"]
+    current = {target for _, target in plan["entries"]}
+    prefixes = tuple(f"{area}/" for area in areas)
+    result["reconnect"] = {name: native.reconnect(profile["files"]) for name, profile in plan["profiles"].items()}
     result["summary"] = {
         "planned": planned, "written": sum(part.get("written", 0) for part in parts),
         "unchanged": sum(part.get("unchanged", 0) for part in parts), "deleted": deleted,
-        "to_delete": to_delete, "outside_set": outside, "missing_in_repo": plan["missing"],
+        "to_delete": to_delete, "legacy_to_delete": legacy, "legacy_waiting_native": legacy_waiting,
+        "outside_set": outside, "missing_in_repo": plan["missing"], "refused": refused,
+        "conflicts": [item for part in parts for item in part.get("conflicts", [])],
+        "native_outside_set": sorted(key for key in native.entries if key.startswith(prefixes) and key not in current),
+        "only_on_drive": result.get("chronicle", {}).get("only_on_drive", []),
     }
     for name, profile in plan["profiles"].items():
         if profile["over_limit"]:
@@ -607,10 +666,39 @@ def sync_drive(
         for item in profile["files_chars"][:CHARS_TOP]:
             _warn(f"  {item['chars'] if item['chars'] is not None else '-'}\t{item['path']}"
                   + (f" ({item['note']})" if item.get("note") else ""))
+    if refused:
+        result["status"] = "partial"
+        _warn(f"отказ записи нативных файлов: {'; '.join(refused)}")
     if errors:
         result["status"] = "partial"
         _warn(f"ошибки синхронизации Google Диска: {'; '.join(errors)}")
     return result
+
+
+def gdrive_export(path: str, root: Path | None, api: GoogleApi | None = None) -> tuple[bytes, dict[str, Any]]:
+    """Восстановление исходника из нативной копии: экспорт Google и обратная нормализация (байт в байт).
+
+    `path` - путь файла в репозитории с расширением (`docs/x.md`, `published/tables/y.csv`). Файл ищется в sync-state
+    (`native`), иначе по именам каталогов Диска; число хвостовых LF - из sync-state либо `appProperties` файла.
+    """
+    kind = kind_of(path)
+    if kind is None:
+        raise ValueError(f"Путь должен оканчиваться на .md или .csv: {path}")
+    state = _read_state(root) if root is not None and root.is_dir() else {}
+    api = api or GoogleApi.open()
+    entry = (state.get("native") or {}).get(path) or {}
+    file_id = entry.get("file_id")
+    meta = api.get_meta(file_id) if file_id else None
+    if meta is None or meta.get("trashed"):
+        meta = locate(api, resolve_root(api, state.get("native_root_id")), path)
+    if meta is None:
+        raise NativeError(f"{path}: нативный файл не найден на Диске")
+    trailing = entry.get("trailing_lf")
+    if trailing is None:
+        trailing = (meta.get("appProperties") or {}).get("trailing_lf", 1)
+    data = normalize_export(kind, api.export(str(meta["id"]), EXPORT_MIME[kind]), int(trailing))
+    return data, {"path": path, "file_id": meta["id"], "kind": kind, "bytes": len(data),
+                  "sha256": hashlib.sha256(data).hexdigest(), "url": URL_BY_KIND[kind].format(meta["id"])}
 
 
 def parse_packet(text: str) -> tuple[list[tuple[str, str, str]], list[str]]:

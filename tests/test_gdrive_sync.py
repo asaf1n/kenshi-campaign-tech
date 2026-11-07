@@ -10,7 +10,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tests.test_gdrive_native import FakeGoogle, make_native
 from tools.config import find_gdrive_root
+from tools.gdrive_native import DOC_MIME
 from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, build_plan, ensure_buffer,
                                expand_profile, plan_prune, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place)
 
@@ -53,12 +55,16 @@ class GDriveSyncTests(unittest.TestCase):
         (published / "current").mkdir()
         (published / "current/index.json").write_text("{}", encoding="utf-8")
 
-        report = sync_session(published, self.root)
+        fake = FakeGoogle()
+        native = make_native(fake, self.root)
+        report = sync_session(published, self.root, native=native)
         self.assertEqual(report["errors"], [])
+        # md/csv - только нативные файлы Google; на смонтированном Диске остаётся один PDF.
         shipped = sorted(p.relative_to(self.root / "published").as_posix() for p in (self.root / "published").rglob("*") if p.is_file())
-        self.assertEqual(shipped, ["brief.md", "changes.md", "screenshots/index.md", "screenshots/screenshots_latest.pdf",
-                                   "squad.md", "tables/a.csv", "tables/index.md"])
-        self.assertEqual(sync_session(published, self.root)["written"], 0)
+        self.assertEqual(shipped, ["screenshots/screenshots_latest.pdf"])
+        self.assertEqual(sorted(fake.tree()), ["published/brief", "published/changes", "published/screenshots/index",
+                                               "published/squad", "published/tables/a", "published/tables/index"])
+        self.assertEqual(sync_session(published, self.root, native=native)["written"], 0)
 
         self.assertEqual(sync_drive(self.tmp / "absent", published, None)["status"], "skipped")
         self.assertIsNone(find_gdrive_root({}, (self.tmp / "absent",)))
@@ -188,14 +194,15 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual([item["packet"] for item in ingest_inbox(self.root, companion)["processed"]], ["later.md"])
 
         (companion / "Campaign/Хроники/Черновик.md").write_text("не зафиксировано\n", encoding="utf-8")
-        sync_chronicle(companion, self.root)
-        self.assertFalse((self.root / "Campaign/Хроники/Черновик.md").exists())
-        self.assertFalse((self.root / "Campaign/README.md").exists())
-        self.assertIn("новый канон", (self.root / "Campaign/Хроники/Арка.md").read_text(encoding="utf-8"))
+        fake = FakeGoogle()
+        sync_chronicle(companion, self.root, native=make_native(fake, self.root))
+        self.assertNotIn("Campaign/Хроники/Черновик", fake.tree())
+        self.assertNotIn("Campaign/README", fake.tree())
+        self.assertIn("новый канон", fake.items[fake.find("Campaign/Хроники/Арка", DOC_MIME)]["text"])
 
     def test_sync_docs_conflict_copy_unchanged_and_repeat(self) -> None:
-        """Ловит потерю ручной правки Диска (нет копии в tmp/conflicts), запись прежней версии main поверх копии и
-        лишнюю запись при повторе."""
+        """Ловит потерю правки Диска (нет копии в tmp/conflicts), запись нетронутых файлов при повторе и потерю чужих
+        секций sync-state."""
         remote, companion = self.tmp / "remote.git", self.tmp / "companion"
         (companion / "docs" / "reference").mkdir(parents=True)
         (companion / "docs" / "reference" / "drafts").mkdir()
@@ -214,37 +221,46 @@ class GDriveSyncTests(unittest.TestCase):
         (companion / "docs/reference/drafts/x.md").write_text("draft\n", encoding="utf-8")
         git("add", ".")
         git("commit", "-m", "v1")
-        (companion / "docs/companion-guide.md").write_text("v2\n", encoding="utf-8")
-        git("commit", "-am", "v2")
         git("remote", "add", "origin", str(remote))
         git("push", "-u", "origin", "main")
-        drive = self.root / "docs"
-        (drive / "reference").mkdir(parents=True)
-        (drive / "companion-guide.md").write_bytes(b"v1\n")       # прежняя версия main: не конфликт
-        (drive / "session-protocol.md").write_bytes(b"manual\n")   # ручная правка: конфликт
-        (drive / "reference/lore.md").write_bytes(b"lore\n")       # совпадает: не пишется
+        fake = FakeGoogle()
+        native = make_native(fake, self.root)
         now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
-        first = sync_docs(companion, self.root, now)
-        self.assertEqual(first["errors"], [])
-        self.assertEqual([item["path"] for item in first["conflicts"]], ["docs/session-protocol.md"])
+        first = sync_docs(companion, self.root, now, native=native)
+        self.assertEqual((first["errors"], first["conflicts"]), ([], []))
+        self.assertEqual(sorted(first["files_written"]), sorted((*DOCS_FILES, "docs/reference/lore.md")))
+        self.assertEqual(sorted(fake.tree()), sorted(name.removesuffix(".md") for name in (*DOCS_FILES, "docs/reference/lore.md")))
+        self.assertFalse((self.root / "docs/companion-guide.md").exists())
+
+        (companion / "docs/companion-guide.md").write_text("v2\n", encoding="utf-8")
+        git("commit", "-am", "v2")
+        git("push")
+        fake.user_edit(fake.find("docs/session-protocol", DOC_MIME), "manual\n")  # правка на Диске: конфликт
+        state_path = self.root / "tmp/sync-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state_path.write_text(json.dumps({**state, "campaign": {"Campaign/x.md": "h"}}), encoding="utf-8")
+
+        second = sync_docs(companion, self.root, now, native=native)
+        self.assertEqual(second["errors"], [])
+        self.assertEqual([item["path"] for item in second["conflicts"]], ["docs/session-protocol.md"])
         self.assertEqual((self.root / "tmp/conflicts/docs/session-protocol-20260102T030405Z.md").read_bytes(), b"manual\n")
-        self.assertEqual(first["files_unchanged"], ["docs/reference/lore.md"])
-        self.assertEqual((drive / "companion-guide.md").read_bytes(), b"v2\n")
-        self.assertEqual((drive / "session-protocol.md").read_bytes(), b"proto\n")
-        self.assertFalse((drive / "reference/drafts").exists())
-        state = json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(second["files_written"]), ["docs/companion-guide.md", "docs/session-protocol.md"])
+        self.assertEqual(fake.items[fake.find("docs/companion-guide", DOC_MIME)]["text"], "v2\n")
+        self.assertEqual(fake.items[fake.find("docs/session-protocol", DOC_MIME)]["text"], "proto\n")
+        self.assertNotIn("docs/reference/drafts/x", fake.tree())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         self.assertEqual(state["origin_main"], git("rev-parse", "HEAD").stdout.strip())
         self.assertEqual(sorted(state["files"]), sorted((*DOCS_FILES, "docs/reference/lore.md")))
+        self.assertEqual(state["campaign"], {"Campaign/x.md": "h"})
+        self.assertEqual(sorted(state["native"]), sorted((*DOCS_FILES, "docs/reference/lore.md")))
 
-        (self.root / "tmp/sync-state.json").write_text(json.dumps({**state, "campaign": {"Campaign/x.md": "h"}}), encoding="utf-8")
-        second = sync_docs(companion, self.root, now)
-        self.assertEqual(json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))["campaign"], {"Campaign/x.md": "h"})
-        self.assertEqual((second["written"], second["conflicts"], second["errors"]), (0, [], []))
+        third = sync_docs(companion, self.root, now, native=native)
+        self.assertEqual((third["written"], third["conflicts"], third["errors"]), (0, [], []))
 
-    def test_campaign_drive_edits_are_protected(self) -> None:
-        """Ловит перезапись правок игрока на Диске, пропуск прежней версии (в т.ч. с CRLF), удаление/запись файлов только
-        на Диске и запись Campaign/ из pipeline."""
+    def test_campaign_is_copy_of_main(self) -> None:
+        """Ловит прежнее правило «Диск важнее» (правка игрока сохраняется, а main не побеждает), удаление файлов только
+        на Диске, запись правок мимо tmp/conflicts и пропуск Campaign/ в конвейере."""
         companion = self.tmp / "companion"
         camp = companion / "Campaign" / "К"
         camp.mkdir(parents=True)
@@ -254,53 +270,49 @@ class GDriveSyncTests(unittest.TestCase):
         git("config", "user.name", "test")
         git("config", "user.email", "test@example.invalid")
         git("config", "core.autocrlf", "false")
-        (camp / "A.md").write_bytes(b"a1\n")
+        (camp / "Kenshi_Хронология.md").write_bytes(b"h1\n")
         (camp / "B.md").write_bytes(b"b1\n")
-        git("add", ".")
-        git("commit", "-m", "v1")
-        (camp / "A.md").write_bytes(b"a2\n")
-        (camp / "B.md").write_bytes(b"b2\n")
         (camp / "C.md").write_bytes(b"c1\n")
         git("add", ".")
-        git("commit", "-m", "v2")
+        git("commit", "-m", "v1")
         drive = self.root / "Campaign" / "К"
         (drive / "archive" / "sessions").mkdir(parents=True)
-        (drive / "A.md").write_bytes(b"a1\r\n")                        # прежняя версия с CRLF: перезаписать
-        (drive / "B.md").write_bytes("правка игрока\n".encode("utf-8"))  # ручная правка: не трогать
-        (drive / "archive/sessions/S-new.md").write_bytes(b"new\n")    # только на Диске
-        identity = os.stat(drive / "A.md").st_ino
+        (drive / "archive/sessions/S-new.md").write_bytes(b"new\n")   # только на Диске (старый файл)
+        (drive / "S-gem.gdoc").write_bytes(b"{}")                      # ярлык нативного Doc, созданного Gemini
+        fake = FakeGoogle()
+        now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
-        report = sync_chronicle(companion, self.root)
-
+        report = sync_chronicle(companion, self.root, native=make_native(fake, self.root), now=now)
         self.assertEqual(report["errors"], [])
-        self.assertEqual((drive / "A.md").read_bytes(), b"a2\n")
-        self.assertEqual(os.stat(drive / "A.md").st_ino, identity)
-        self.assertEqual((drive / "B.md").read_bytes(), "правка игрока\n".encode("utf-8"))
-        self.assertEqual((drive / "C.md").read_bytes(), b"c1\n")
-        self.assertEqual(report["modified_on_drive"], ["Campaign/К/B.md"])
-        self.assertEqual(report["only_on_drive"], ["Campaign/К/archive/sessions/S-new.md"])
+        self.assertEqual(sorted(fake.tree()), ["Campaign/К/B", "Campaign/К/C", "Campaign/К/Kenshi_Хронология"])
+        self.assertEqual(report["only_on_drive"], ["Campaign/К/S-gem.md", "Campaign/К/archive/sessions/S-new.md"])
+
+        # Правка игрока на Диске: копия в tmp/conflicts и перезапись версией из main; незакоммиченный файл пропущен.
+        native = make_native(fake, self.root, json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))["native"])
+        identity = fake.find("Campaign/К/B", DOC_MIME)
+        fake.user_edit(identity, "правка игрока\n")
+        (camp / "C.md").write_bytes(b"c-uncommitted\n")
+        again = sync_chronicle(companion, self.root, native=native, now=now)
+        self.assertEqual(again["skipped_uncommitted"], ["C.md"])
+        self.assertEqual(again["conflicts"], [{"path": "Campaign/К/B.md", "copy": "tmp/conflicts/Campaign/К/B-20260102T030405Z.md"}])
+        self.assertEqual((self.root / "tmp/conflicts/Campaign/К/B-20260102T030405Z.md").read_bytes(), "правка игрока\n".encode("utf-8"))
+        self.assertEqual((fake.find("Campaign/К/B", DOC_MIME), fake.items[identity]["text"]), (identity, "b1\n"))
+        self.assertEqual(fake.items[fake.find("Campaign/К/C", DOC_MIME)]["text"], "c1\n")
         self.assertEqual((drive / "archive/sessions/S-new.md").read_bytes(), b"new\n")
-        state = json.loads((self.root / "tmp/sync-state.json").read_text(encoding="utf-8"))
-        self.assertEqual(sorted(state["campaign"]), ["Campaign/К/A.md", "Campaign/К/C.md"])
 
-        # Правка Диска поверх записанной версии: файл защищён.
-        (drive / "C.md").write_bytes(b"c-edit\n")
-        (camp / "C.md").write_bytes(b"c2\n")
-        git("commit", "-am", "v3")
-        self.assertEqual(sync_chronicle(companion, self.root)["modified_on_drive"], ["Campaign/К/B.md", "Campaign/К/C.md"])
-
-        # pipeline (sync_docs подменён: ему нужен origin) Campaign/ не пишет.
-        (drive / "A.md").write_bytes(b"a1\n")
+        # Конвейер (--scope all) синхронизирует и Campaign/; sync_docs подменён: ему нужен origin.
+        (camp / "C.md").write_bytes(b"c1\n")
+        (camp / "Kenshi_Хронология.md").write_bytes(b"h2\n")
+        git("commit", "-am", "v2")
         with mock.patch("tools.gdrive_sync.sync_docs", return_value={"errors": []}) as docs:
-            result = sync_drive(self.root, self.tmp / "published", companion, scope=PIPELINE_SCOPE)
-        self.assertNotIn("chronicle", result)
-        self.assertEqual(result["status"], "synced")
+            result = sync_drive(self.root, self.tmp / "published", companion, scope=PIPELINE_SCOPE, api=fake.api())
         docs.assert_called_once()
-        self.assertEqual((drive / "A.md").read_bytes(), b"a1\n")
+        self.assertEqual((result["status"], result["chronicle"]["written"]), ("synced", 1))
+        self.assertEqual(fake.items[fake.find("Campaign/К/Kenshi_Хронология", DOC_MIME)]["text"], "h2\n")
 
     def test_dry_run_prune_and_repeat(self) -> None:
-        """Ловит запись при dry-run, удаление файлов вне репозитория и Campaign/, удаление без --prune и лишнюю запись
-        при повторе."""
+        """Ловит запись при dry-run, удаление файлов вне репозитория и Campaign/, удаление без --prune, удаление прежнего
+        .md/.csv без нативной копии и лишнюю запись при повторе."""
         remote, companion, published = self.tmp / "remote.git", self.tmp / "companion", self.tmp / "published"
         git = lambda *args, cwd=companion: subprocess.run(  # noqa: E731
             ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8")
@@ -325,6 +337,7 @@ class GDriveSyncTests(unittest.TestCase):
         archive = self.tmp / "archive"
         archive.mkdir()
         (archive / "old-frame.jpg").write_bytes(b"j")
+        fake = FakeGoogle()
 
         def put(relative: str, data: bytes = b"x") -> None:
             (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -335,22 +348,31 @@ class GDriveSyncTests(unittest.TestCase):
             put(relative)
         put("Campaign/К/Лишнее.md", "правка игрока\n".encode("utf-8"))
         put("Campaign/К/archive/sessions/S-drive.md")
+        # Прежние смонтированные копии файлов репозитория (наборы профилей) и ярлык нативного Doc.
+        legacy = ["Campaign/К/Kenshi_Хронология.md", "docs/companion-guide.md", "published/brief.md", "published/tables/a.csv"]
+        for relative in legacy:
+            put(relative)
+        put("published/brief.gdoc")
         fell_out = ["docs/old-note.md", "published/changes.json", "published/screenshots/a.jpg", "published/screenshots/old-frame.jpg"]
-        outside = ["docs/hand.gdoc", "docs/prompts-copy.txt", "published/manual.txt"]
+        outside = ["Campaign/К/Лишнее.md", "docs/hand.gdoc", "docs/prompts-copy.txt", "published/manual.txt"]
 
         def tree() -> dict[str, bytes]:
             return {p.relative_to(self.root).as_posix(): p.read_bytes() for p in sorted(self.root.rglob("*")) if p.is_file()}
 
         def run(**kwargs):
-            return sync_drive(self.root, published, companion, archive_dir=archive, **kwargs)
+            return sync_drive(self.root, published, companion, archive_dir=archive, api=fake.api(), **kwargs)
 
         before = tree()
         dry = run(dry_run=True, prune=True)
         self.assertEqual(tree(), before)
         self.assertFalse((self.root / "tmp/sync-state.json").exists())
+        self.assertEqual(fake.mutations, [])
         self.assertIn("create published/brief.md", dry["summary"]["planned"])
         self.assertIn("create docs/chronicler-guide.md", dry["summary"]["planned"])
+        self.assertIn("create Campaign/К/Kenshi_Хронология.md", dry["summary"]["planned"])
+        # Нативных копий ещё нет: прежние файлы не к удалению.
         self.assertEqual([item for item in dry["summary"]["planned"] if item.startswith("delete")], [f"delete {p}" for p in fell_out])
+        self.assertEqual(sorted(dry["summary"]["legacy_waiting_native"]), sorted(legacy))
         self.assertEqual((dry["summary"]["written"], dry["summary"]["deleted"]), (0, []))
 
         plain = run()
@@ -358,21 +380,29 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(plain["summary"]["to_delete"], fell_out)
         self.assertEqual(plain["summary"]["outside_set"], outside)
         self.assertEqual(plain["summary"]["deleted"], [])
-        self.assertTrue(all((self.root / p).is_file() for p in fell_out))
-        shipped = sorted(p for p in tree() if p.startswith("published/") and p not in fell_out and p != "published/manual.txt")
-        self.assertEqual(shipped, ["published/brief.md", "published/changes.md", "published/screenshots/index.md",
-                                   "published/squad.md", "published/tables/a.csv", "published/tables/index.md"])
-        # --scope all (по умолчанию) Campaign/ не пишет: ни создания, ни правки, ни удаления.
-        self.assertFalse((self.root / "Campaign/К/Kenshi_Хронология.md").exists())
+        self.assertEqual(plain["summary"]["legacy_to_delete"], sorted(legacy))
+        self.assertEqual(plain["summary"]["only_on_drive"], ["Campaign/К/archive/sessions/S-drive.md"])
+        self.assertTrue(all((self.root / p).is_file() for p in [*fell_out, *legacy]))
+        self.assertEqual(sorted(fake.tree()), sorted([
+            "Campaign/К/Kenshi_Хронология", "Campaign/К/archive/sessions/S-1", "docs/chronicler-guide", "docs/companion-guide",
+            "published/brief", "published/changes", "published/squad", "published/screenshots/index", "published/tables/a",
+            "published/tables/index"]))
         self.assertFalse((self.root / "prompts").exists())
         self.assertEqual(plain["profiles"]["chronicle"]["files"], [
             "Campaign/К/Kenshi_Хронология.md", "Campaign/К/archive/sessions/S-1.md", "Campaign/К/archive/sessions/S-drive.md",
             "docs/chronicler-guide.md"])
 
+        mutations = list(fake.mutations)
+        before = tree()
+        planned = run(dry_run=True, prune=True)
+        self.assertEqual((tree(), fake.mutations), (before, mutations))
+        self.assertEqual(sorted(item for item in planned["summary"]["planned"] if item.startswith("delete")),
+                         sorted(f"delete {p}" for p in [*fell_out, *legacy]))
+
         pruned = run(prune=True)
-        self.assertEqual(pruned["summary"]["deleted"], fell_out)
+        self.assertEqual(sorted(pruned["summary"]["deleted"]), sorted([*fell_out, *legacy]))
         self.assertEqual(pruned["summary"]["outside_set"], outside)
-        self.assertTrue(all(not (self.root / p).exists() for p in fell_out))
+        self.assertTrue(all(not (self.root / p).exists() for p in [*fell_out, *legacy]))
         self.assertTrue(all((self.root / p).exists() for p in outside))
         self.assertEqual((self.root / "Campaign/К/Лишнее.md").read_bytes(), "правка игрока\n".encode("utf-8"))
         self.assertTrue((self.root / "Campaign/К/archive/sessions/S-drive.md").is_file())
@@ -382,11 +412,12 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual((again["summary"]["written"], again["summary"]["deleted"], again["status"]), (0, [], "synced"))
         self.assertEqual(tree(), settled)
 
-        # Campaign/ пишется только явным chronicle; правка игрока при этом сохраняется.
-        explicit = run(scope="chronicle")
-        self.assertEqual(explicit["status"], "synced")
-        self.assertEqual((self.root / "Campaign/К/Kenshi_Хронология.md").read_text(encoding="utf-8"), "хр\n")
-        self.assertEqual((self.root / "Campaign/К/Лишнее.md").read_bytes(), "правка игрока\n".encode("utf-8"))
+        # Отказ записи нативной копии (лимит Doc) оставляет прежний файл даже с --prune.
+        (published / "squad.md").write_text("x" * 1_500_001, encoding="utf-8")
+        put("published/squad.md", b"old")
+        refused = run(prune=True)
+        self.assertEqual((refused["status"], refused["summary"]["deleted"]), ("partial", []))
+        self.assertEqual((self.root / "published/squad.md").read_bytes(), b"old")
 
     def test_inbox_rejects_docs_prompts_templates(self) -> None:
         """Ловит запись пакетом в docs/, prompts/, templates/ (источник - main) через префикс каталога кампании."""

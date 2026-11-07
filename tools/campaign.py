@@ -143,12 +143,18 @@ def main(argv: list[str] | None = None) -> int:
     # 7.3. sync-drive
     drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
     drive_parser.add_argument("--scope", choices=("all", "session", "chronicle", "docs"), default="all",
-                              help="all = session + docs; Campaign/ пишет только chronicle")
+                              help="all = session + docs + chronicle (Campaign/)")
     drive_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
     drive_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")
     drive_parser.add_argument("--dry-run", action="store_true", help="Только план: ничего не писать и не удалять на Диске")
-    drive_parser.add_argument("--prune", action="store_true", help="Удалить с Диска выпавшие из набора файлы, известные репозиториям (в корзину); без флага только перечисляются")
+    drive_parser.add_argument("--prune", action="store_true", help="Удалить с Диска выпавшие из набора файлы, известные репозиториям, и прежние .md/.csv с созданной нативной копией (в корзину); без флага только перечисляются")
+
+    # 7.3.1. gdrive-export
+    export_parser = commands.add_parser("gdrive-export", help="Восстановление .md/.csv из нативной копии на Google Диске (экспорт и обратная нормализация)")
+    export_parser.add_argument("path", help="Путь файла в репозитории с расширением, например docs/companion-guide.md")
+    export_parser.add_argument("--output", type=Path, help="Файл результата; без него текст выводится в stdout")
+    export_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (sync-state); без него поиск по именам через API")
 
     # 7.4. ingest-inbox
     inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов из tmp/inbox/ Google Диска: запись в Campaign/, commit и push в Kenshi-Compain")
@@ -506,6 +512,17 @@ def main(argv: list[str] | None = None) -> int:
             result = sync_drive(args.gdrive_dir or find_gdrive_root(), args.published_dir.resolve(),
                                 companion_root(args.companion_dir), scope=args.scope,
                                 dry_run=args.dry_run, prune=args.prune)
+
+        elif args.command == "gdrive-export":
+            from tools.config import find_gdrive_root
+            from tools.gdrive_sync import gdrive_export
+            data, result = gdrive_export(args.path, args.gdrive_dir or find_gdrive_root())
+            if args.output is None:
+                sys.stdout.buffer.write(data)
+                return 0
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_bytes(data)
+            result["output"] = args.output.name
 
         elif args.command == "ingest-inbox":
             from tools.config import find_gdrive_root
