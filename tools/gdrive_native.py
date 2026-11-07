@@ -33,6 +33,9 @@ SHEET_REQUEST_LIMIT = 12 * 1024 * 1024
 BOM = "﻿"
 CRLF, LF = b"\r\n", b"\n"
 META_FIELDS = "id,name,mimeType,modifiedTime,headRevisionId,trashed,appProperties"
+SOURCE_PROPERTY = "kenshi_source"
+# Drive: ключ + значение одного appProperties не длиннее 124 байт UTF-8; длинный (кириллица) путь заменяется хешем.
+PROPERTY_LIMIT_BYTES = 124
 
 
 class NativeUnavailable(RuntimeError):
@@ -58,6 +61,13 @@ def kind_of(path: str) -> str | None:
 
 def native_name(path: str) -> str:
     return PurePosixPath(path).stem
+
+
+def source_tag(key: str) -> str:
+    """Значение `kenshi_source`: путь источника с расширением, либо `sha256:<32 hex>` пути, если путь не помещается в лимит свойства."""
+    if len((SOURCE_PROPERTY + key).encode("utf-8")) <= PROPERTY_LIMIT_BYTES:
+        return key
+    return "sha256:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
 
 
 def source_digest(data: bytes) -> str:
@@ -182,6 +192,14 @@ class GoogleApi:
                                                    fields=f"files({META_FIELDS})"), "files.list")
         return list(result.get("files", []))
 
+    def find_owned(self, parent_id: str, tag: str, mime: str) -> list[dict[str, Any]]:
+        """Наши файлы в каталоге: по `appProperties.kenshi_source`, а не по имени."""
+        query = (f"'{parent_id}' in parents and mimeType = '{mime}' and trashed = false and "
+                 f"appProperties has {{ key='{SOURCE_PROPERTY}' and value='{_quote(tag)}' }}")
+        result = self._run(self.drive.files().list(q=query, spaces="drive", pageSize=10, orderBy="createdTime",
+                                                   fields=f"files({META_FIELDS})"), "files.list")
+        return list(result.get("files", []))
+
     def create_folder(self, parent_id: str, name: str) -> str:
         body = {"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]}
         return str(self._run(self.drive.files().create(body=body, fields="id"), "files.create")["id"])
@@ -253,6 +271,9 @@ class NativeSync:
         self.api, self.entries, self.root_id = api, entries, root_id
         self.root, self.write_file, self.dry_run, self.stamp = root, write_file, dry_run, stamp
         self.verified: set[str] = set()
+        # Отчёт запуска: по каждому нативному файлу путь, действие и drive_modified_time до/после; чужие одноимённые файлы.
+        self.files: dict[str, dict[str, Any]] = {}
+        self.foreign: list[dict[str, str]] = []
         self._folders: dict[str, str | None] = {}
 
     def folder_id(self, parts: list[str], create: bool) -> str | None:
@@ -280,16 +301,53 @@ class NativeSync:
         else:
             self.api.write_sheet(file_id, rows)
 
-    def _store(self, key: str, kind: str, file_id: str, sha: str, trailing: int, chars: int) -> None:
-        after = self.api.set_properties(file_id, {"sha256": sha, "trailing_lf": str(trailing)})
+    def _store(self, key: str, kind: str, file_id: str, sha: str, trailing: int, chars: int,
+               meta: dict[str, Any] | None = None) -> str | None:
+        """Запись в sync-state и свойств файла; возвращает `modifiedTime` после. Если `meta` уже содержит те же свойства,
+        `files.update` не вызывается (не плодим правки Диска и не двигаем modifiedTime)."""
+        wanted = {"sha256": sha, "trailing_lf": str(trailing), SOURCE_PROPERTY: source_tag(key)}
+        if meta is not None and all((meta.get("appProperties") or {}).get(name) == value for name, value in wanted.items()):
+            after = meta
+        else:
+            after = self.api.set_properties(file_id, wanted)
         entry = {"file_id": file_id, "kind": kind, "source_sha256": sha, "drive_modified_time": after.get("modifiedTime"),
                  "eol_final": trailing > 0, "trailing_lf": trailing, "chars": chars}
         if after.get("headRevisionId"):
             entry["head_revision_id"] = after["headRevisionId"]
         self.entries[key] = entry
+        return after.get("modifiedTime")
+
+    def _journal(self, key: str, action: str, before: str | None, after: str | None, **extra: Any) -> None:
+        self.files[key] = {"path": key, "action": action, "drive_modified_before": before, "drive_modified_after": after, **extra}
+
+    def totals(self) -> dict[str, int]:
+        """Сводка запуска по нативным файлам; в `--dry-run` `written` - число запланированных записей."""
+        actions = [item["action"] for item in self.files.values()]
+        count = actions.count
+        return {"written": count("created") + count("updated") + count("conflict"),
+                "unchanged": count("unchanged") + count("content-equal-modified"),
+                "content_equal_modified": count("content-equal-modified"), "conflicts": count("conflict"),
+                "foreign": len(self.foreign)}
+
+    def _lookup(self, key: str, kind: str, parent: str | None) -> dict[str, Any] | None:
+        """Наш файл по `kenshi_source` в каталоге; одноимённые без метки - чужие, не трогаются и попадают в `foreign`."""
+        if not parent:
+            return None
+        owned = self.api.find_owned(parent, source_tag(key), MIME_BY_KIND[kind])
+        if len(owned) > 1:
+            raise NativeError(f"{key}: на Диске несколько нативных файлов с kenshi_source этого пути; оставьте один")
+        taken = {str(item["id"]) for item in owned}
+        for other in self.api.find_files(parent, native_name(key), MIME_BY_KIND[kind]):
+            if str(other["id"]) not in taken:
+                self.foreign.append({"path": key, "name": str(other.get("name", native_name(key))), "file_id": str(other["id"])})
+        return owned[0] if owned else None
 
     def put(self, key: str, data: bytes, report: dict[str, Any], stamp: str | None = None) -> str | None:
-        """`create` | `write` | None (совпало). В dry-run ничего не меняется (только чтение)."""
+        """`create` | `write` | None (записи нет). В dry-run ничего не меняется (только чтение).
+
+        Правка на Диске определяется по содержимому: изменённый `modifiedTime` - лишь повод экспортировать файл и сравнить
+        нормализованный текст с источником. Совпало - конфликта нет, обновляется только `drive_modified_time` в sync-state.
+        """
         kind = kind_of(key)
         if kind is None:
             raise ValueError(f"{key}: не нативный тип")
@@ -305,16 +363,15 @@ class NativeSync:
                 meta, entry = None, None
         else:
             entry = None
+        recorded = entry.get("drive_modified_time") if entry else None
         parent: str | None = None
         if meta is None:
             parent = self.folder_id(key.split("/")[:-1], create=not self.dry_run)
-            found = self.api.find_files(parent, native_name(key), MIME_BY_KIND[kind]) if parent else []
-            if len(found) > 1:
-                raise NativeError(f"{key}: на Диске несколько нативных файлов с этим именем; оставьте один")
-            if found:
-                meta, adopted = found[0], True
+            meta = self._lookup(key, kind, parent)
+            adopted = meta is not None
         if meta is None:
             if self.dry_run:
+                self._journal(key, "created", None, None)
                 return "create"
             created = self.api.create_file(str(parent), native_name(key), MIME_BY_KIND[kind])
             file_id = str(created["id"])
@@ -325,22 +382,30 @@ class NativeSync:
                 self.entries[key] = {"file_id": file_id, "kind": kind, "source_sha256": "", "drive_modified_time": None,
                                      "eol_final": trailing > 0, "trailing_lf": trailing, "chars": len(text)}
                 raise
-            self._store(key, kind, file_id, sha, trailing, len(text))
+            after = self._store(key, kind, file_id, sha, trailing, len(text))
+            self._journal(key, "created", None, after)
             self.verified.add(key)
             return "create"
 
         self.verified.add(key)
         file_id = str(meta["id"])
         modified = meta.get("modifiedTime")
-        changed_on_drive = adopted or entry is None or modified != entry.get("drive_modified_time")
+        tagged = (meta.get("appProperties") or {}).get(SOURCE_PROPERTY) == source_tag(key)
+        extra = {"adopted": True} if adopted else {}
+        changed_on_drive = adopted or entry is None or modified != recorded
         if not changed_on_drive and entry and entry.get("source_sha256") == sha:
+            after = recorded
+            if not tagged and not self.dry_run:  # файл из sync-state без метки (прежний запуск): метка ставится один раз
+                after = self._store(key, kind, file_id, sha, trailing, len(text), meta)
+            self._journal(key, "unchanged", recorded, after)
             return None
+        conflict = False
         if changed_on_drive:
             raw = self.api.export(file_id, EXPORT_MIME[kind])
             if normalize_export(kind, raw, trailing) == encoded:
-                # Содержимое уже равно источнику (правка отменена либо служебное обновление времени): записывать нечего.
-                if not self.dry_run:
-                    self._store(key, kind, file_id, sha, trailing, len(text))
+                # Содержимое равно источнику (правка отменена либо служебное обновление времени): конфликта нет, файл не пишется.
+                after = modified if self.dry_run else self._store(key, kind, file_id, sha, trailing, len(text), meta)
+                self._journal(key, "content-equal-modified" if entry else "unchanged", recorded, after, **extra)
                 return None
             previous = int(entry.get("trailing_lf", trailing)) if entry else trailing
             theirs = normalize_export(kind, raw, previous)
@@ -350,7 +415,9 @@ class NativeSync:
                 if not self.dry_run:
                     self.write_file(theirs, self.root / relative)
                 report.setdefault("conflicts", []).append({"path": key, "copy": relative})
+                conflict = True
         if self.dry_run:
+            self._journal(key, "conflict" if conflict else "updated", recorded, recorded, **extra)
             return "write"
         try:
             self._write(kind, file_id, text, rows)
@@ -358,7 +425,8 @@ class NativeSync:
             if entry:  # содержимое могло измениться частично: запись не считается актуальной
                 entry["source_sha256"] = ""
             raise
-        self._store(key, kind, file_id, sha, trailing, len(text))
+        after = self._store(key, kind, file_id, sha, trailing, len(text))
+        self._journal(key, "conflict" if conflict else "updated", recorded, after, **extra)
         return "write"
 
     def reconnect(self, keys: list[str]) -> list[dict[str, str]]:
@@ -374,7 +442,7 @@ class NativeSync:
 
 
 def locate(api: GoogleApi, root_id: str, key: str) -> dict[str, Any] | None:
-    """Нативный файл по пути (без sync-state): обход каталогов Диска по именам."""
+    """Наш нативный файл по пути (без sync-state): каталоги Диска по именам, файл - по `appProperties.kenshi_source`."""
     parent = root_id
     for part in key.split("/")[:-1]:
         found = api.find_files(parent, part, FOLDER_MIME)
@@ -382,5 +450,5 @@ def locate(api: GoogleApi, root_id: str, key: str) -> dict[str, Any] | None:
             return None
         parent = str(found[0]["id"])
     kind = kind_of(key)
-    found = api.find_files(parent, native_name(key), MIME_BY_KIND[str(kind)])
+    found = api.find_owned(parent, source_tag(key), MIME_BY_KIND[str(kind)])
     return found[0] if found else None

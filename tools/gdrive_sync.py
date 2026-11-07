@@ -661,6 +661,8 @@ def sync_drive(
         "to_delete": to_delete, "legacy_to_delete": legacy, "legacy_waiting_native": legacy_waiting,
         "outside_set": outside, "missing_in_repo": plan["missing"], "refused": refused,
         "conflicts": [item for part in parts for item in part.get("conflicts", [])],
+        "native_files": list(native.files.values()), "native_summary": native.totals(),
+        "foreign_same_name": native.foreign,
         "native_outside_set": sorted(key for key in native.entries if key.startswith(prefixes) and key not in current),
         "only_on_drive": result.get("chronicle", {}).get("only_on_drive", []),
     }
@@ -708,7 +710,7 @@ def gdrive_export(path: str, root: Path | None, api: GoogleApi | None = None) ->
     """Восстановление исходника из нативной копии: экспорт Google и обратная нормализация (байт в байт).
 
     `path` - путь файла в репозитории с расширением (`docs/x.md`, `published/tables/y.csv`). Файл ищется в sync-state
-    (`native`), иначе по именам каталогов Диска; число хвостовых LF - из sync-state либо `appProperties` файла.
+    (`native`), иначе по именам каталогов Диска и `appProperties.kenshi_source`; число хвостовых LF - из sync-state либо `appProperties` файла.
     """
     kind = kind_of(path)
     if kind is None:

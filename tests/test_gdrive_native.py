@@ -132,11 +132,20 @@ class _Files:
 
     def list(self, q: str, spaces: str, pageSize: int, orderBy: str, fields: str) -> _Request:  # noqa: N803
         import re
-        match = re.fullmatch(r"'(.+?)' in parents and name = '(.*)' and mimeType = '(.+?)' and trashed = false", q)
-        assert match, q
-        parent, name, mime = match.group(1), match.group(2).replace("\\'", "'").replace("\\\\", "\\"), match.group(3)
-        found = [self.fake.meta(key) for key, item in self.fake.items.items()
-                 if parent in item["parents"] and item["name"] == name and item["mime"] == mime and not item.get("trashed")]
+        unquote = lambda text: text.replace("\\'", "'").replace("\\\\", "\\")  # noqa: E731
+        by_name = re.fullmatch(r"'(.+?)' in parents and name = '(.*)' and mimeType = '(.+?)' and trashed = false", q)
+        by_source = re.fullmatch(r"'(.+?)' in parents and mimeType = '(.+?)' and trashed = false and "
+                                 r"appProperties has \{ key='kenshi_source' and value='(.*)' \}", q)
+        assert by_name or by_source, q
+        if by_name:
+            parent, name, mime = by_name.group(1), unquote(by_name.group(2)), by_name.group(3)
+            found = [self.fake.meta(key) for key, item in self.fake.items.items()
+                     if parent in item["parents"] and item["name"] == name and item["mime"] == mime and not item.get("trashed")]
+        else:
+            parent, mime, tag = by_source.group(1), by_source.group(2), unquote(by_source.group(3))
+            found = [self.fake.meta(key) for key, item in self.fake.items.items()
+                     if parent in item["parents"] and item["mime"] == mime and not item.get("trashed")
+                     and item["props"].get("kenshi_source") == tag]
         return _Request(lambda: {"files": found})
 
     def get(self, fileId: str, fields: str) -> _Request:  # noqa: N803
@@ -317,6 +326,61 @@ class NativeFilesTests(unittest.TestCase):
                          "a,b\n1,\u043f\u0440\u0430\u0432\u043a\u0430\n")
         self.assertEqual(self.fake.find("published/tables/a", SHEET_MIME), sheet_id)
         self.assertEqual(self.fake.items[sheet_id]["rows"], [["a", "b"], ["1", "3"]])
+
+    def test_changed_modified_time_with_equal_content_is_not_a_conflict(self) -> None:
+        """Ловит ложный конфликт и запись при изменённом modifiedTime и равном содержимом (в том числе служебная запись
+        свойств, двигающая время), а также пропуск реального конфликта при изменённом содержимом; отчёт до/после."""
+        (self.published / "brief.md").write_text("# A\n\ntext\n", encoding="utf-8")
+        self.run_sync()
+        doc_id = self.fake.find("published/brief", DOC_MIME)
+        recorded = load_state(self.root)["native"]["published/brief.md"]["drive_modified_time"]
+
+        self.fake.touch(doc_id)  # время изменилось, содержимое то же
+        moved = self.fake.items[doc_id]["modified"]
+        before = list(self.fake.mutations)
+        report = self.run_sync()
+        item = report["summary"]["native_files"][0]
+        self.assertEqual((item["path"], item["action"], item["drive_modified_before"], item["drive_modified_after"]),
+                         ("published/brief.md", "content-equal-modified", recorded, moved))
+        self.assertEqual((report["summary"]["written"], report["summary"]["conflicts"], self.fake.mutations), (0, [], before))
+        self.assertFalse((self.root / "tmp/conflicts").exists())
+        self.assertEqual(load_state(self.root)["native"]["published/brief.md"]["drive_modified_time"], moved)
+
+        again = self.run_sync()  # повтор: время не менялось - экспорт не нужен
+        self.assertEqual(again["summary"]["native_files"][0]["action"], "unchanged")
+        self.assertEqual(again["summary"]["native_summary"], {"written": 0, "unchanged": 1, "content_equal_modified": 0,
+                                                              "conflicts": 0, "foreign": 0})
+
+        self.fake.user_edit(doc_id, "# A\n\nправка\n")
+        edited = self.run_sync()
+        self.assertEqual(edited["summary"]["native_files"][0]["action"], "conflict")
+        self.assertEqual(len(edited["summary"]["conflicts"]), 1)
+        self.assertEqual(self.fake.items[doc_id]["text"], "# A\n\ntext\n")
+
+    def test_own_file_is_found_by_kenshi_source_and_foreign_same_name_is_untouched(self) -> None:
+        """Ловит поиск своего файла по имени (захват чужого одноимённого документа), потерю метки kenshi_source и
+        отсутствие чужого файла в отчёте."""
+        (self.published / "brief.md").write_text("mine\n", encoding="utf-8")
+        foreign_id = self.fake.add("brief", DOC_MIME, [self.fake.add("published", FOLDER_MIME, [self.fake.root_folder])])
+        self.fake.items[foreign_id]["text"] = "чужой текст\n"
+        self.fake.touch(foreign_id)
+        foreign_state = dict(self.fake.items[foreign_id])
+
+        first = self.run_sync()
+        own_id = load_state(self.root)["native"]["published/brief.md"]["file_id"]
+        self.assertNotEqual(own_id, foreign_id)
+        self.assertEqual(self.fake.items[own_id]["props"]["kenshi_source"], "published/brief.md")
+        self.assertEqual(self.fake.items[foreign_id], foreign_state)
+        self.assertEqual(first["summary"]["foreign_same_name"],
+                         [{"path": "published/brief.md", "name": "brief", "file_id": foreign_id}])
+        self.assertEqual(first["summary"]["native_summary"]["foreign"], 1)
+
+        (self.root / "tmp/sync-state.json").unlink()  # без sync-state: тот же файл по kenshi_source, а не новый
+        mutations = list(self.fake.mutations)
+        second = self.run_sync()
+        self.assertEqual(load_state(self.root)["native"]["published/brief.md"]["file_id"], own_id)
+        self.assertEqual((second["summary"]["written"], self.fake.mutations, second["summary"]["conflicts"]), (0, mutations, []))
+        self.assertEqual(self.fake.items[foreign_id], foreign_state)
 
     def test_limits_are_refused_without_breaking_other_files(self) -> None:
         """Ловит запись сверх лимитов Google (Doc 1,5 млн символов, ячейка 50 000) и остановку остальных файлов."""
