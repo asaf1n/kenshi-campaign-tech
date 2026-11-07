@@ -87,7 +87,7 @@ class GDriveSyncTests(unittest.TestCase):
             "Campaign/К/archive/Kenshi_Библия.md", "Campaign/К/archive/novel/Повесть.md", "Campaign/К/archive/sessions/S-1.md",
             "Campaign/К/Заметки.md", "README.md", "prompts/p.md", "sites/s.md", "templates/template-session.md",
             "docs/companion-guide.md", "docs/chronicler-guide.md", "docs/Kenshi_sources.md", "docs/reference/lore.md",
-            "docs/reference/drafts/x.md", "docs/setup-decision.md",
+            "docs/reference/drafts/x.md",
         ]
         self.assertEqual(expand_profile(PROFILE_GAME, pool), sorted([
             "published/brief.md", "published/tables/index.md", "published/tables/squad.csv", "published/screenshots/feed.md",
