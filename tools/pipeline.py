@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from tools.campaign_check import require_same_campaign
 from tools.config import Config
 from tools.extraction import ROOT, extract
 from tools.index import register_snapshot
@@ -28,6 +29,7 @@ def run_pipeline(
     timeline_path: Path | None = None,
     sessions_root: Path | None = None,
     screens_dir: Path | None = None,
+    allow_new_campaign: bool = False,
 ) -> dict[str, Any]:
     snapshots_dir = output_snapshots or ROOT / "data/snapshots"
     diffs_dir = output_diffs or ROOT / "data/diffs"
@@ -46,6 +48,10 @@ def run_pipeline(
     )
 
     snapshot_id = extract_res["snapshot_id"]
+
+    # До регистрации в индексе и публикации: чужой сейв не должен попасть в published/.
+    campaign_check = _check_campaign(
+        snapshots_dir, snapshot_id, parent_snapshot_id, effective_campaign, allow_new_campaign)
 
     prov = read_json((snapshots_dir / snapshot_id / "provenance.json").read_bytes())
     index_res = register_snapshot(
@@ -80,7 +86,27 @@ def run_pipeline(
     return {
         "pipeline_status": "success",
         "snapshot_id": snapshot_id,
+        "campaign_check": campaign_check,
         "extract": extract_res,
         "index": index_res,
         "publish": publish_res,
     }
+
+
+def _check_campaign(
+    snapshots_dir: Path, snapshot_id: str, parent_snapshot_id: str | None,
+    campaign_id: str, allow_new_campaign: bool,
+) -> dict[str, Any]:
+    if allow_new_campaign:
+        return {"status": "skipped", "reason": "задан --allow-new-campaign"}
+    if not parent_snapshot_id:
+        return {"status": "skipped", "reason": "нет родительского снимка: первая публикация ветки"}
+    parent_file = snapshots_dir / parent_snapshot_id / "current.json"
+    if not parent_file.is_file():
+        return {"status": "skipped", "reason": "родительский снимок отсутствует в каталоге снимков"}
+    result = require_same_campaign(
+        read_json(parent_file.read_bytes()),
+        read_json((snapshots_dir / snapshot_id / "current.json").read_bytes()),
+        campaign_id,
+    )
+    return result if result.get("status") == "skipped" else {"status": "passed", **result}

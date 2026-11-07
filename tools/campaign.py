@@ -104,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--dry-run", action="store_true")
     pipe_parser.add_argument("--deliver-to", type=Path, help="Каталог игрового репозитория Kenshi-Compain для односторонней доставки")
     pipe_parser.add_argument("--deliver-push", action="store_true", help="Выполнить git push в игровом репозитории Kenshi-Compain")
+    pipe_parser.add_argument("--allow-new-campaign", action="store_true", help="Пропустить проверку принадлежности сейва кампании (новый старт, смена ветки)")
     pipe_parser.add_argument("--sync-drive", action="store_true", help="Синхронизировать выгрузку и канон с Google Диском")
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
@@ -452,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
                 timeline_path=args.timeline,
                 sessions_root=args.sessions_root,
                 screens_dir=args.screens_dir or cfg.screens,
+                allow_new_campaign=args.allow_new_campaign,
             )
             if getattr(args, "deliver_to", None) and result.get("publish", {}).get("manifest", {}).get("validation", {}).get("status") == "passed":
                 from tools.deliver_companion import deliver_to_companion
