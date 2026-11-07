@@ -9,29 +9,37 @@
     campaign_id и branch_id берутся из последнего published/manifest.json.
     Сохранения и скриншоты игры открываются только на чтение; git вызывает только доставка в Kenshi Compain.
 
-    Папка сохранения выбирается ЯВНО (не "самая свежая из всех"): параметр -SaveFolder, иначе переменная
-    KENSHI_SAVE_PATTERN (шаблон имени папки, например 'Hot*'), иначе KENSHI_SAVE_NAME (точное имя).
-    Если шаблон совпал с несколькими папками, берётся свежайшая из совпавших.
-    Перед публикацией pipeline сверяет состав персонажей сейва с родительским снимком; при несовпадении
-    публикации, доставки и синхронизации Диска нет, код возврата 1.
+    Папка сохранений общая для всех прохождений, поэтому выбор по папке кампанию не определяет.
+    Явный выбор: параметр -SaveFolder, иначе KENSHI_SAVE_PATTERN (шаблон имени, например 'Hot*'), иначе
+    KENSHI_SAVE_NAME (точное имя); при нескольких совпадениях берётся свежайшая из совпавших.
+    Без явного выбора папки перебираются от свежих к старым (до -MaxCandidates), для каждой выполняется
+    "python -m tools.campaign check-save" (состав персонажей против головы ветки); берётся первая папка,
+    относящаяся к кампании. Если ни одна не подходит, ошибка со списком проверенных папок, код 1.
+    Перед публикацией pipeline в любом случае повторно сверяет состав персонажей с родительским снимком;
+    при несовпадении публикации, доставки и синхронизации Диска нет, код возврата 1.
 
 .PARAMETER SaveFolder
     Имя или шаблон (wildcard) папки сохранения кампании.
 
 .PARAMETER AllowNewCampaign
-    Осознанный новый старт или смена кампании/ветки: пропускает проверку принадлежности сейва.
+    Осознанный новый старт или смена кампании/ветки: пропускает проверку принадлежности сейва
+    (перебор по составу невозможен, папку нужно указать явно).
 
 .PARAMETER CampaignId
     campaign_id вместо значения из published/manifest.json (новая кампания; обычно вместе с -AllowNewCampaign).
 
 .PARAMETER BranchId
     branch_id вместо значения из published/manifest.json.
+
+.PARAMETER MaxCandidates
+    Сколько последних папок сохранений проверять при автоматическом выборе (по умолчанию 6).
 #>
 param(
     [string]$SaveFolder,
     [switch]$AllowNewCampaign,
     [string]$CampaignId,
-    [string]$BranchId
+    [string]$BranchId,
+    [int]$MaxCandidates = 6
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -71,20 +79,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
 
     $folders = @($env:KENSHI_SAVE_DIRS -split ';' | Where-Object { $_ } | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory })
-    $pattern = $SaveFolder
-    if (-not $pattern) { $pattern = $env:KENSHI_SAVE_PATTERN }
-    $exact = $null
-    if (-not $pattern) { $exact = $env:KENSHI_SAVE_NAME }
-    if (-not $pattern -and -not $exact) {
-        $found = ($folders | Sort-Object LastWriteTime -Descending | Select-Object -First 15 |
-            ForEach-Object { '  {0}  {1}' -f $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm'), $_.Name }) -join "`n"
-        throw ("Папка сохранения кампании не задана. Укажите -SaveFolder <имя или шаблон> либо переменную KENSHI_SAVE_PATTERN " +
-            "(шаблон) или KENSHI_SAVE_NAME (точное имя). Найденные папки (свежие сверху):`n$found")
-    }
-    $matched = if ($pattern) { @($folders | Where-Object { $_.Name -like $pattern }) } else { @($folders | Where-Object { $_.Name -eq $exact }) }
-    if (-not $matched) { throw "Папка сохранения не найдена по условию '$(if ($pattern) { $pattern } else { $exact })' в KENSHI_SAVE_DIRS." }
-    $save = $matched | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($matched.Count -gt 1) { Write-Host "Шаблон совпал с $($matched.Count) папками; берётся свежайшая." }
 
     $manifestPath = Join-Path $Root 'published\manifest.json'
     $previous = $null
@@ -98,6 +92,50 @@ try {
     if (Test-Path -LiteralPath $indexPath) {
         $head = (Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json).branches.$branchId.head_snapshot_id
         if ($head) { $parentArgs = @('--parent-snapshot-id', $head) }
+    }
+
+    $pattern = $SaveFolder
+    if (-not $pattern) { $pattern = $env:KENSHI_SAVE_PATTERN }
+    $exact = $null
+    if (-not $pattern) { $exact = $env:KENSHI_SAVE_NAME }
+    if ($pattern -or $exact) {
+        $matched = if ($pattern) { @($folders | Where-Object { $_.Name -like $pattern }) } else { @($folders | Where-Object { $_.Name -eq $exact }) }
+        if (-not $matched) { throw "Папка сохранения не найдена по условию '$(if ($pattern) { $pattern } else { $exact })' в KENSHI_SAVE_DIRS." }
+        $save = $matched | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($matched.Count -gt 1) { Write-Host "Шаблон совпал с $($matched.Count) папками; берётся свежайшая." }
+    }
+    else {
+        # Папка сохранений общая для всех прохождений: единственная защита - состав персонажей (check-save).
+        if ($AllowNewCampaign) { throw 'С -AllowNewCampaign проверка состава не выполняется: укажите папку явно (-SaveFolder, KENSHI_SAVE_PATTERN или KENSHI_SAVE_NAME).' }
+        $save = $null
+        $report = @()
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        foreach ($folder in ($folders | Sort-Object LastWriteTime -Descending | Select-Object -First $MaxCandidates)) {
+            $raw = & python -m tools.campaign check-save --source $folder.FullName --campaign-id $campaignId --branch-id $branchId
+            $code = $LASTEXITCODE
+            $when = $folder.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
+            $verdict = 'ошибка проверки (код {0})' -f $code
+            $belongs = $false
+            if ($code -eq 0 -or $code -eq 1) {
+                $r = $null
+                try { $r = ($raw -join "`n") | ConvertFrom-Json } catch { }
+                if ($r) {
+                    $belongs = ($code -eq 0)
+                    $what = if ($r.status -eq 'skipped') { "проверка пропущена: $($r.reason)" }
+                            else { 'общих id {0} из {1}, доля {2}' -f $r.shared, $r.parent_size, ([double]$r.share).ToString('0.00', $inv) }
+                    $verdict = '{0} -> {1}' -f $what, $(if ($belongs) { 'относится' } else { 'не относится' })
+                }
+            }
+            $line = '  {0}  {1}  {2}' -f $folder.Name, $when, $verdict
+            $report += $line
+            Write-Host $line
+            if ($belongs) { $save = $folder; break }
+        }
+        if (-not $save) {
+            throw ("Ни одна из последних $MaxCandidates папок сохранений не относится к кампании $campaignId (ветка $branchId); " +
+                "публикация, доставка и синхронизация Диска не выполнялись. Проверено (свежие сверху):`n" + ($report -join "`n") +
+                "`nУкажите папку явно (-SaveFolder), увеличьте -MaxCandidates либо используйте -AllowNewCampaign для нового старта.")
+        }
     }
 
     $companion = if ($env:KENSHI_COMPANION_DIR) { $env:KENSHI_COMPANION_DIR } else { Join-Path (Split-Path -Parent $Root) 'Kenshi Compain' }

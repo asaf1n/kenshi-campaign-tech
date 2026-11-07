@@ -1,6 +1,7 @@
 """Проверка принадлежности сейва кампании до публикации."""
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest import mock
 
 from tools import campaign
 from tools.campaign_check import CampaignMismatchError, compare_with_parent
+from tools.index import empty_index
 
 PARENT = "sha256-" + "a" * 64
 CHILD = "sha256-" + "b" * 64
@@ -78,6 +80,51 @@ class CampaignCheckTests(unittest.TestCase):
                 child = state([f"ps:{n}" for n in range(shared_n)] + [f"ps:x{n}" for n in range(extra)])
                 self.assertEqual(compare_with_parent(parent, child)["belongs"], belongs)
         self.assertTrue(issubclass(CampaignMismatchError, ValueError))
+
+
+class CheckSaveTests(unittest.TestCase):
+    def run_check(self, tmp: Path, child_ids: list[str], extract_error: Exception | None = None) -> tuple[int, dict]:
+        snapshots = tmp / "snapshots"
+        write_snapshot(snapshots, PARENT, [f"ps:{n}" for n in range(10)])
+        index = empty_index()
+        index["branches"]["main"] = {"head_snapshot_id": PARENT}
+        (tmp / "index.json").write_text(json.dumps(index), encoding="utf-8")
+
+        def fake_extract(source: Path, source_kind: str, config: object, output: Path, **_: object) -> dict:
+            if extract_error:
+                raise extract_error
+            write_snapshot(output, CHILD, child_ids)
+            return {"snapshot_id": CHILD}
+
+        repo_data = [sorted(p.name for p in (campaign.ROOT / d).glob("*")) if (campaign.ROOT / d).exists() else None
+                     for d in ("data", "published")]
+        out = io.BytesIO()
+        with mock.patch("tools.pipeline.extract", side_effect=fake_extract), \
+                mock.patch("tools.pipeline.register_snapshot") as register, \
+                mock.patch("tools.pipeline.publish") as publish, \
+                mock.patch("sys.stdout") as stdout, mock.patch("sys.stderr"):
+            stdout.buffer = out
+            code = campaign.main(["check-save", "--source", str(tmp), "--index-file", str(tmp / "index.json"),
+                                  "--snapshots-dir", str(snapshots), "--campaign-id", "hot-lon"])
+        register.assert_not_called()
+        publish.assert_not_called()
+        self.assertEqual(repo_data, [sorted(p.name for p in (campaign.ROOT / d).glob("*")) if (campaign.ROOT / d).exists() else None
+                                     for d in ("data", "published")])
+        return code, json.loads(out.getvalue()) if out.getvalue() else {}
+
+    def test_exit_codes_and_no_writes(self) -> None:
+        """0 - относится, 1 - чужой состав, 2 - ошибка извлечения; индекс, publish и data/published не затрагиваются."""
+        with tempfile.TemporaryDirectory() as tmp:
+            code, result = self.run_check(Path(tmp), [f"ps:{n}" for n in range(10)])
+            self.assertEqual((code, result["belongs"], result["shared"], result["parent_size"]), (0, True, 10, 10))
+            self.assertEqual(result["share"], 1.0)
+            self.assertFalse((Path(tmp) / "data").exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            code, result = self.run_check(Path(tmp), [f"ps:x{n}" for n in range(10)])
+            self.assertEqual((code, result["belongs"], result["shared"]), (1, False, 0))
+        with tempfile.TemporaryDirectory() as tmp:
+            code, result = self.run_check(Path(tmp), [], extract_error=RuntimeError("сбой"))
+            self.assertEqual((code, result), (2, {}))
 
 
 if __name__ == "__main__":

@@ -1,13 +1,14 @@
 """Сквозной вертикальный срез конвейера: extract -> diff -> resolve_locations -> render -> validate -> publish."""
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from tools.campaign_check import require_same_campaign
+from tools.campaign_check import MIN_SHARED_IDS, MIN_SHARED_SHARE, compare_with_parent, require_same_campaign, roster
 from tools.config import Config
 from tools.extraction import ROOT, extract
-from tools.index import register_snapshot
+from tools.index import load_index, register_snapshot
 from tools.io_utils import read_json
 from tools.publisher import publish
 
@@ -91,6 +92,36 @@ def run_pipeline(
         "index": index_res,
         "publish": publish_res,
     }
+
+
+def check_save(
+    source: Path, config: Config, campaign_id: str | None = None, branch_id: str | None = None,
+    index_path: Path | None = None, snapshots_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Неизменяющая проверка принадлежности сейва: извлечение во временный каталог, сравнение с головой
+    ветки из индекса. data/, индекс и published/ не затрагиваются (индекс только читается)."""
+    effective_campaign = campaign_id or "hot-lon"
+    effective_branch = branch_id or "main"
+    parents_dir = snapshots_dir or ROOT / "data/snapshots"
+    index = load_index(index_path)
+    parent_id = ((index.get("branches") or {}).get(effective_branch) or {}).get("head_snapshot_id")
+    with tempfile.TemporaryDirectory(prefix="check-save-") as tmp:
+        extract_res = extract(source=source, source_kind="save", config=config, output=Path(tmp),
+                              campaign_id=effective_campaign, branch_id=effective_branch,
+                              parent_snapshot_id=parent_id)
+        candidate = read_json((Path(tmp) / extract_res["snapshot_id"] / "current.json").read_bytes())
+    base = {"campaign_id": effective_campaign, "branch_id": effective_branch, "parent_snapshot_id": parent_id,
+            "min_shared_share": MIN_SHARED_SHARE, "min_shared_ids": MIN_SHARED_IDS}
+    parent_file = parents_dir / parent_id / "current.json" if parent_id else None
+    if parent_file is None or not parent_file.is_file():
+        reason = ("нет родительского снимка: первая публикация ветки" if parent_id is None
+                  else "родительский снимок отсутствует в каталоге снимков")
+        return {**base, "status": "skipped", "belongs": True, "reason": reason}
+    parent = read_json(parent_file.read_bytes())
+    if not roster(parent):
+        return {**base, "status": "skipped", "belongs": True,
+                "reason": "в родительском снимке нет персонажей с устойчивым id"}
+    return {**base, "status": "checked", **compare_with_parent(parent, candidate)}
 
 
 def _check_campaign(

@@ -6,7 +6,7 @@
 
 ## Быстрый старт в PowerShell
 
-Запуск одной командой: [Initialize-Pipeline.ps1](Initialize-Pipeline.ps1) находит каталог игры, берёт сохранение кампании (явно: `-SaveFolder <имя или шаблон>`, `KENSHI_SAVE_PATTERN` или `KENSHI_SAVE_NAME`; при нескольких совпадениях свежайшее из совпавших; без выбора — ошибка со списком папок), выполняет `pipeline` (разбор сохранения и скриншотов в `published/`) и доставляет результат в Kenshi Compain. `campaign_id` и `branch_id` берутся из последнего `published/manifest.json`. Перед публикацией сейв сверяется с родительским снимком; чужой сейв отклоняется (код 1), `-AllowNewCampaign` / `--allow-new-campaign` пропускает проверку.
+Запуск одной командой: [Initialize-Pipeline.ps1](Initialize-Pipeline.ps1) находит каталог игры, берёт сохранение кампании (папка сохранений общая для всех прохождений: явно `-SaveFolder <имя или шаблон>`, `KENSHI_SAVE_PATTERN` или `KENSHI_SAVE_NAME`, при нескольких совпадениях свежайшее из совпавших; без явного выбора перебираются до `-MaxCandidates` (6) свежих папок командой `python -m tools.campaign check-save`, берётся первая, относящаяся к кампании, иначе ошибка со списком проверенных папок и долей), выполняет `pipeline` (разбор сохранения и скриншотов в `published/`) и доставляет результат в Kenshi Compain. `campaign_id` и `branch_id` берутся из последнего `published/manifest.json`. Перед публикацией сейв сверяется с родительским снимком; чужой сейв отклоняется (код 1), `-AllowNewCampaign` / `--allow-new-campaign` пропускает проверку.
 
 ```powershell
 .\Initialize-Pipeline.ps1

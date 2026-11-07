@@ -111,6 +111,15 @@ def main(argv: list[str] | None = None) -> int:
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
         publication_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры (по умолчанию KENSHI_SCREENS_DIR или <KENSHI_DIR>/_screens)")
 
+    # 7.0. check-save
+    check_parser = commands.add_parser("check-save", help="Неизменяющая проверка принадлежности сейва кампании (код 0 - относится, 1 - нет, 2 - ошибка)")
+    check_parser.add_argument("--source", type=Path, required=True, help="Папка сохранения")
+    check_parser.add_argument("--faction-sid")
+    check_parser.add_argument("--campaign-id")
+    check_parser.add_argument("--branch-id")
+    check_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
+    check_parser.add_argument("--snapshots-dir", type=Path, help="Каталог снимков родителя (data/snapshots)")
+
     # 7.1. annotate-screenshots
     ann_parser = commands.add_parser("annotate-screenshots", help="Разметка скриншотов и сборка ленты feed.md")
     ann_parser.add_argument("--screens-dir", type=Path, help="Каталог скриншотов игры")
@@ -435,6 +444,11 @@ def main(argv: list[str] | None = None) -> int:
                 for row in find_frames(load_hud_index().values(), args.day, args.text)
             ]}
 
+        elif args.command == "check-save":
+            from tools.pipeline import check_save
+            result = check_save(args.source, Config.from_env(args.faction_sid), args.campaign_id, args.branch_id,
+                                args.index_file, args.snapshots_dir)
+
         elif args.command == "pipeline":
             cfg = Config.from_env(args.faction_sid)
             result = run_pipeline(
@@ -553,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.buffer.write(canonical(result))
         if args.command == "sync-drive" and result.get("status") != "synced":
             return 1
+        if args.command == "check-save" and not result["belongs"]:
+            return 1
         if args.command == "screenshots-index" and result["indexed"] < result["frames"]:
             return 1
         delivery = result.get("companion_delivery") if args.command == "pipeline" else result
@@ -565,7 +581,8 @@ def main(argv: list[str] | None = None) -> int:
 
     except Exception as error:
         sys.stderr.buffer.write((str(scrub(f"{type(error).__name__}: {error}")) + "\n").encode("utf-8"))
-        return 1
+        # check-save: 1 зарезервирован за вердиктом «не относится».
+        return 2 if args.command == "check-save" else 1
 
 
 if __name__ == "__main__":
