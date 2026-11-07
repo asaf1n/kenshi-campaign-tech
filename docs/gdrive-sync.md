@@ -1,47 +1,68 @@
 # Синхронизация с Google Диском
 
-Выгрузка доставляется двумя каналами: GitHub (`deliver-companion`) и локально примонтированный Google Диск. Диск нужен читателям, которые не принимают `.json` по URL и не обходят отдельные `.jpg`: Gemini Notebook (NotebookLM) подключает файлы Диска как источники.
+Выгрузка доставляется двумя каналами: GitHub (`deliver-companion`) и локально примонтированный Google Диск. Диск нужен читателям, которые не принимают `.json` по URL и не обходят отдельные `.jpg`: Gemini Notebook (NotebookLM) подключает файлы Диска как источники. На Диск попадают только Markdown, CSV и PDF из allowlist двух профилей блокнотов (раздел «Профили»); JSON и отдельные `.jpg` не копируются.
 
 ## Корень и раскладка
 
 Корень проекта задаётся `KENSHI_GDRIVE_DIR`. Без переменной проверяются по порядку `G:\Мой диск\Kenshi Compain. Docs`, `G:\Kenshi Compain. Docs`, `G:\My Drive\Kenshi Compain. Docs`. Диск не найден — `WARNING` в stderr и `gdrive.status=skipped`; публикация и доставка в GitHub не прерываются.
 
-Относительные пути на Диске совпадают с путями репозитория `Kenshi-Compain` (константы `GDRIVE_*` в `tools/config.py`). Исключение одно: `screenshots_latest.pdf` есть только на Диске и в `published/` конвертера.
+Относительные пути на Диске совпадают с путями репозитория `Kenshi-Compain` (константы `GDRIVE_*` в `tools/config.py`). Исключение одно: `screenshots_latest.pdf` есть только на Диске и в `published/` конвертера. Файлы остаются на своих путях в корне Диска; профили не создают отдельных каталогов (`root_dir` по умолчанию пуст).
 
-| Каталог | Содержимое |
+| Каталог | Содержимое (в пределах allowlist) |
 |---|---|
-| `published/` | `manifest.json`, `brief.md`, `squad.md`, `changes.md`, `changes.json`, `timeline.jsonl` |
-| `published/screenshots/` | `index.md`, `index.json`, `feed.md` (при содержательном OCR), `screenshots_latest.pdf`, кадры выпуска и кадры дельты, не вошедшие в выпуск; кадры не удаляются при выходе из окна 7 суток |
-| `Campaign/<кампания>/` | зеркало зафиксированных `*.md` каталогов кампаний: рабочие документы, `archive/`, `archive/sessions/`, `archive/povest/`. Рабочая копия игрока, правила в разделе «Campaign/: рабочая копия игрока» |
-| `tmp/inbox/` | пакеты `[итог]`, сохранённые из LLM, когда прямая запись в GitHub недоступна |
-| `tmp/checkpoints/` | контрольные точки `CP-n.md` незавершённой сессии; конвертер их не читает |
-| `tmp/processed/` | пакеты, принятые в GitHub `main` |
+| `published/` | `brief.md`, `changes.md`, `squad.md` |
+| `published/tables/` | все `*.csv` и `index.md` (состав берётся перечислением каталога выпуска) |
+| `published/screenshots/` | `index.md`, `feed.md` (при содержательном OCR), `screenshots_latest.pdf` |
+| `Campaign/<кампания>/` | рабочие документы и `archive/` по профилям; рабочая копия игрока, правила в разделе «Campaign/: рабочая копия игрока» |
+| `docs/`, `templates/` | руководства, справочники и шаблон сессии по профилям |
+| `tmp/inbox/`, `tmp/checkpoints/`, `tmp/processed/`, `tmp/conflicts/`, `tmp/sync-state.json` | служебные: пакеты `[итог]`, контрольные точки `CP-n.md`, принятые пакеты, копии правок Диска, состояние синхронизации; в наборы не входят, не удаляются |
 
-Шарды `current/`, `extended/`, `locations.json` и `world_reference.json` на Диск не копируются: десятки мелких файлов перегружают очередь Drive for Desktop. Подкаталоги `tmp/` создаются автоматически.
+Шарды `current/`, `extended/`, `locations.json`, `world_reference.json`, `manifest.json`, `changes.json`, `timeline.jsonl`, `screenshots/index.json`, `annotations.jsonl` и кадры `.jpg` на Диск не копируются. Подкаталоги `tmp/` создаются автоматически.
+
+## Профили
+
+Профиль - allowlist (`Profile` в `tools/gdrive_sync.py`: `name`, `include` - пути и маски относительно корня репозитория, `root_dir`). `*` действует внутри каталога, `**/` - на любую вложенность. Один файл Диска подключается к обоим блокнотам. Источник файла: `published/` технического репозитория либо клон `Kenshi-Compain` (`HEAD`; в `--dry-run` - `FETCH_HEAD`).
+
+| Профиль | Состав |
+|---|---|
+| `game` - игровой блокнот | `published/`: `brief.md`, `changes.md`, `squad.md`, `tables/*.csv`, `tables/index.md`, `screenshots/index.md`, `screenshots/feed.md`, `screenshots/screenshots_latest.pdf`; `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `Kenshi_Текущая_арка.md`, `Kenshi_Архетипы_и_билды.md`; `docs/`: `companion-guide.md`, `session-protocol.md`, `response-formatting.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md`, `reference/*.md` (без `drafts/`); `templates/template-session.md` |
+| `chronicle` - блокнот летописи | `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `archive/sessions/**/*.md`, `archive/Kenshi_Библия.md`, `archive/novel/**/*.md`; `docs/`: `chronicler-guide.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md` |
+
+Не входят ни в один профиль: JSON, отдельные `.jpg`, `README.md`, `prompts/`, `sites/`, `docs/setup-decision.md`. `docs/chronicler-guide.md` только в `chronicle`, `archive/` только в `chronicle`.
+
+`squad.md` остаётся в `game`: таблицы `tables/*.csv` не покрывают инвентарь и содержимое рюкзака (`Инвентарь`), пояс, рюкзак как предмет и счётчик «Количество участников» отряда; навыки со значением <= 0 в `squad.md` скрыты, в CSV выгружаются; `Работы (отключены)` есть в `squad.csv` как `jobs_enabled`.
+
+Ориентир - не более 30 файлов на профиль (лимит Gemini Notebook - 50 источников); при превышении отчёт содержит `over_limit` и `WARNING` в stderr, синхронизация не прерывается. Отчёт `sync-drive` выводит по каждому профилю `count`, `files` (пути для ручного подключения источников блокнота), `over_limit`. `root_dir` профиля (по умолчанию пусто) позволяет позже разнести профили по каталогам Диска: файлы профиля получают новые `file_id`, их пути перечислены в `relink`. Файлы `Campaign/`, существующие только на Диске и подходящие под маски профиля (например, новые `S-*`), входят в список профиля, но в GitHub не переносятся.
 
 ## Запись и `file_id`
 
-Drive for desktop связывает `file_id` с файлом. `os.remove`, `unlink` и замена через `os.replace` создают новый документ и разрывают привязку источника в Gemini Notebook. Поэтому `write_in_place` перезаписывает существующий файл открытием на запись и не трогает файл с совпадающими байтами. Запись на месте не атомарна: при обрыве файл может остаться неполным до следующей синхронизации. `manifest.json` записывается последним и только при отсутствии ошибок записи. PDF собирается в `%TEMP%`, поэтому на Диск попадает только завершённый файл. Если в окне нет кадров, PDF не собирается и на Диске остаётся прежний файл.
+Drive for desktop связывает `file_id` с файлом. `os.remove`, `unlink` и замена через `os.replace` создают новый документ и разрывают привязку источника в Gemini Notebook. Поэтому `write_in_place` перезаписывает существующий файл открытием на запись и не трогает файл с совпадающими байтами. Запись на месте не атомарна: при обрыве файл может остаться неполным до следующей синхронизации. PDF собирается в `%TEMP%`, поэтому на Диск попадает только завершённый файл. Если в окне нет кадров, PDF не собирается и на Диске остаётся прежний файл. Повторный запуск при совпадающем содержимом ничего не пишет.
 
 ## Команды
 
 ```powershell
 python -m tools.campaign pipeline ... --sync-drive           # после публикации и доставки: сессия и docs (без Campaign/)
-python -m tools.campaign sync-drive [--scope all|session|chronicle|docs] [--gdrive-dir <путь>]
+python -m tools.campaign sync-drive [--scope all|session|docs|chronicle] [--gdrive-dir <путь>] [--dry-run] [--prune]
 python -m tools.campaign ingest-inbox [--companion-dir <путь>] [--gdrive-dir <путь>]
 ```
 
-`Initialize-Pipeline.ps1` (хоткей) передаёт `--sync-drive`. В `pipeline` сбой Диска остаётся предупреждением. Несостоявшийся push доставки даёт `companion_delivery.status=partial` и код 1, но Диск при этом синхронизируется, а следующая доставка повторяет push; автономные `sync-drive` и `ingest-inbox` завершаются кодом 1, если синхронизация неполная или пакет отклонён.
+`--dry-run` ничего не пишет и не удаляет (также не создаёт `tmp/` и не меняет клон, кроме `fetch`) и печатает план. `--prune` включает удаление выпавших файлов. `pipeline --sync-drive` удаление не выполняет. `Initialize-Pipeline.ps1` (хоткей) передаёт `--sync-drive`. В `pipeline` сбой Диска остаётся предупреждением. Несостоявшийся push доставки даёт `companion_delivery.status=partial` и код 1, но Диск при этом синхронизируется, а следующая доставка повторяет push; автономные `sync-drive` и `ingest-inbox` завершаются кодом 1, если синхронизация неполная или пакет отклонён.
 
 ## Campaign/: рабочая копия игрока
 
 `Campaign/` на Диске - рабочая копия игрока: Gemini правит файлы на Диске, игрок переносит правки в GitHub вручную. Конвертер правки не перезаписывает.
 
-- `pipeline --sync-drive` синхронизирует `published/` (сессия) и `docs/`, `templates/`; `Campaign/` не трогает. Копирование `Campaign/` выполняется только явной `sync-drive --scope chronicle` (входит в `--scope all`).
+- `pipeline --sync-drive` синхронизирует `published/` (сессия) и `docs/`, `templates/`; `Campaign/` не трогает. Конвертер пишет `Campaign/` на Диск только явной `sync-drive --scope chronicle` (файлы allowlist профилей); `--scope all` = `session` + `docs` и `Campaign/` не пишет и не удаляет.
 - Перед записью файла `Campaign/` проверяется Диск (сравнение после CRLF -> LF): файла нет - создаётся; совпадает с базой из `tmp/sync-state.json` (секция `campaign`, sha256 записанных версий) или с любой версией пути в истории клона - перезаписывается на месте версией из `main`; иначе - не трогается и попадает в отчёт `modified_on_drive` («изменены на Диске, не перенесены в GitHub»).
 - Файлы только на Диске (например, новые `S-*`) не трогаются и перечисляются в `only_on_drive`. Ничего не удаляется. Файлы клона с незакоммиченными правками пропускаются (`skipped_uncommitted`).
 - `docs/` и `templates/` - источник `main` (`--scope docs`): файл Диска, не совпадающий ни с одной версией пути в истории (после CRLF -> LF), копируется в `tmp/conflicts/` до перезаписи.
 - `prompts/` на Диск не копируется. `ingest-inbox` отклоняет пакет с путём в `docs/`, `prompts/`, `templates/` (причина в `rejected`); принимаются только `.md` внутри `Campaign/`.
+
+## Отчёт и удаление выпавших файлов
+
+Отчёт `sync-drive`: `profiles` (число и список файлов профилей), `summary` - `planned` (только `--dry-run`: `create`/`write`/`delete <путь>`), `written`, `unchanged`, `deleted`, `to_delete` (выпали из набора и не удалены), `outside_set` (на Диске вне набора, не удалены), `missing_in_repo` (точные пути профилей, которых нет ни в выпуске, ни в клоне; для `feed.md` и PDF это норма).
+
+Удаление выполняется только с `--prune` и только для файла, который одновременно: лежит в `published/`, `docs/` или `templates/` Диска; не входит ни в один профиль; известен репозиториям (есть в `published/` технического репозитория, в клоне `Kenshi-Compain` на `HEAD`/`origin/main`, среди кадров `data/screenshots_archive/` либо записан в `tmp/sync-state.json` (секция `synced`) или в перечне прежних файлов выгрузки: `manifest.json`, `changes.json`, `timeline.jsonl`, `annotations.jsonl`, `screenshots/index.json`). Остальное (`.gdoc`, ручные файлы) только перечисляется в `outside_set`. `Campaign/` не удаляется никогда. Область без единого файла набора (нет выпуска или клона) не чистится. При ошибках записи удаление пропускается. Файл удаляется штатно на смонтированном Диске (Drive for desktop переносит его в корзину, не стирает окончательно); файлы, оставшиеся в наборе, сохраняют `file_id` (`write_in_place`).
 
 ## Приём входящих пакетов
 

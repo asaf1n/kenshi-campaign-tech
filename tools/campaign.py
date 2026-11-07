@@ -132,10 +132,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # 7.3. sync-drive
     drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
-    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle", "docs"), default="all")
+    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle", "docs"), default="all",
+                              help="all = session + docs; Campaign/ пишет только chronicle")
     drive_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
     drive_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")
+    drive_parser.add_argument("--dry-run", action="store_true", help="Только план: ничего не писать и не удалять на Диске")
+    drive_parser.add_argument("--prune", action="store_true", help="Удалить с Диска выпавшие из набора файлы, известные репозиториям (в корзину); без флага только перечисляются")
 
     # 7.4. ingest-inbox
     inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов из tmp/inbox/ Google Диска: запись в Campaign/, commit и push в Kenshi-Compain")
@@ -485,7 +488,8 @@ def main(argv: list[str] | None = None) -> int:
             from tools.deliver_companion import companion_root
             from tools.gdrive_sync import sync_drive
             result = sync_drive(args.gdrive_dir or find_gdrive_root(), args.published_dir.resolve(),
-                                companion_root(args.companion_dir), scope=args.scope)
+                                companion_root(args.companion_dir), scope=args.scope,
+                                dry_run=args.dry_run, prune=args.prune)
 
         elif args.command == "ingest-inbox":
             from tools.config import find_gdrive_root

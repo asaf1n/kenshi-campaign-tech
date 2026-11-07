@@ -11,7 +11,8 @@ import unittest
 from unittest import mock
 
 from tools.config import find_gdrive_root
-from tools.gdrive_sync import DOCS_FILES, PIPELINE_SCOPE, InboxError, apply_packet, ensure_buffer, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place
+from tools.gdrive_sync import (DOCS_FILES, PIPELINE_SCOPE, PROFILE_CHRONICLE, PROFILE_GAME, InboxError, apply_packet, ensure_buffer,
+                               expand_profile, ingest_inbox, sync_chronicle, sync_docs, sync_drive, sync_session, write_in_place)
 
 
 class GDriveSyncTests(unittest.TestCase):
@@ -34,36 +35,54 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(os.stat(target).st_ino, identity)
         self.assertEqual(target.read_bytes(), b"second, longer")
 
-    def test_session_layout_overflow_frames_and_missing_drive(self) -> None:
-        """Ловит потерю кадров дельты вне выпуска и отказ публикации при неподключённом Диске."""
+    def test_session_layout_without_json_and_images_and_missing_drive(self) -> None:
+        """Ловит запись JSON и кадров .jpg на Диск (не читаются блокнотом), потерю tables/ и отказ публикации при
+        неподключённом Диске."""
         published = self.tmp / "published"
         screens = published / "screenshots"
-        screens.mkdir(parents=True)
+        (published / "tables").mkdir(parents=True)
+        screens.mkdir()
         for name in ("brief.md", "squad.md", "changes.md", "changes.json", "timeline.jsonl", "manifest.json"):
             (published / name).write_text(name, encoding="utf-8")
+        for name in ("index.md", "a.csv"):
+            (published / "tables" / name).write_text(name, encoding="utf-8")
         (screens / "index.md").write_text("index", encoding="utf-8")
         (screens / "screenshots_latest.pdf").write_bytes(b"%PDF")
         (screens / "a-1.jpg").write_bytes(b"a")
-        (screens / "index.json").write_text(json.dumps({"new_frames": ["a-1.jpg", "b-2.jpg"]}), encoding="utf-8")
-        archive = self.tmp / "archive"
-        archive.mkdir()
-        (archive / "b-2.jpg").write_bytes(b"b")
-
+        (screens / "index.json").write_text("{}", encoding="utf-8")
         (published / "current").mkdir()
         (published / "current/index.json").write_text("{}", encoding="utf-8")
 
-        report = sync_session(published, self.root, archive)
-        session = self.root / "published"
+        report = sync_session(published, self.root)
         self.assertEqual(report["errors"], [])
-        self.assertEqual(sorted(p.name for p in (session / "screenshots").iterdir()),
-                         ["a-1.jpg", "b-2.jpg", "index.json", "index.md", "screenshots_latest.pdf"])
-        self.assertTrue((session / "manifest.json").is_file())
-        self.assertFalse((session / "current").exists())
-        self.assertEqual(sync_session(published, self.root, archive)["written"], 0)
+        shipped = sorted(p.relative_to(self.root / "published").as_posix() for p in (self.root / "published").rglob("*") if p.is_file())
+        self.assertEqual(shipped, ["brief.md", "changes.md", "screenshots/index.md", "screenshots/screenshots_latest.pdf",
+                                   "squad.md", "tables/a.csv", "tables/index.md"])
+        self.assertEqual(sync_session(published, self.root)["written"], 0)
 
         self.assertEqual(sync_drive(self.tmp / "absent", published, None)["status"], "skipped")
         self.assertIsNone(find_gdrive_root({}, (self.tmp / "absent",)))
         self.assertEqual(find_gdrive_root({}, (self.tmp / "absent", self.root)), self.root)
+
+    def test_profile_allowlists(self) -> None:
+        """Ловит попадание JSON, .jpg, README, prompts, drafts и чужого руководства в профили и потерю общих файлов."""
+        pool = [
+            "published/brief.md", "published/changes.json", "published/timeline.jsonl", "published/manifest.json",
+            "published/tables/index.md", "published/tables/squad.csv", "published/tables/x.json",
+            "published/screenshots/index.json", "published/screenshots/a-1.jpg", "published/screenshots/feed.md",
+            "Campaign/К/Kenshi_Хронология.md", "Campaign/К/Kenshi_Текущая_арка.md", "Campaign/К/Kenshi_Архетипы_и_билды.md",
+            "Campaign/К/archive/Kenshi_Библия.md", "Campaign/К/archive/novel/Повесть.md", "Campaign/К/archive/sessions/S-1.md",
+            "Campaign/К/Заметки.md", "README.md", "prompts/p.md", "sites/s.md", "templates/template-session.md",
+            "docs/companion-guide.md", "docs/chronicler-guide.md", "docs/Kenshi_sources.md", "docs/reference/lore.md",
+            "docs/reference/drafts/x.md", "docs/setup-decision.md",
+        ]
+        self.assertEqual(expand_profile(PROFILE_GAME, pool), sorted([
+            "published/brief.md", "published/tables/index.md", "published/tables/squad.csv", "published/screenshots/feed.md",
+            "Campaign/К/Kenshi_Хронология.md", "Campaign/К/Kenshi_Текущая_арка.md", "Campaign/К/Kenshi_Архетипы_и_билды.md",
+            "templates/template-session.md", "docs/companion-guide.md", "docs/Kenshi_sources.md", "docs/reference/lore.md"]))
+        self.assertEqual(expand_profile(PROFILE_CHRONICLE, pool), sorted([
+            "Campaign/К/Kenshi_Хронология.md", "Campaign/К/archive/Kenshi_Библия.md", "Campaign/К/archive/novel/Повесть.md",
+            "Campaign/К/archive/sessions/S-1.md", "docs/chronicler-guide.md", "docs/Kenshi_sources.md"]))
 
     def test_chronicle_mirror_and_inbox_packets(self) -> None:
         """Ловит запись вне Campaign/, частичное применение пакета и перезапись неизменяемого артефакта сессии."""
@@ -247,9 +266,100 @@ class GDriveSyncTests(unittest.TestCase):
         (drive / "A.md").write_bytes(b"a1\n")
         with mock.patch("tools.gdrive_sync.sync_docs", return_value={"errors": []}) as docs:
             result = sync_drive(self.root, self.tmp / "published", companion, scope=PIPELINE_SCOPE)
-        self.assertEqual(sorted(result), ["docs", "session", "status"])
+        self.assertNotIn("chronicle", result)
+        self.assertEqual(result["status"], "synced")
         docs.assert_called_once()
         self.assertEqual((drive / "A.md").read_bytes(), b"a1\n")
+
+    def test_dry_run_prune_and_repeat(self) -> None:
+        """Ловит запись при dry-run, удаление файлов вне репозитория и Campaign/, удаление без --prune и лишнюю запись
+        при повторе."""
+        remote, companion, published = self.tmp / "remote.git", self.tmp / "companion", self.tmp / "published"
+        git = lambda *args, cwd=companion: subprocess.run(  # noqa: E731
+            ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8")
+        for name, text in {"Campaign/К/Kenshi_Хронология.md": "хр\n", "Campaign/К/Лишнее.md": "в репозитории, не в наборе\n",
+                           "Campaign/К/archive/sessions/S-1.md": "s\n", "docs/companion-guide.md": "g\n",
+                           "docs/chronicler-guide.md": "c\n", "docs/old-note.md": "устарел\n", "prompts/p.md": "p\n"}.items():
+            (companion / name).parent.mkdir(parents=True, exist_ok=True)
+            (companion / name).write_text(text, encoding="utf-8")
+        git("init", "--bare", "-b", "main", str(remote), cwd=self.tmp)
+        git("init", "-b", "main")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        git("add", ".")
+        git("commit", "-m", "v1")
+        git("remote", "add", "origin", str(remote))
+        git("push", "-u", "origin", "main")
+        (published / "tables").mkdir(parents=True)
+        (published / "screenshots").mkdir()
+        for name in ("brief.md", "changes.md", "squad.md", "changes.json", "manifest.json", "tables/index.md", "tables/a.csv",
+                     "screenshots/index.md", "screenshots/index.json", "screenshots/a.jpg"):
+            (published / name).write_text(name, encoding="utf-8")
+        archive = self.tmp / "archive"
+        archive.mkdir()
+        (archive / "old-frame.jpg").write_bytes(b"j")
+
+        def put(relative: str, data: bytes = b"x") -> None:
+            (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / relative).write_bytes(data)
+
+        for relative in ("published/changes.json", "published/screenshots/a.jpg", "published/screenshots/old-frame.jpg",
+                         "docs/old-note.md", "docs/prompts-copy.txt", "published/manual.txt", "docs/hand.gdoc", "tmp/inbox/p.md"):
+            put(relative)
+        put("Campaign/К/Лишнее.md", "правка игрока\n".encode("utf-8"))
+        put("Campaign/К/archive/sessions/S-drive.md")
+        fell_out = ["docs/old-note.md", "published/changes.json", "published/screenshots/a.jpg", "published/screenshots/old-frame.jpg"]
+        outside = ["docs/hand.gdoc", "docs/prompts-copy.txt", "published/manual.txt"]
+
+        def tree() -> dict[str, bytes]:
+            return {p.relative_to(self.root).as_posix(): p.read_bytes() for p in sorted(self.root.rglob("*")) if p.is_file()}
+
+        def run(**kwargs):
+            return sync_drive(self.root, published, companion, archive_dir=archive, **kwargs)
+
+        before = tree()
+        dry = run(dry_run=True, prune=True)
+        self.assertEqual(tree(), before)
+        self.assertFalse((self.root / "tmp/sync-state.json").exists())
+        self.assertIn("create published/brief.md", dry["summary"]["planned"])
+        self.assertIn("create docs/chronicler-guide.md", dry["summary"]["planned"])
+        self.assertEqual([item for item in dry["summary"]["planned"] if item.startswith("delete")], [f"delete {p}" for p in fell_out])
+        self.assertEqual((dry["summary"]["written"], dry["summary"]["deleted"]), (0, []))
+
+        plain = run()
+        self.assertEqual(plain["status"], "synced")
+        self.assertEqual(plain["summary"]["to_delete"], fell_out)
+        self.assertEqual(plain["summary"]["outside_set"], outside)
+        self.assertEqual(plain["summary"]["deleted"], [])
+        self.assertTrue(all((self.root / p).is_file() for p in fell_out))
+        shipped = sorted(p for p in tree() if p.startswith("published/") and p not in fell_out and p != "published/manual.txt")
+        self.assertEqual(shipped, ["published/brief.md", "published/changes.md", "published/screenshots/index.md",
+                                   "published/squad.md", "published/tables/a.csv", "published/tables/index.md"])
+        # --scope all (по умолчанию) Campaign/ не пишет: ни создания, ни правки, ни удаления.
+        self.assertFalse((self.root / "Campaign/К/Kenshi_Хронология.md").exists())
+        self.assertFalse((self.root / "prompts").exists())
+        self.assertEqual(plain["profiles"]["chronicle"]["files"], [
+            "Campaign/К/Kenshi_Хронология.md", "Campaign/К/archive/sessions/S-1.md", "Campaign/К/archive/sessions/S-drive.md",
+            "docs/chronicler-guide.md"])
+
+        pruned = run(prune=True)
+        self.assertEqual(pruned["summary"]["deleted"], fell_out)
+        self.assertEqual(pruned["summary"]["outside_set"], outside)
+        self.assertTrue(all(not (self.root / p).exists() for p in fell_out))
+        self.assertTrue(all((self.root / p).exists() for p in outside))
+        self.assertEqual((self.root / "Campaign/К/Лишнее.md").read_bytes(), "правка игрока\n".encode("utf-8"))
+        self.assertTrue((self.root / "Campaign/К/archive/sessions/S-drive.md").is_file())
+
+        settled = tree()
+        again = run(prune=True)
+        self.assertEqual((again["summary"]["written"], again["summary"]["deleted"], again["status"]), (0, [], "synced"))
+        self.assertEqual(tree(), settled)
+
+        # Campaign/ пишется только явным chronicle; правка игрока при этом сохраняется.
+        explicit = run(scope="chronicle")
+        self.assertEqual(explicit["status"], "synced")
+        self.assertEqual((self.root / "Campaign/К/Kenshi_Хронология.md").read_text(encoding="utf-8"), "хр\n")
+        self.assertEqual((self.root / "Campaign/К/Лишнее.md").read_bytes(), "правка игрока\n".encode("utf-8"))
 
     def test_inbox_rejects_docs_prompts_templates(self) -> None:
         """Ловит запись пакетом в docs/, prompts/, templates/ (источник - main) через префикс каталога кампании."""
