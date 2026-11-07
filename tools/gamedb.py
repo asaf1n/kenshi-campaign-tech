@@ -24,7 +24,7 @@ PO_RU: str = f"{KENSHI}/locale/ru_RU/gamedata.po"
 BASE_FILES: dict[str, str] = {"base": "gamedata.base", "Newwworld": "Newwworld.mod", "Dialogue": "Dialogue.mod",
               "rebirth": "rebirth.mod"}
 # Повышать при изменении состава полей индекса — старый кэш будет пересобран.
-INDEX_VERSION: int = 9
+INDEX_VERSION: int = 10
 
 # Поля шаблонов, нужные для характеристик предметов (itemstats.py). Остальное в индекс не попадает.
 STAT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -266,6 +266,14 @@ RECORDS_PREFIX: str = "gamedb_records_"
 # Для определений реакций сохраняются значения 'v' ссылок (например 'NPC is' -> [1, 0, 0]) без трактовки.
 OVERRIDE_TOWN_STUB_REFS: tuple[str, ...] = ("override town", "world state", "faction", "trade culture", "trade prices")
 CONDITION_STUB_TYPES: frozenset[int] = frozenset({18, 19, 93})
+# Справочник юнитов (fcs.def): ссылки, сохраняемые у шаблонов персонажей/животных, отрядов, фракций и мест появления.
+CHARACTER_TYPE_ID, FACTION_TYPE_ID, TOWN_TYPE_ID, BIOME_GROUP_TYPE_ID = 1, 10, 13, 95
+ANIMAL_TYPE_ID: int = 76
+UNIT_REFS: tuple[str, ...] = ("faction", "race", "stats", "weapons", "crossbows", "weapon level", "clothing", "backpack",
+                              "robot limbs", "weapon")
+SQUAD_REFS: tuple[str, ...] = ("faction", "leader", "squad", "squad2", "animals", "animals2", "choosefrom list",
+                               "prisoners", "slaves", "housemates", "race override", "world state")
+FACTION_REFS: tuple[str, ...] = ("relations", "coexistence", "legal system", "races")
 
 
 def _ref_pairs(refs: dict[str, dict[str, Any]], cats: Sequence[str] | None = None) -> dict[str, list[list[Any]]]:
@@ -357,6 +365,45 @@ def trade_records(db: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _removed(e: dict[str, Any]) -> bool:
+    """Запись помечена удалённой (bool REMOVED в последнем файле порядка загрузки): в игре её нет."""
+    return bool(e.get("data", {}).get("bool", {}).get("REMOVED"))
+
+
+def unit_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Сырые записи справочника юнитов без вычисленных оценок; значения полей и ссылок как хранятся.
+
+    characters - CHARACTER (1) и ANIMAL_CHARACTER (76); stats - только записи STATS (25), на которые они ссылаются;
+    squads - SQUAD_TEMPLATE (52); biomes - BIOME_GROUP (95) со ссылками homeless spawns; towns - TOWN (13) с roaming squads;
+    factions - FACTION (10). Удалённые записи (REMOVED) не включаются. Связи только по sid.
+    """
+    records = db["records"]
+    tmap = type_map(db)
+    out: dict[str, list[dict[str, Any]]] = {k: [] for k in ("characters", "stats", "squads", "biomes", "towns", "factions")}
+    stats_sids: set[str] = set()
+    for sid in sorted(records):
+        e = records[sid]
+        tid, refs = e["type_id"], e.get("refs", {})
+        if _removed(e):
+            continue
+        if tid in (CHARACTER_TYPE_ID, ANIMAL_TYPE_ID):
+            out["characters"].append(_raw_record(sid, e, tmap, cats=UNIT_REFS))
+            stats_sids.update(refs.get("stats", {}))
+        elif tid == 52:
+            out["squads"].append(_raw_record(sid, e, tmap, cats=SQUAD_REFS))
+        elif tid == BIOME_GROUP_TYPE_ID and refs.get("homeless spawns"):
+            row = _raw_record(sid, e, tmap, data=False, cats=("homeless spawns",))
+            row["homeless spawn amount"] = e.get("data", {}).get("float", {}).get("homeless spawn amount")
+            out["biomes"].append(row)
+        elif tid == TOWN_TYPE_ID and refs.get("roaming squads"):
+            out["towns"].append(_raw_record(sid, e, tmap, data=False, cats=("roaming squads", "faction")))
+        elif tid == FACTION_TYPE_ID:
+            out["factions"].append(_raw_record(sid, e, tmap, cats=FACTION_REFS))
+    out["stats"] = [_raw_record(s, records[s], tmap, cats=()) for s in sorted(stats_sids)
+                    if s in records and not _removed(records[s])]
+    return out
+
+
 def _cache_key(fp: list[list[Any]]) -> str:
     return hashlib.sha1(json.dumps(fp).encode("utf-8")).hexdigest()[:16]
 
@@ -370,7 +417,7 @@ def _write_json(path: str, payload: Any) -> None:
 
 def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike | None,
              fp: list[list[Any]]) -> dict[str, list[Any]]:
-    """Один проход build() пишет индекс и кэш записей реакций/торговли."""
+    """Один проход build() пишет индекс и кэш записей реакций, торговли и справочника юнитов."""
     key = _cache_key(fp)
     db = build(files, po_path)
     tmap = type_map(db)
@@ -387,14 +434,15 @@ def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike |
     os.makedirs(cache_dir, exist_ok=True)
     _write_json(os.path.join(cache_dir, f"gamedb_{key}.json"), {"fingerprint": fp, "index": index})
     _write_json(os.path.join(cache_dir, f"{RECORDS_PREFIX}{key}.json"),
-                {"fingerprint": fp, "reactions": reaction_records(db), "trade": trade_records(db)})
+                {"fingerprint": fp, "reactions": reaction_records(db), "trade": trade_records(db),
+                 "units": unit_records(db)})
     return index
 
 
 def load_records(
     cache_dir: PathLike, files: Sequence[PathLike] | None = None, po_path: PathLike | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Сырые записи реакций мира и торговли для набора файлов; кэш пересобирается по отпечатку."""
+    """Сырые записи реакций мира, торговли и справочника юнитов для набора файлов; кэш пересобирается по отпечатку."""
     files = files if files is not None else game_files()
     fp = fingerprint(files, po_path)
     cache_path = os.path.join(cache_dir, f"{RECORDS_PREFIX}{_cache_key(fp)}.json")
@@ -404,7 +452,7 @@ def load_records(
             with open(cache_path, encoding="utf-8") as fh:
                 cached = json.load(fh)
             if isinstance(cached, dict) and cached.get("fingerprint") == fp:
-                return ({"reactions": cached["reactions"], "trade": cached["trade"]},
+                return ({"reactions": cached["reactions"], "trade": cached["trade"], "units": cached["units"]},
                         {"cache": state, "files": len(files), "cache_file": os.path.basename(cache_path)})
         except (OSError, ValueError, KeyError):
             pass

@@ -705,6 +705,307 @@ def world_reaction_links_table(current: dict[str, Any], records: dict[str, Any] 
                  columns, rows)
 
 
+# --------------------------------------------------------------------------- справочник юнитов
+
+# Поля записи STATS (fcs.def): ключ хранения -> подпись (диапазон 0-100). Имена колонок: stat_<ключ>.
+STAT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("dexterity", "Ловкость"), ("strength", "Сила"), ("toughness2", "Крепость"), ("perception", "Восприятие"),
+    ("attack", "Атака (ближний бой)"), ("defence", "Защита (ближний бой)"), ("dodge", "Уворот"),
+    ("unarmed", "Боевые искусства"), ("athletics", "Атлетика"), ("swimming", "Плавание"),
+    ("engineer", "Инженерия"), ("medic", "Полевой медик"), ("robotics", "Роботехника"), ("science", "Наука"),
+    ("assassin", "Убийство"), ("lockpicking", "Взлом"), ("stealth", "Скрытность"), ("thievery", "Воровство"),
+    ("armour smith", "Ковка доспехов"), ("bow smith", "Ковка арбалетов"), ("cooking", "Готовка"),
+    ("farming", "Фермерство"), ("labouring", "Работа"), ("weapon smith", "Ковка оружия"),
+    ("blunt", "Дробящее"), ("bow", "Арбалеты"), ("ff", "Точная стрельба"), ("hackers", "Рубачи"),
+    ("heavy weapons", "Тяжелое оружие"), ("katana", "Катаны"), ("poles", "Древковое"), ("sabres", "Сабли"),
+    ("turrets", "Турели"),
+)
+# Ссылки шаблона персонажа, публикуемые в unit_template_gear.csv: категория -> смысл v[0..2] (fcs.def, CHARACTER).
+GEAR_CATEGORIES: dict[str, str] = {
+    "weapons": "v0 количество, v1 слот (0 пояс, 1 спина), v2 абсолютный шанс, % (сумма < 100 - шанс остаться без оружия)",
+    "crossbows": "v0 количество, v1 шанс, % (шансы не относительные)",
+    "weapon level": "v0 относительный шанс; запись - производитель оружия (уровень оружия)",
+    "clothing": "v0 количество, v1 шанс, % (нормируется среди предметов одного типа)",
+    "backpack": "v1 абсолютный шанс, %",
+    "robot limbs": "v0 качество, v1 относительный шанс; отрицательное качество - оставить настоящую конечность",
+    "weapon": "встроенное оружие животного",
+}
+# Роли в составе отряда (SQUAD_TEMPLATE): смысл v[0..2] по fcs.def.
+SQUAD_ROLES: dict[str, str] = {
+    "leader": "v0 число лидеров", "squad": "v0 минимум, v1 максимум (0 - не случайно)",
+    "squad2": "v0 минимум, v1 максимум (0 - не случайно); вторая половина отряда",
+    "animals": "v0 минимум, v1 максимум, v2 возраст (100 взрослый, 0 детёныш)",
+    "animals2": "v0 минимум, v1 максимум, v2 возраст (100 взрослый, 0 детёныш)",
+    "choosefrom list": "v0 шанс; число выбираемых - num_random_chars и num_random_chars_max в squad_templates.csv",
+    "prisoners": "шаблоны отрядов-заключённых", "slaves": "шаблоны отрядов-рабов",
+    "housemates": "v0 минимум, v1 максимум дополнительных отрядов в том же здании",
+}
+FACTION_LINKS: dict[str, str] = {"relations": "relation", "coexistence": "coexistence", "legal system": "legal_system"}
+
+
+def _units(records: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    return (records or {}).get("units") or {}
+
+
+def _ref_sids(rec: dict[str, Any], cat: str) -> list[str]:
+    return [sid for sid, _v in _refs(rec, cat)]
+
+
+def _triple(v: Sequence[Any]) -> list[Any]:
+    return list(v) + [None] * (3 - len(v))
+
+
+def _type_of(index: dict[str, list[Any]] | None, sid: str) -> str | None:
+    entry = (index or {}).get(sid)
+    return entry[2] if entry else None
+
+
+def _race_cells(index: dict[str, list[Any]] | None, rec: dict[str, Any]) -> dict[str, Any]:
+    races = _refs(rec, "race") or _refs(rec, "races")
+    return {"race_sids": _join(sid for sid, _v in races),
+            "race_names": _join(_label(index, sid) for sid, _v in races),
+            "race_weights": _join(v[0] for _sid, v in races)}
+
+
+def unit_templates_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    units = _units(records)
+    stats = {r["sid"]: r.get("float") or {} for r in units.get("stats") or []}
+    rows: list[dict[str, Any]] = []
+    for rec in units.get("characters") or []:
+        ints, bools = rec.get("int") or {}, rec.get("bool") or {}
+        factions = _ref_sids(rec, "faction")
+        stats_sids = _ref_sids(rec, "stats")
+        row: dict[str, Any] = {
+            "sid": rec["sid"], "kind": "animal" if rec.get("type") == "ANIMAL_CHARACTER" else "character",
+            "name_en": rec.get("name") or None, "name_ru": _names(index, rec["sid"])[1],
+            "files": _join(rec.get("files") or []),
+            "faction_sids": _join(factions), "faction_names": _join(_label(index, f) for f in factions),
+            **_race_cells(index, rec),
+            "female_chance": ints.get("female chance"), "unique": bools.get("unique"), "named": bools.get("named"),
+            "shaved": bools.get("shaved"), "wears_uniform": bools.get("wears uniform"),
+            "is_trader": bools.get("is trader"), "slave": ints.get("slave"), "npc_class": ints.get("NPC class"),
+            "armour_grade": ints.get("armour grade"), "armour_upgrade_chance": ints.get("armour upgrade chance"),
+            "stats_randomise": ints.get("stats randomise"), "combat_stats": ints.get("combat stats"),
+            "ranged_stats": ints.get("ranged stats"), "stealth_stats": ints.get("stealth stats"),
+            "strength": ints.get("strength"), "unarmed_stats": ints.get("unarmed stats"),
+            "animal_strength": ints.get("animal strength"),
+            "money_min": ints.get("money min"), "money_max": ints.get("money max"), "wages": ints.get("wages"),
+            "bounty_chance": ints.get("bounty chance"), "bounty_amount": ints.get("bounty amount"),
+            "bounty_amount_fuzz": ints.get("bounty amount fuzz"),
+            "stats_sid": _join(stats_sids),
+        }
+        # Значения STATS подставляются только при единственной ссылке: при нескольких выбор записи игрой не установлен.
+        values = stats.get(stats_sids[0], {}) if len(stats_sids) == 1 else {}
+        for key, _ru in STAT_FIELDS:
+            row["stat_" + key.replace(" ", "_")] = values.get(key)
+        rows.append(row)
+    rows.sort(key=lambda r: r["sid"])
+    columns = [
+        ("sid", "sid шаблона (CHARACTER или ANIMAL_CHARACTER)"), ("kind", "character или animal"),
+        ("name_en", "Имя записи (en)"), ("name_ru", "Имя записи (ru, gamedata.po)"),
+        ("files", "Файлы, определяющие запись, в порядке загрузки"),
+        ("faction_sids", "sid фракции шаблона (`faction`); пусто - не задана (фракцию задаёт отряд, см. squad_templates.csv)"),
+        ("faction_names", "Названия фракций"),
+        ("race_sids", "sid рас (`race`), через `; `"), ("race_names", "Названия рас"),
+        ("race_weights", "Шанс расы `v[0]`, % (по порядку race_sids)"),
+        ("female_chance", "Шанс женского пола, % (0-100)"), ("unique", "Персонаж появляется один раз"),
+        ("named", "Имя выбирается случайно из списка имён"), ("shaved", "Бритая голова (как у рабов)"),
+        ("wears_uniform", "Одежда помечена как форма фракции"), ("is_trader", "Торговец"),
+        ("slave", "Начальное состояние раба, код `slave` как хранится (0 - не раб)"),
+        ("npc_class", "Класс NPC, код `NPC class` как хранится (перечисление CharacterTypeEnum, имена в данных не заданы)"),
+        ("armour_grade", "Качество брони, код `armour grade` как хранится (перечисление ArmourRarity, имена в данных не заданы)"),
+        ("armour_upgrade_chance", "Шанс брони на уровень выше обычного, % (0-100)"),
+        ("stats_randomise", "Случайный разброс характеристик: +/- это число к значениям шаблона"),
+        ("combat_stats", "`combat stats`: боевые навыки, если запись STATS не задана (0 - не задано)"),
+        ("ranged_stats", "`ranged stats`: навыки дальнего боя, если запись STATS не задана"),
+        ("stealth_stats", "`stealth stats`: навыки скрытности, если запись STATS не задана"),
+        ("strength", "`strength`: сила, если запись STATS не задана"),
+        ("unarmed_stats", "`unarmed stats`: боевые искусства и уворот, если запись STATS не задана"),
+        ("animal_strength", "Фиксированная сила животного (`animal strength`)"),
+        ("money_min", "Минимум денег"), ("money_max", "Максимум денег"), ("wages", "Дневное жалованье"),
+        ("bounty_chance", "Шанс награды за голову, %"), ("bounty_amount", "Сумма награды"),
+        ("bounty_amount_fuzz", "Разброс суммы награды +/-"),
+        ("stats_sid", "sid записи STATS шаблона; пусто - не задана; stat_* заполнены, только если ссылка одна"),
+    ]
+    columns += [("stat_" + k.replace(" ", "_"), f"Запись STATS, `{k}`: {ru} [0-100]") for k, ru in STAT_FIELDS]
+    return Table("unit_templates.csv", "sid", "Шаблоны персонажей и животных: раса, уровни и навыки как хранятся",
+                 columns, rows)
+
+
+def unit_template_gear_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for rec in _units(records).get("characters") or []:
+        for cat in GEAR_CATEGORIES:
+            for sid, v in _refs(rec, cat):
+                v = _triple(v)
+                rows.append({"template_sid": rec["sid"], "template_name": _label(index, rec["sid"]) or rec.get("name"),
+                             "category": cat, "ref_sid": sid, "ref_name": _label(index, sid),
+                             "ref_type": _type_of(index, sid), "v0": v[0], "v1": v[1], "v2": v[2]})
+    rows.sort(key=lambda r: (r["template_sid"], r["category"], r["ref_sid"]))
+    columns = [
+        ("template_sid", "sid шаблона (unit_templates.csv)"), ("template_name", "Название шаблона (ru или en)"),
+        ("category", "Категория ссылки: " + "; ".join(f"{k} - {v}" for k, v in GEAR_CATEGORIES.items())),
+        ("ref_sid", "sid предмета или производителя"), ("ref_name", "Название (ru или en)"),
+        ("ref_type", "Тип записи (WEAPON, CROSSBOW, ARMOUR, WEAPON_MANUFACTURER, CONTAINER, LIMB_REPLACEMENT)"),
+        ("v0", "Значение ссылки `v[0]`"), ("v1", "Значение ссылки `v[1]`"), ("v2", "Значение ссылки `v[2]`"),
+    ]
+    return Table("unit_template_gear.csv", "template_sid, category, ref_sid",
+                 "Оружие, арбалеты, уровень оружия, одежда и рюкзаки шаблонов персонажей", columns, rows)
+
+
+def squad_templates_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for rec in _units(records).get("squads") or []:
+        ints, bools = rec.get("int") or {}, rec.get("bool") or {}
+        factions, states, override = _ref_sids(rec, "faction"), _refs(rec, "world state"), _ref_sids(rec, "race override")
+        rows.append({
+            "sid": rec["sid"], "name_en": rec.get("name") or None, "name_ru": _names(index, rec["sid"])[1],
+            "files": _join(rec.get("files") or []),
+            "faction_sids": _join(factions), "faction_names": _join(_label(index, f) for f in factions),
+            "world_state_sids": _join(sid for sid, _v in states),
+            "world_state_required": _join(v[0] for _sid, v in states),
+            "race_override_sids": _join(override), "race_override_names": _join(_label(index, r) for r in override),
+            "roaming_military": bools.get("roaming military"),
+            "patrol_approaches_towns": bools.get("patrol approaches towns"),
+            "dont_multiply": bools.get("dont multiply"), "regenerates": bools.get("regenerates"),
+            "is_trader": bools.get("is trader"),
+            "num_random_chars": ints.get("num random chars"), "num_random_chars_max": ints.get("num random chars max"),
+        })
+    rows.sort(key=lambda r: r["sid"])
+    columns = [
+        ("sid", "sid шаблона отряда (SQUAD_TEMPLATE, тип 52)"), ("name_en", "Имя записи (en)"),
+        ("name_ru", "Имя записи (ru, gamedata.po)"), ("files", "Файлы, определяющие запись, в порядке загрузки"),
+        ("faction_sids", "sid фракции отряда (`faction`); пусто - не задана"), ("faction_names", "Названия фракций"),
+        ("world_state_sids", "sid World State (`world state`): отряд появляется, только когда условия выполнены (AND)"),
+        ("world_state_required", "Требуемое значение `v[0]` по порядку world_state_sids: 1 - состояние истинно, 0 - ложно"),
+        ("race_override_sids", "sid расы, принудительной для всего отряда (`race override`)"),
+        ("race_override_names", "Названия рас"),
+        ("roaming_military", "Считается бродячими войсками, даже если есть родной город"),
+        ("patrol_approaches_towns", "Патруль заходит в ближние города"),
+        ("dont_multiply", "Размер не зависит от множителя размера отрядов в настройках"),
+        ("regenerates", "Отряд-житель медленно восстанавливает потери"), ("is_trader", "Торговый отряд"),
+        ("num_random_chars", "Минимум персонажей, выбираемых из `choosefrom list`"),
+        ("num_random_chars_max", "Максимум персонажей, выбираемых из `choosefrom list`"),
+    ]
+    return Table("squad_templates.csv", "sid", "Шаблоны отрядов и патрулей: фракция, условия появления, флаги",
+                 columns, rows)
+
+
+def squad_members_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for rec in _units(records).get("squads") or []:
+        for role in SQUAD_ROLES:
+            for sid, v in _refs(rec, role):
+                v = _triple(v)
+                rows.append({"squad_sid": rec["sid"], "squad_name": _label(index, rec["sid"]) or rec.get("name"),
+                             "role": role, "member_sid": sid, "member_name": _label(index, sid),
+                             "member_type": _type_of(index, sid), "v0": v[0], "v1": v[1], "v2": v[2]})
+    rows.sort(key=lambda r: (r["squad_sid"], r["role"], r["member_sid"]))
+    columns = [
+        ("squad_sid", "sid шаблона отряда (squad_templates.csv)"), ("squad_name", "Название отряда (ru или en)"),
+        ("role", "Роль ссылки: " + "; ".join(f"{k} - {v}" for k, v in SQUAD_ROLES.items())),
+        ("member_sid", "sid шаблона персонажа (CHARACTER), животного (ANIMAL_CHARACTER) или отряда (SQUAD_TEMPLATE)"),
+        ("member_name", "Название (ru или en)"), ("member_type", "Тип записи"),
+        ("v0", "Значение ссылки `v[0]` (смысл зависит от роли)"), ("v1", "Значение ссылки `v[1]`"),
+        ("v2", "Значение ссылки `v[2]`"),
+    ]
+    return Table("squad_members.csv", "squad_sid, role, member_sid", "Состав шаблонов отрядов по ролям", columns, rows)
+
+
+def squad_spawns_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    units = _units(records)
+    rows: list[dict[str, Any]] = []
+    for source, key, cat in (("biome_homeless", "biomes", "homeless spawns"), ("town_roaming", "towns", "roaming squads")):
+        for place in units.get(key) or []:
+            for sid, v in _refs(place, cat):
+                rows.append({
+                    "source": source, "place_sid": place["sid"], "place_name_en": place.get("name") or None,
+                    "place_name_ru": _names(index, place["sid"])[1],
+                    "place_faction_sid": _join(f for f, _v in _refs(place, "faction")),
+                    "spawn_amount": place.get("homeless spawn amount"),
+                    "squad_sid": sid, "squad_name": _label(index, sid), "ref_v0": _triple(v)[0],
+                })
+    rows.sort(key=lambda r: (r["source"], r["place_sid"], r["squad_sid"]))
+    columns = [
+        ("source", "biome_homeless - `homeless spawns` группы биомов (BIOME_GROUP); town_roaming - `roaming squads` города (TOWN)"),
+        ("place_sid", "sid группы биомов или города"), ("place_name_en", "Название (en)"),
+        ("place_name_ru", "Название (ru, gamedata.po)"),
+        ("place_faction_sid", "sid фракции города (`faction`); для биомов пусто"),
+        ("spawn_amount", "`homeless spawn amount` биома: примерное число бездомных отрядов на зону; для городов пусто"),
+        ("squad_sid", "sid шаблона отряда (squad_templates.csv)"), ("squad_name", "Название отряда (ru или en)"),
+        ("ref_v0", "Значение ссылки `v[0]`: у biome_homeless - относительный шанс появления; у town_roaming смысл не задан"),
+    ]
+    return Table("squad_spawns.csv", "source, place_sid, squad_sid",
+                 "Где появляются отряды: бездомные отряды групп биомов и бродячие отряды городов; привязки группы биомов "
+                 "к зонам карты в данных нет", columns, rows)
+
+
+def faction_relations_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for rec in _units(records).get("factions") or []:
+        for cat, kind in FACTION_LINKS.items():
+            for sid, v in _refs(rec, cat):
+                rows.append({"faction_sid": rec["sid"], "faction_name": _label(index, rec["sid"]) or rec.get("name"),
+                             "kind": kind, "other_sid": sid, "other_name": _label(index, sid),
+                             "value": _triple(v)[0] if kind == "relation" else None})
+    rows.sort(key=lambda r: (r["faction_sid"], r["kind"], r["other_sid"]))
+    columns = [
+        ("faction_sid", "sid фракции-источника"), ("faction_name", "Название (ru или en)"),
+        ("kind", "relation - `relations` (отношение к другой фракции); coexistence - `coexistence` (фракции, с которыми "
+                 "стремится сосуществовать); legal_system - `legal system` (чьи законы применяются)"),
+        ("other_sid", "sid другой фракции"), ("other_name", "Название (ru или en)"),
+        ("value", "Только для relation: отношение -100...100 как хранится; не указанные пары равны `default_relation` "
+                  "фракции (faction_hostility.csv); симметрия не предполагается"),
+    ]
+    return Table("faction_relations.csv", "faction_sid, kind, other_sid",
+                 "Заданные в данных отношения фракций между собой без классификации", columns, rows)
+
+
+def faction_hostility_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
+    rows: list[dict[str, Any]] = []
+    for rec in _units(records).get("factions") or []:
+        ints, floats, bools = rec.get("int") or {}, rec.get("float") or {}, rec.get("bool") or {}
+        rows.append({
+            "faction_sid": rec["sid"], "faction_name_en": rec.get("name") or None,
+            "faction_name_ru": _names(index, rec["sid"])[1], "files": _join(rec.get("files") or []),
+            "default_relation": ints.get("default relation"), "enemy_classification": ints.get("enemy classification"),
+            "business_relations": ints.get("business relations"), "trustworthy": floats.get("trustworthy"),
+            "effect_of_anger": floats.get("effect of anger"), "effect_of_happy": floats.get("effect of happy"),
+            "emotion_fade_rate": floats.get("emotion fade rate"),
+            "run_away_ratio_of_squad_size": floats.get("run away ratio of squad size"),
+            "run_away_ratio_relative_to_enemy": floats.get("run away ratio relative to enemy"),
+            "not_real": bools.get("not real"), "anti_slavery": bools.get("anti slavery"),
+            "heals_strangers": bools.get("heals strangers"), "offers_bounties": bools.get("offers bounties"),
+            "allow_slaves_weapons": bools.get("allow slaves weapons"),
+            "fundamental_type": ints.get("fundamental type"), "squad_formation": ints.get("squad formation"),
+            **_race_cells(index, rec),
+        })
+    rows.sort(key=lambda r: r["faction_sid"])
+    columns = [
+        ("faction_sid", "sid фракции"), ("faction_name_en", "Имя записи (en)"), ("faction_name_ru", "Имя записи (ru)"),
+        ("files", "Файлы, определяющие запись, в порядке загрузки"),
+        ("default_relation", "Отношение к фракциям, не перечисленным в `relations`, -100...100"),
+        ("enemy_classification", "Максимальное отношение, при котором фракция считает другую врагом (нападает при виде)"),
+        ("business_relations", "Минимальное отношение для торговли"),
+        ("trustworthy", "Надёжность фракции -100...100"),
+        ("effect_of_anger", "Влияние гнева на реальные отношения (множитель)"),
+        ("effect_of_happy", "Влияние довольства на реальные отношения (множитель)"),
+        ("emotion_fade_rate", "Скорость возврата эмоций к нулю (множитель)"),
+        ("run_away_ratio_of_squad_size", "Доля потерь отряда, после которой он бежит (0-1)"),
+        ("run_away_ratio_relative_to_enemy", "Соотношение сил с врагом, при котором отряд бежит"),
+        ("not_real", "Не человеческая фракция: действия против неё не считаются преступлением"),
+        ("anti_slavery", "Против рабства"), ("heals_strangers", "Помогает раненым чужакам"),
+        ("offers_bounties", "Может назначать награду за голову"), ("allow_slaves_weapons", "Рабам разрешено оружие"),
+        ("fundamental_type", "Базовая классификация, код `fundamental type` (CharacterTypeEnum, имена в данных не заданы)"),
+        ("squad_formation", "Построение отрядов, код `squad formation` (0 RANDOM, 1 CARAVAN, 2 MILITARY: fcs_enums.def)"),
+        ("race_sids", "sid рас фракции (`races`), через `; `"), ("race_names", "Названия рас"),
+        ("race_weights", "Доля расы `v[0]` (относительная) по порядку race_sids"),
+    ]
+    return Table("faction_hostility.csv", "faction_sid",
+                 "Настройки фракций (враждебность, доверие, бегство) и расовый состав; враждебности по расе, полу и "
+                 "протезам в данных нет", columns, rows)
+
+
 # --------------------------------------------------------------------------- сборка и index.md
 
 def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table], game_mods: list[str] | None,
@@ -732,6 +1033,11 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         CALC_NOTE + " Значения шаблона (`tpl_*`), множители производителя и поправки грейда даны отдельными колонками.",
         "- Содержимое инвентаря и рюкзаков персонажей, сведения о построенных зданиях и исследованиях в таблицы не входят.",
         "- Смысл `v[1]`, `v[2]` у ссылок `world state`/`NPC is` в документах игры не описан; значения публикуются без трактовки.",
+        "- Справочник юнитов (`unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, "
+        "`squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv`): значения шаблонов как хранятся в данных набора "
+        "модов снимка, без вычисленных оценок; итоговые навыки персонажа игра получает с разбросом `stats_randomise`. "
+        "Не публикуется: враждебность по расе, полу и протезам (в данных такого поля нет), привязка групп биомов к зонам карты "
+        "(в записях её нет), имена кодов `NPC class`, `armour grade`, `fundamental type`, `slave` (перечисления не заданы в данных).",
         "- Итоговые цены продажи и покупки в городах не вычисляются: связь город - культура задана записями, "
         "но остальные множители (отряд-торговец, константы, разброс) не сверены с игрой.",
         "- Для зданий без поселения в `storage.csv` колонка `settlement` пуста, а `location_key` содержит «зона N (поселение не определено)».",
@@ -767,6 +1073,13 @@ def build_tables(
         diplomacy_table(current),
         world_reactions_table(game_records, game_index),
         world_reaction_links_table(current, game_records, game_index),
+        unit_templates_table(game_records, game_index),
+        unit_template_gear_table(game_records, game_index),
+        squad_templates_table(game_records, game_index),
+        squad_members_table(game_records, game_index),
+        squad_spawns_table(game_records, game_index),
+        faction_relations_table(game_records, game_index),
+        faction_hostility_table(game_records, game_index),
     ]
     mods = ((current.get("meta") or {}).get("game_data") or {}).get("mods") if game_index else None
     notes = list(game_notes)
@@ -775,7 +1088,8 @@ def build_tables(
                      "и названия по sid не заполнены.")
     if game_records is None:
         notes.append("Записи реакций и торговли недоступны: `trade_modifiers.csv`, `world_reactions.csv`, "
-                     "`world_reaction_links.csv` пусты.")
+                     "`world_reaction_links.csv`, `unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
+                     "`faction_*.csv` пусты.")
     files = {t.name: csv_bytes(t) for t in tables}
     files[INDEX_NAME] = render_index(current, snapshot_id, tables, mods, notes).encode("utf-8")
     return files

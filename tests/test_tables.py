@@ -199,6 +199,80 @@ CALC_EXPECTED: dict[str, dict[str, str]] = {
 }
 
 
+UNIT_INDEX = {
+    "c-1": ["Raider", "Рейдер", "CHARACTER", "x.mod", None],
+    "c-2": ["Pup", "Щенок", "ANIMAL_CHARACTER", "x.mod", None],
+    "r-1": ["Greenlander", "Зеленоземец", "RACE", "x.mod", None],
+    "w-1": ["Katana", "Катана", "WEAPON", "x.mod", None],
+    "sq-1": ["Patrol", "Патруль", "SQUAD_TEMPLATE", "x.mod", None],
+    "f-1": ["Nation", "Нация", "FACTION", "x.mod", None],
+    "f-2": ["Rats", "Крысы", "FACTION", "x.mod", None],
+}
+UNIT_RECORDS = {"units": {
+    "characters": [
+        {"sid": "c-2", "type": "ANIMAL_CHARACTER", "name": "Pup", "files": ["x.mod"], "int": {"female chance": 50}},
+        {"sid": "c-1", "type": "CHARACTER", "name": "Raider", "files": ["x.mod"],
+         "int": {"combat stats": 40, "armour grade": 2}, "bool": {"unique": False},
+         "refs": {"race": [["r-1", [100, 0, 0]]], "stats": [["st-1", [0, 0, 0]]],
+                  "weapons": [["w-1", [1, 1, 100]]], "clothing": [["unknown", [0, 100, 0]]]}},
+    ],
+    "stats": [{"sid": "st-1", "type": "STATS", "float": {"attack": 30.0, "katana": 55.5, "unlisted": 9.0}}],
+    "squads": [{"sid": "sq-1", "type": "SQUAD_TEMPLATE", "name": "Patrol", "files": ["x.mod"],
+                "refs": {"leader": [["c-1", [1, 0, 0]]], "animals": [["c-2", [1, 2, 100]]],
+                         "world state": [["ws-1", [0, 0, 0]]]}}],
+    "biomes": [{"sid": "b-1", "type": "BIOME_GROUP", "name": "Desert", "homeless spawn amount": 1.5,
+                "refs": {"homeless spawns": [["sq-1", [15, 0, 0]]]}}],
+    "towns": [{"sid": "t-1", "type": "TOWN", "name": "Hub", "refs": {"roaming squads": [["sq-1", [0, 0, 0]]],
+                                                                       "faction": [["f-1", [0, 0, 0]]]}}],
+    "factions": [{"sid": "f-1", "type": "FACTION", "name": "Nation", "files": ["x.mod"],
+                  "int": {"default relation": 0, "enemy classification": -10},
+                  "refs": {"relations": [["f-2", [-100, 0, 0]]], "coexistence": [["f-2", [0, 0, 0]]],
+                           "races": [["r-1", [100, 0, 0]]]}}],
+}}
+
+
+class UnitReferenceTests(unittest.TestCase):
+    def test_unit_reference_tables(self) -> None:
+        """Ловит: STATS чужой записи или незаданное поле вместо пустоты, значение relation у coexistence,
+        смешение источников появления, потерю sid при неизвестной ссылке, падение без справочника игры."""
+        files = build_tables(mini_snapshot(), None, SNAPSHOT_ID, UNIT_INDEX, UNIT_RECORDS)
+        units = parse(files, "unit_templates.csv")
+        self.assertEqual([(r["sid"], r["kind"]) for r in units], [("c-1", "character"), ("c-2", "animal")])
+        raider = units[0]
+        self.assertEqual((raider["race_sids"], raider["race_names"], raider["race_weights"], raider["stats_sid"]),
+                         ("r-1", "Зеленоземец", "100", "st-1"))
+        self.assertEqual((raider["stat_attack"], raider["stat_katana"], raider["stat_dodge"], raider["combat_stats"]),
+                         ("30", "55.5", "", "40"))
+        self.assertNotIn("stat_unlisted", raider)
+        self.assertEqual((units[1]["stats_sid"], units[1]["stat_attack"]), ("", ""))
+
+        gear = parse(files, "unit_template_gear.csv")
+        self.assertEqual([(r["category"], r["ref_sid"], r["ref_name"], r["v0"], r["v1"], r["v2"]) for r in gear],
+                         [("clothing", "unknown", "", "0", "100", "0"), ("weapons", "w-1", "Катана", "1", "1", "100")])
+
+        members = parse(files, "squad_members.csv")
+        self.assertEqual([(r["role"], r["member_sid"], r["member_type"], r["v2"]) for r in members],
+                         [("animals", "c-2", "ANIMAL_CHARACTER", "100"), ("leader", "c-1", "CHARACTER", "0")])
+        squad = parse(files, "squad_templates.csv")[0]
+        self.assertEqual((squad["world_state_sids"], squad["world_state_required"]), ("ws-1", "0"))
+
+        spawns = parse(files, "squad_spawns.csv")
+        self.assertEqual([(r["source"], r["place_sid"], r["spawn_amount"], r["place_faction_sid"], r["ref_v0"]) for r in spawns],
+                         [("biome_homeless", "b-1", "1.5", "", "15"), ("town_roaming", "t-1", "", "f-1", "0")])
+
+        relations = parse(files, "faction_relations.csv")
+        self.assertEqual([(r["kind"], r["other_sid"], r["value"]) for r in relations],
+                         [("coexistence", "f-2", ""), ("relation", "f-2", "-100")])
+        hostility = parse(files, "faction_hostility.csv")[0]
+        self.assertEqual((hostility["default_relation"], hostility["enemy_classification"], hostility["race_names"]),
+                         ("0", "-10", "Зеленоземец"))
+
+        empty = build_tables(mini_snapshot(), None, SNAPSHOT_ID)
+        for name in ("unit_templates.csv", "unit_template_gear.csv", "squad_templates.csv", "squad_members.csv",
+                     "squad_spawns.csv", "faction_relations.csv", "faction_hostility.csv"):
+            self.assertEqual(len(empty[name].decode("utf-8").splitlines()), 1, name)
+
+
 class CalcColumnsTests(unittest.TestCase):
     def test_calc_match_game_cards(self) -> None:
         """Ловит дрейф формул itemstats/prosthetics и состава calc_* относительно карточек игры; без level - пусто."""

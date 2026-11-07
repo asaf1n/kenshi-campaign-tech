@@ -225,6 +225,29 @@ class GameDBTests(unittest.TestCase):
             self.assertEqual(gamedb.load_index(self.cache)[0], current)
             self.assertEqual(gamedb.fingerprint([base]), gamedb.fingerprint([base], self.po))
 
+    def test_unit_records_skip_removed_and_unreferenced_stats(self) -> None:
+        """Ловит попадание удалённых (REMOVED) записей в справочник юнитов, лишних записей STATS и потерю units в кэше."""
+        base = self.write(self.root / "base.mod", _mod(
+            _record("c-1", "Grunt", kind=1, data={"int": {"combat stats": 40}},
+                    refs={"stats": {"st-1": [0, 0, 0]}, "race": {"r-1": [100, 0, 0]}, "dialogue": {"d-1": [0, 0, 0]}}),
+            _record("c-gone", "Deleted", kind=1, data={"bool": {"REMOVED": True}}),
+            _record("st-1", "1", kind=25, data={"float": {"attack": 30.0}}),
+            _record("st-2", "2", kind=25, data={"float": {"attack": 99.0}}),
+            _record("sq-1", "Patrol", kind=52, refs={"leader": {"c-1": [1, 0, 0]}, "AI packages": {"ai-1": [0, 0, 0]}}),
+            _record("b-1", "Desert", kind=95, data={"float": {"homeless spawn amount": 2.0}},
+                    refs={"homeless spawns": {"sq-1": [15, 0, 0]}}),
+            _record("b-empty", "Empty", kind=95),
+        ))
+        units = gamedb.unit_records(gamedb.build([base], self.po))
+        self.assertEqual([r["sid"] for r in units["characters"]], ["c-1"])
+        self.assertEqual(set(units["characters"][0]["refs"]), {"stats", "race"})
+        self.assertEqual([r["sid"] for r in units["stats"]], ["st-1"])
+        self.assertEqual(set(units["squads"][0]["refs"]), {"leader"})
+        self.assertEqual([(r["sid"], r["homeless spawn amount"]) for r in units["biomes"]], [("b-1", 2.0)])
+        records, meta = gamedb.load_records(self.cache, [base], self.po)
+        self.assertEqual(records["units"], json.loads(json.dumps(units)))
+        self.assertEqual(gamedb.load_records(self.cache, [base], self.po)[1]["cache"], "hit")
+
     @unittest.skipUnless((Path(gamedb.KENSHI) / "data/gamedata.base").is_file(), "Kenshi/data/gamedata.base отсутствует")
     def test_real_game_data(self) -> None:
         base = Path(gamedb.KENSHI) / "data/gamedata.base"
