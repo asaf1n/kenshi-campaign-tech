@@ -37,6 +37,19 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+$env:PYTHONWARNINGS = 'ignore::FutureWarning'
+
+# stderr native-команды в PowerShell 5.1 при 'Stop' становится исключением (NativeCommandError).
+# Вызов идёт с 'Continue' и 2>&1; stdout и stderr разделяются по типу записи, код берётся из $LASTEXITCODE.
+function Invoke-Python([string[]]$PyArgs) {
+    $ErrorActionPreference = 'Continue'
+    $all = @(& python @PyArgs 2>&1)
+    $code = $LASTEXITCODE
+    $out = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    $err = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_".TrimEnd() } |
+        Where-Object { $_ -and $_ -notmatch 'FutureWarning|^\s*warnings\.warn\(' })
+    [pscustomobject]@{ Code = $code; Out = $out; Err = $err }
+}
 
 $Root = $PSScriptRoot
 Push-Location $Root
@@ -62,8 +75,9 @@ try {
         $text = "=== ВЫГРУЗКА $sessionId ===`n" + $text.TrimEnd("`n") + "`n=== КОНЕЦ ===`n"
     }
 
-    $driveOut = @(& python -c "from tools.config import find_gdrive_root; print(find_gdrive_root() or '')")
-    $driveExit = $LASTEXITCODE
+    $driveRun = Invoke-Python @('-c', "from tools.config import find_gdrive_root; print(find_gdrive_root() or '')")
+    $driveOut = @($driveRun.Out)
+    $driveExit = $driveRun.Code
     $driveRoot = if ($driveOut.Count -gt 0) { "$($driveOut[0])".Trim() } else { '' }
     if ($driveExit -ne 0) { throw 'Не удалось определить каталог Диска (python -c ...).' }
     if (-not $driveRoot -or -not (Test-Path -LiteralPath $driveRoot)) { throw 'Каталог Google Диска не найден: задайте KENSHI_GDRIVE_DIR или смонтируйте G:.' }
@@ -81,9 +95,11 @@ try {
     $ingestArgs = @()
     foreach ($file in $Accept) { if ($file) { $ingestArgs += @('--accept', $file) } }
     if ($NoPush) { $ingestArgs += '--no-push' }
-    # stderr (WARNING) идёт в консоль; stdout - JSON отчёта.
-    $raw = & python -m tools.campaign ingest-inbox --gdrive-dir $driveRoot @ingestArgs
-    $code = $LASTEXITCODE
+    # stderr (WARNING) выводится предупреждениями; stdout - JSON отчёта.
+    $run = Invoke-Python (@('-m', 'tools.campaign', 'ingest-inbox', '--gdrive-dir', $driveRoot) + $ingestArgs)
+    $raw = $run.Out
+    $code = $run.Code
+    $run.Err | ForEach-Object { Write-Warning ($_ -replace '^WARNING:\s*', '') }
     $report = $null
     try { $report = ($raw -join "`n") | ConvertFrom-Json } catch { }
     if (-not $report) { throw "ingest-inbox завершился с кодом $code без отчёта." }

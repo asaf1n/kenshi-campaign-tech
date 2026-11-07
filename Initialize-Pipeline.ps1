@@ -52,6 +52,19 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+$env:PYTHONWARNINGS = 'ignore::FutureWarning'
+
+# stderr native-команды в PowerShell 5.1 при 'Stop' становится исключением (NativeCommandError).
+# Вызов идёт с 'Continue' и 2>&1; stdout и stderr разделяются по типу записи, код берётся из $LASTEXITCODE.
+function Invoke-Python([string[]]$PyArgs) {
+    $ErrorActionPreference = 'Continue'
+    $all = @(& python @PyArgs 2>&1)
+    $code = $LASTEXITCODE
+    $out = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    $err = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_".TrimEnd() } |
+        Where-Object { $_ -and $_ -notmatch 'FutureWarning|^\s*warnings\.warn\(' })
+    [pscustomobject]@{ Code = $code; Out = $out; Err = $err }
+}
 
 function Find-KenshiDir {
     $candidates = @($env:KENSHI_DIR)
@@ -67,8 +80,9 @@ function Find-KenshiDir {
 
 function Test-SaveFolder([System.IO.DirectoryInfo]$Folder, [string]$Campaign, [string]$Branch) {
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    $raw = & python -m tools.campaign check-save --source $Folder.FullName --campaign-id $Campaign --branch-id $Branch
-    $code = $LASTEXITCODE
+    $run = Invoke-Python @('-m', 'tools.campaign', 'check-save', '--source', $Folder.FullName, '--campaign-id', $Campaign, '--branch-id', $Branch)
+    $raw = $run.Out
+    $code = $run.Code
     $when = $Folder.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
     $verdict = 'ошибка проверки (код {0})' -f $code
     $belongs = $false
@@ -101,12 +115,10 @@ try {
             Where-Object { Test-Path -LiteralPath $_ }) -join ';'
     }
 
-    if ((& python -c 'import sys; print(sys.version_info >= (3, 12))') -ne 'True') { throw 'Нужен Python 3.12+.' }
-    & python -c 'import jsonschema' 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Не установлен jsonschema: pip install jsonschema' }
+    if ((Invoke-Python @('-c', 'import sys; print(sys.version_info >= (3, 12))')).Out -notcontains 'True') { throw 'Нужен Python 3.12+.' }
+    if ((Invoke-Python @('-c', 'import jsonschema')).Code -ne 0) { throw 'Не установлен jsonschema: pip install jsonschema' }
     if (-not $CheckOnly) {
-        & python -c 'import reportlab' 2>$null
-        if ($LASTEXITCODE -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
+        if ((Invoke-Python @('-c', 'import reportlab')).Code -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
     }
 
     $folders = @($env:KENSHI_SAVE_DIRS -split ';' | Where-Object { $_ } | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory })
@@ -172,14 +184,19 @@ try {
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
     Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
     $allowArgs = if ($AllowNewCampaign) { @('--allow-new-campaign') } else { @() }
-    $pipelineOut = & python -m tools.campaign pipeline --source-kind save --source $save.FullName --campaign-id $campaignId --branch-id $branchId @parentArgs @allowArgs --deliver-to $companion --deliver-push --sync-drive
-    $pipelineCode = $LASTEXITCODE
+    $pyArgs = @('-m', 'tools.campaign', 'pipeline', '--source-kind', 'save', '--source', $save.FullName, '--campaign-id', $campaignId, '--branch-id', $branchId) +
+        $parentArgs + $allowArgs + @('--deliver-to', $companion, '--deliver-push', '--sync-drive')
+    $run = Invoke-Python $pyArgs
+    $pipelineOut = $run.Out
+    $pipelineCode = $run.Code
     $pipelineOut | ForEach-Object { Write-Host $_ }
+    # stderr (в т.ч. WARNING шага Диска) - предупреждения, не причина отказа: решает только код возврата.
+    $run.Err | ForEach-Object { Write-Warning ($_ -replace '^WARNING:\s*', '') }
     if ($pipelineCode -ne 0) { throw "pipeline завершился с кодом $pipelineCode (при отказе проверки кампании published/, доставка и Диск не затронуты)" }
     # Недоступный Диск или Google API - предупреждение: публикация и доставка уже выполнены.
     $driveLine = $null
     try { $driveLine = (($pipelineOut -join "`n") | ConvertFrom-Json).drive } catch { }
-    if ($driveLine -and $driveLine -ne 'synced') { Write-Warning "drive: $driveLine" }
+    if ($driveLine -and $driveLine -ne 'synced') { if (-not ($run.Err -match '^WARNING:\s*drive:')) { Write-Warning "drive: $driveLine" } }
     elseif ($driveLine) { Write-Host 'drive: synced' }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json

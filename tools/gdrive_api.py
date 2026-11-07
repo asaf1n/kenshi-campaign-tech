@@ -11,8 +11,13 @@ client_secret*.json / credentials.json в %LOCALAPPDATA%/kenshi-campaign-tech/. 
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Any
+
+# FutureWarning пакетов Google (grpcio, версия Python) шумит в stderr конвейера; фильтр ставится до импорта google.*.
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"(google|googleapiclient|grpc)(\..*)?$")
+warnings.filterwarnings("ignore", category=FutureWarning, message=r"(?is).*(google|grpc).*")
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 AUTH_HINT = "запустите scripts/gdrive_auth.py"

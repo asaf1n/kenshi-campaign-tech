@@ -555,9 +555,15 @@ class PipelineDriveWarningTests(unittest.TestCase):
         published = {"publish": {"manifest": {"validation": {"status": "passed"}}}}
         argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--published-dir", str(tmp),
                 "--deliver-to", str(tmp), "--sync-drive"]
+        class HttpError(Exception):
+            """Подобие googleapiclient.errors.HttpError без зависимости от пакета."""
+
+        quota = "<HttpError 403 storageQuotaExceeded>"
         causes = {
             "gdrive_not_found": mock.patch("tools.campaign.Config.from_env", return_value=_NoDrive()),
             "нет токена": mock.patch("tools.gdrive_sync.sync_drive", side_effect=RuntimeError("нет токена")),
+            "storageQuotaExceeded": mock.patch("tools.gdrive_sync.sync_drive", side_effect=HttpError(quota)),
+            "ошибки или отказ записи": mock.patch("tools.gdrive_sync.sync_drive", return_value={"status": "partial", "errors": ["x"]}),
         }
         for cause, patch in causes.items():
             with self.subTest(cause), patch, \
@@ -571,8 +577,23 @@ class PipelineDriveWarningTests(unittest.TestCase):
                 err.flush()
                 result = json.loads(out.buffer.getvalue().decode("utf-8"))
                 self.assertEqual(code, 0)
-                self.assertRegex(result["drive"], rf"^(skipped|failed) \(.*{cause}")
+                self.assertRegex(result["drive"], rf"^(skipped|failed|partial) \(.*{cause}")
                 self.assertIn("WARNING: drive:".encode("utf-8"), err.buffer.getvalue())
+
+    def test_publish_failure_still_fails_pipeline(self) -> None:
+        """Ловит маскировку отказа публикации изоляцией ошибок Диска: шаг Диска не вызывается, код 1."""
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        tmp = Path(holder.name)
+        argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--published-dir", str(tmp),
+                "--deliver-to", str(tmp), "--sync-drive"]
+        with mock.patch("tools.campaign.run_pipeline", side_effect=ValueError("публикация")), \
+                mock.patch("tools.gdrive_sync.sync_drive") as sync:
+            err = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+            with mock.patch("sys.stderr", err):
+                code = campaign_main(argv)
+        self.assertEqual(code, 1)
+        sync.assert_not_called()
 
     def test_drive_outcome_lines(self) -> None:
         """Ловит потерю причины в итоговой строке шага Диска."""
