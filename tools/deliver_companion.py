@@ -99,7 +99,7 @@ def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
     """Доставляет regions_map.svg и regions_adjacency.json в docs/reference/; возвращает (статус, ошибки).
 
     Сначала проверяется совместимость просмотрщика sites/map/index.html клона с этими файлами. Несовместимый
-    просмотрщик блокирует запись артефактов (incompatible); отсутствие просмотрщика (ветка ещё не влита) — не ошибка.
+    просмотрщик блокирует запись артефактов (incompatible); отсутствие просмотрщика в клоне — не ошибка (проверка пропускается, артефакты записываются).
     """
     viewer = target_repo / cartography.VIEWER_RELATIVE
     try:
