@@ -78,7 +78,7 @@ def make_viewer() -> str:
     chains = json.dumps(c.CHAPTER_XI_CHAINS, ensure_ascii=False).replace('"', "'")
     return ('<script id="derived" type="application/json">' + json.dumps(derived, ensure_ascii=False)
             + "</script><script>const CHAINS = " + chains + ";\nfetch('../../published/manifest.json');"
-            + "confirm('Заменить выпуск?');</script>")
+            + "confirm('Заменить выпуск?'); 'устаревший снимок';</script>")
 
 
 class FixtureTests(unittest.TestCase):
@@ -314,6 +314,7 @@ class ViewerCompatTests(unittest.TestCase):
             "word": viewer + "<!-- проходимый маршрут -->",
             "no_published": viewer.replace("../../published/", "./"),
             "no_confirm": viewer.replace("confirm(", "ask("),
+            "no_stale_warning": viewer.replace("устаревший снимок", "снимок"),
             "no_derived": "<html></html>",
         }
         for name, html in mutations.items():

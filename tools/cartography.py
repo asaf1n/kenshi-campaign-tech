@@ -263,7 +263,7 @@ def check_viewer_compat(html: str) -> list[str]:
         errors.append("Цепочки просмотрщика не разбираются")
     errors += [f"Растр в просмотрщике: {marker}" for marker in RASTER_MARKERS if marker in html]
     errors += [f"Недопустимая формулировка: {word}" for word in FORBIDDEN_VIEWER_WORDS if word in html.casefold()]
-    for required in ("../../published/", "confirm("):
+    for required in ("../../published/", "confirm(", "устаревший снимок"):
         if required not in html:
             errors.append(f"В просмотрщике нет {required}")
     return errors
