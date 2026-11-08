@@ -19,11 +19,12 @@
 ## Команды
 
 ```powershell
-python -m tools.cartography --verify-geometry            # фикстурный режим: хеши SVG и таблицы
+python -m tools.cartography --verify-geometry            # фикстурный режим: хеши SVG и таблицы; выпуск published/ проходит validate_release
 python -m tools.cartography --verify-geometry --local    # локальный режим: пересчёт по data/world, world_source_verified=true
 python -m tools.cartography --build-adjacency --world-source data/world/<world_ref_id>.json
-python -m tools.cartography --svg tmp/map.svg            # экспорт текущего published/
 ```
+
+Режим обязателен (`--verify-geometry` или `--build-adjacency`). Сводка для чата и SVG-экспорт карты формирует только просмотрщик `sites/map/index.html` (в конвертере их нет). Тексты статусов в просмотрщике: «в локации: Скуин», «рядом с локацией: Деревня Серодёров», «в регионе: Пурпурные пески»; в сводке группы с численностью, поимённо — персонажи вне основной группы, `ps:` — только у одноимённых.
 
 ## Доставка и совместимость просмотрщика
 
@@ -31,4 +32,4 @@ python -m tools.cartography --svg tmp/map.svg            # экспорт тек
 
 ## Проверка
 
-`python -m unittest tests.test_cartography` (`KENSHI_COMPANION_DIR` — клон Kenshi-Compain; при наличии `node` исполняется логика цепочек `chain-logic` просмотрщика). Фикстурный режим (CI) не требует `data/world` и `published/`; локальные классы пропускаются без них.
+`python -m unittest tests.test_cartography` (`KENSHI_COMPANION_DIR` — клон Kenshi-Compain; при наличии `node` исполняется логика просмотрщика: `chain-logic` и `summary-logic`, в том числе сводка, подписи типов и склонение). Фикстурный режим (CI) не требует `data/world` и `published/`; локальные классы пропускаются без них.
