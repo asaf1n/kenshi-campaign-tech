@@ -11,10 +11,12 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import warnings
 import xml.etree.ElementTree as ET
 
@@ -74,11 +76,15 @@ def make_viewer() -> str:
     for path in svg.iter("{http://www.w3.org/2000/svg}path"):
         title = path.find("{http://www.w3.org/2000/svg}title").text
         geometry.append({"name_en": re.search(r"\(([^()]*)\)$", title)[1], "d": path.get("d")})
-    derived = {"world_ref_id": c.GEOMETRY_WORLD_REF_ID, "graph": c.ADJACENCY_GRAPH, "geometry": geometry}
-    chains = json.dumps(c.CHAPTER_XI_CHAINS, ensure_ascii=False).replace('"', "'")
-    return ('<script id="derived" type="application/json">' + json.dumps(derived, ensure_ascii=False)
-            + "</script><script>const CHAINS = " + chains + ";\nfetch('../../published/manifest.json');"
-            + "confirm('Заменить выпуск?'); 'устаревший снимок';</script>")
+    derived = {"world_ref_id": c.GEOMETRY_WORLD_REF_ID, "graph": c.ADJACENCY_GRAPH,
+               "border_lengths": c.BORDER_LENGTHS, "geometry": geometry}
+    chains = json.dumps(c.CHAPTER_XI_CHAINS, ensure_ascii=False)
+    editor = "".join(f'<button id="{name}"></button>' for name in ("chain-add", "chain-save", "chain-clear", "chain-reset")) \
+        + '<select id="chain-region"></select>'
+    return ('<script id="derived" type="application/json">' + json.dumps(derived, ensure_ascii=False) + "</script>"
+            + editor + "<script>const DEFAULT_CHAINS = " + chains + ";\nfetch('../../published/manifest.json');"
+            + "confirm('Заменить выпуск?'); 'устаревший снимок'; chainSteps(); chainCanSave(); chainCanAdd();"
+            + " pluralRu(); buildSummary(); kindLabel(); placeName();</script>")
 
 
 class FixtureTests(unittest.TestCase):
@@ -99,6 +105,8 @@ class FixtureTests(unittest.TestCase):
         names = {0: "NONE", 1: "A", 2: "B", 3: "C", 4: "D", 5: "D", 6: "E"}
         graph = c.build_adjacency(cells, names, size=4)
         self.assertEqual(graph, {"A": ["B", "C", "D"], "B": ["A", "D"], "C": ["A"], "D": ["A", "B"], "E": []})
+        # Длина границы — число пар пикселей 4-связности; диагональ и NONE не считаются, D=D не граница.
+        self.assertEqual(c.build_border_lengths(cells, names, size=4), {"A|B": 2, "A|C": 2, "A|D": 1, "B|D": 2})
         with self.assertRaises(ValueError):
             c.decode_raster([[1, 5]], size=2)
         with self.assertRaises(ValueError):
@@ -120,21 +128,41 @@ class FixtureTests(unittest.TestCase):
     def test_chapter_xi_chains(self) -> None:
         corridors = {row["name"]: row for row in c.compare_corridors()}
         a, b = (corridors[k] for k in c.CHAPTER_XI_CHAINS)
-        self.assertEqual(a["regions"], ["Floodlands", "Rebirth", "Deadlands"])
-        self.assertEqual(b["regions"], ["Floodlands", "Arm of Okran", "Deadlands"])
+        self.assertEqual(a["regions"], ["Floodlands", "Rebirth", "Okran's Pride", "Skinner's Roam", "Deadlands"])
+        self.assertEqual(b["regions"], ["Floodlands", "Hidden Forest", "Arm of Okran", "Skinner's Roam", "Deadlands"])
         for corridor in corridors.values():
             for step in corridor["steps"]:
                 adjacent = step["to_region"] in c.ADJACENCY_GRAPH[step["from_region"]]
                 self.assertEqual(step["status"], "border" if adjacent else "gap")
                 self.assertEqual(adjacent, step["from_region"] in c.ADJACENCY_GRAPH[step["to_region"]])
-        self.assertEqual([s["status"] for s in a["steps"]], ["border", "gap"])
-        self.assertEqual([s["status"] for s in b["steps"]], ["gap", "gap"])
+        for corridor in (a, b):
+            self.assertEqual([s["status"] for s in corridor["steps"]], ["border"] * 4)
+            for step in corridor["steps"]:
+                self.assertEqual(step["border_length"], c.BORDER_LENGTHS[c.pair_key(step["from_region"], step["to_region"])])
+                self.assertGreater(step["border_length"], 0)
+        gap = c.compare_corridors({"x": ["Fog Islands", "Floodlands"]})[0]["steps"][0]
+        self.assertEqual((gap["status"], gap["border_length"]), ("gap", 0))
         self.assertEqual(c._region_names(self.release["world"])["Fog Islands"], "Острова тумана")
 
+    def test_border_table_is_consistent(self) -> None:
+        self.assertEqual({tuple(k.split("|")) for k in c.BORDER_LENGTHS},
+                         {(a, b) for a, v in c.ADJACENCY_GRAPH.items() for b in v if a < b})
+        self.assertTrue(all(isinstance(n, int) and n > 0 for n in c.BORDER_LENGTHS.values()))
+        document = json.loads(c.ADJACENCY_PATH.read_text(encoding="utf-8"))
+        document["border_lengths"]["Floodlands|Rebirth"] += 1
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "adjacency.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "таблицы соседства"):
+                c.load_adjacency(path)
+
     def test_no_route_claims_and_no_connecting_lines(self) -> None:
-        corridors = c.compare_corridors()
+        corridors = c.compare_corridors() + c.compare_corridors({"Разрыв": ["Fog Islands", "Floodlands"]})
         summary = c.generate_summary(self.release, corridors)
         svg = c.export_svg(self.release, corridors)
+        self.assertIn("общая граница, 11 пар пикселей", summary)
+        self.assertIn("общая граница, 11 пар пикселей", svg)
+        self.assertIn("общая граница, 3 пары пикселей", summary)  # Arm of Okran — Skinner's Roam: склонение по числу
         root = ET.fromstring(svg)
         self.assertEqual(root.findall(".//s:polyline", NS), [])
         self.assertEqual(root.findall(".//s:line", NS), [])
@@ -249,7 +277,7 @@ class FixtureTests(unittest.TestCase):
         for key in ("world_ref_id", "snapshot_id", "branch_id", "game_time"):
             self.assertIn(key + ": " + self.release["manifest"][key], svg)
         self.assertIn(c.DISCLAIMER, svg)
-        self.assertEqual(len(root.findall("s:g/s:path", NS)), 69 + 6)
+        self.assertEqual(len(root.findall("s:g/s:path", NS)), 69 + 10)  # 69 контуров + 5 регионов в каждой из двух цепочек
         filtered = ET.fromstring(c.export_svg(self.release, kind="town", region="Border Zone", query="Хаб"))
         self.assertEqual(json.loads(filtered.find("s:metadata", NS).text)["query"], "Хаб")
         self.assertEqual(len(filtered.findall("s:circle", NS)), 1 + 3)  # локация + позиции трёх известных персонажей
@@ -309,7 +337,12 @@ class ViewerCompatTests(unittest.TestCase):
         mutations = {
             "graph": viewer.replace(original, block(graph)),
             "geometry": viewer.replace(original, block(shape)),
-            "chains": viewer.replace("'Rebirth'", "'Wend'"),
+            "chains": viewer.replace('"Floodlands", "Rebirth"', '"Floodlands", "Wend"'),
+            "borders": viewer.replace(original, block({**json.loads(re.search(r'application/json">(.*?)</script>', viewer, re.S)[1]), "border_lengths": {}})),
+            "no_editor": viewer.replace('id="chain-add"', 'id="x"'),
+            "no_min_two": viewer.replace("chainCanSave(", "other("),
+            "confirm_only_in_comment": viewer.replace("confirm(", "ask(") + "<!-- confirm( -->",
+            "stale_only_in_js_comment": viewer.replace("'устаревший снимок'", "").replace("</script>", "// устаревший снимок\n</script>"),
             "raster": viewer + "<!-- raster_rle -->",
             "word": viewer + "<!-- проходимый маршрут -->",
             "no_published": viewer.replace("../../published/", "./"),
@@ -324,6 +357,9 @@ class ViewerCompatTests(unittest.TestCase):
         for name, html in mutations.items():
             with self.subTest(mutation=name):
                 self.assertTrue(c.check_viewer_compat(html))
+        # Порядок атрибутов блока derived не должен ломать проверку.
+        self.assertEqual(c.check_viewer_compat(viewer.replace('<script id="derived" type="application/json">',
+                                                              '<script type="application/json" id="derived">')), [])
 
     @unittest.skipUnless((COMPANION / c.VIEWER_RELATIVE).is_file(), "нет sites/map/index.html в Kenshi-Compain")
     def test_delivered_viewer_is_compatible(self) -> None:
@@ -367,10 +403,10 @@ class DeliveryTests(unittest.TestCase):
     def test_incompatible_viewer_blocks_artifacts_but_published_is_delivered(self) -> None:
         """Ловит смешение статусов: сбой карты не должен помечать доставку published/ как неуспешную."""
         with tempfile.TemporaryDirectory() as holder:
-            clone, pub = self.make_clone(Path(holder), make_viewer().replace("'Rebirth'", "'Wend'"))
+            clone, pub = self.make_clone(Path(holder), make_viewer().replace('"Floodlands", "Rebirth"', '"Floodlands", "Wend"'))
             result = deliver_to_companion(pub, clone, auto_commit=True)
             self.assertEqual((result["cartography"], result["status"], result["committed"]), ("incompatible", "delivered", True))
-            self.assertIn("Цепочки просмотрщика", result["cartography_reason"])
+            self.assertIn("DEFAULT_CHAINS", result["cartography_reason"])
             self.assertIn("published/manifest.json", self.git("show", "--name-only", "--format=", "HEAD", cwd=clone))
             self.assertFalse((clone / "docs/reference/regions_map.svg").exists())
             self.assertTrue((clone / "published/manifest.json").is_file())
@@ -392,11 +428,120 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn("git_error", result)
             self.assertEqual(result["cartography"], "ok")
 
+    def test_link_target_gives_skipped_with_reason_and_does_not_fail_published(self) -> None:
+        with tempfile.TemporaryDirectory() as holder:
+            clone, pub = self.make_clone(Path(holder), make_viewer())
+            with mock.patch("tools.deliver_companion.linked", side_effect=lambda p: Path(p).name == "reference"):
+                (clone / "docs" / "reference").mkdir(parents=True)
+                result = deliver_to_companion(pub, clone, auto_commit=False)
+            self.assertEqual((result["cartography"], result["status"]), ("skipped", "delivered"))
+            self.assertIn("ссылка", result["cartography_reason"])
+            self.assertFalse((clone / "docs/reference/regions_map.svg").exists())
+
     def test_absent_viewer_is_not_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as holder:
             clone, pub = self.make_clone(Path(holder), None)
             result = deliver_to_companion(pub, clone, auto_commit=True)
             self.assertEqual((result["cartography"], result["status"]), ("ok", "delivered"))
+
+
+@unittest.skipUnless(shutil.which("node") and (COMPANION / c.VIEWER_RELATIVE).is_file(),
+                     "нет node или sites/map/index.html в Kenshi-Compain")
+class ViewerLogicTests(unittest.TestCase):
+    """Поведение чистой логики цепочек просмотрщика (скрипт chain-logic) исполняется в Node."""
+
+    def run_logic(self, expression: str):
+        html = (COMPANION / c.VIEWER_RELATIVE).read_text(encoding="utf-8")
+        logic = "\n".join(re.search(rf'<script id="{name}">(.*?)</script>', html, re.S)[1] for name in ("chain-logic", "summary-logic"))
+        data = json.dumps({"graph": c.ADJACENCY_GRAPH, "borders": c.BORDER_LENGTHS}, ensure_ascii=False)
+        program = f"{logic}\nconst D = {data}; console.log(JSON.stringify({expression}));"
+        done = subprocess.run([shutil.which("node"), "-e", program], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def summary_context(self) -> dict:
+        def person(identity, name, status, region, **extra):
+            return {"id": identity, "name": name, "resolution_status": status, "region": {"name_en": region}, **extra}
+        chars = [person("ps:1", "Бык", "in_region", "Purple Sands"), person("ps:2", "Хоббс", "in_region", "Purple Sands"),
+                 person("ps:3", "Бык", "in_region", "Flats Lagoon"),
+                 person("ps:4", "Кот", "in_location", "Border Zone", location={"name_ru": "Скуин", "name_en": "Squin"}),
+                 person("ps:5", "Мью", "near_location", "The Swamp",
+                        nearby_locations=[{"name_ru": "Деревня Серодёров", "name_en": "Grayflayer Village"}]),
+                 {"id": "ps:6", "name": "Тень", "resolution_status": "unknown", "region": None}]
+        member = lambda *ids: [{"id": i} for i in ids]  # noqa: E731
+        groups = [{"group_id": "g1", "label": "Регион Пурпурные пески", "resolution_status": "in_region",
+                   "region": {"name_en": "Purple Sands"}, "characters": member("ps:1", "ps:2")},
+                  {"group_id": "g2", "label": "Скуин", "resolution_status": "in_location",
+                   "region": {"name_en": "Border Zone"}, "characters": member("ps:4")},
+                  {"group_id": "g3", "label": "Окрестности Деревня Серодёров", "resolution_status": "near_location",
+                   "region": {"name_en": "The Swamp"}, "characters": member("ps:5")}]
+        manifest = {"game_time": "Day 1 00:00", "campaign_id": "c", "branch_id": "b", "world_ref_id": "w", "snapshot_id": "s"}
+        return {"title": "T", "manifest": manifest, "locations": {"characters": chars, "spatial_groups": groups}, "disclaimer": "D"}
+
+    def build_summary(self, context: dict) -> list[str]:
+        names = {"Purple Sands": "Пурпурные пески", "Flats Lagoon": "Ровная лагуна", "Border Zone": "Пограничная зона", "The Swamp": "Болото"}
+        data = json.dumps(context, ensure_ascii=False)
+        text = self.run_logic(f"buildSummary({{...{data}, regionName: e => ({json.dumps(names, ensure_ascii=False)})[e] || e, routes: [], stepText: s => ''}})")
+        return text.split("\n")
+
+    def test_summary_names_locations_not_regions(self) -> None:
+        """Ловит вывод региона вместо локации для in_location/near_location."""
+        lines = self.build_summary(self.summary_context())
+        self.assertIn("- Кот: в локации — Скуин", lines)
+        self.assertIn("- Мью: рядом с локацией — Деревня Серодёров", lines)
+        self.assertIn("- Тень: положение неизвестно — нет данных", lines)
+        self.assertNotIn("- Кот: в локации — Пограничная зона", lines)
+
+    def test_summary_groups_and_names(self) -> None:
+        """Ловит поимённый список всей основной группы и ID у неодноимённых."""
+        lines = self.build_summary(self.summary_context())
+        self.assertIn("- Регион Пурпурные пески: 2 персонажа · в регионе · Пурпурные пески", lines)
+        self.assertIn("- Скуин: 1 персонаж · в локации · Пограничная зона", lines)
+        outside = lines[lines.index(next(x for x in lines if x.startswith("Вне основной группы"))) + 1:]
+        self.assertFalse(any(x.startswith("- Хоббс") for x in outside))       # основная группа поимённо не выводится
+        self.assertIn("- Бык: в регионе — Ровная лагуна (ps:3)", lines)       # ID — при совпадении имён
+        self.assertFalse(any("(ps:4)" in x or "(ps:5)" in x for x in lines))  # у остальных ID нет
+        self.assertIn("Одноимённые «Бык»: ps:1, ps:3", lines)
+
+    def test_kind_labels_and_plural(self) -> None:
+        for kind in ("town", "village", "outpost", "ruins", "military", "slave_camp", "prison", "poi"):
+            label = self.run_logic(f"kindLabel('{kind}')")
+            self.assertTrue(label and label != kind and label.isascii() is False, kind)
+        self.assertEqual(self.run_logic("kindLabel('новый_тип')"), "новый_тип")
+        forms = {1: "пара", 2: "пары", 4: "пары", 5: "пар", 11: "пар", 12: "пар", 14: "пар", 21: "пара", 22: "пары", 25: "пар", 101: "пара", 111: "пар"}
+        for number, form in forms.items():
+            with self.subTest(number=number):
+                self.assertEqual(self.run_logic(f"pluralRu({number}, 'пара', 'пары', 'пар')"), form)
+                self.assertEqual(c.plural_ru(number, "пара", "пары", "пар"), form)
+        self.assertEqual(self.run_logic("pairsText(3)"), "3 пары пикселей")
+
+    @unittest.skipUnless((PUBLISHED / "world_reference.json").is_file(), "нет локального published/")
+    def test_every_published_location_kind_has_label(self) -> None:
+        world = json.loads((PUBLISHED / "world_reference.json").read_text(encoding="utf-8"))
+        for kind in {row["kind"] for row in world["locations"]}:
+            self.assertNotEqual(self.run_logic(f"kindLabel({json.dumps(kind)})"), kind)
+
+    def test_chain_rules(self) -> None:
+        self.assertNotEqual(self.run_logic("chainCanSave([])"), "")
+        self.assertNotEqual(self.run_logic("chainCanSave(['Floodlands'])"), "")
+        self.assertEqual(self.run_logic("chainCanSave(['Floodlands','Rebirth'])"), "")
+        self.assertNotEqual(self.run_logic("chainCanAdd(['Floodlands'],'Floodlands',D.graph)"), "")
+        self.assertNotEqual(self.run_logic("chainCanAdd([],'Нет такого',D.graph)"), "")
+        self.assertEqual(self.run_logic("chainCanAdd(['Floodlands'],'Rebirth',D.graph)"), "")
+        self.assertEqual(self.run_logic("chainRemove(['A','B','C'],1)"), ["A", "C"])
+
+    def test_steps_match_python_and_gap_is_not_connected(self) -> None:
+        names = c.CHAPTER_XI_CHAINS["Вариант А — через Возрождение"]
+        steps = self.run_logic(f"chainSteps({json.dumps(names)}, D.graph, D.borders)")
+        expected = c.compare_corridors({"x": names})[0]["steps"]
+        self.assertEqual(steps, expected)
+        gap = self.run_logic("chainSteps(['Fog Islands','Floodlands'], D.graph, D.borders)")[0]
+        self.assertEqual((gap["status"], gap["border_length"]), ("gap", 0))
+
+    def test_stale_release_compared_as_dates(self) -> None:
+        # Строки с разным форматом: лексическое сравнение дало бы неверный результат.
+        self.assertIs(self.run_logic("isStaleRelease({generated_at:'2026-01-02T00:00:00+07:00'},{generated_at:'2026-01-01T20:00:00Z'})"), True)
+        self.assertIs(self.run_logic("isStaleRelease({generated_at:'2026-01-02T00:00:00Z'},{generated_at:'2026-01-01T00:00:00Z'})"), False)
 
 
 @unittest.skipUnless(WORLD_SOURCE, "локальный режим: нет data/world/<world_ref_id>.json")
@@ -411,6 +556,7 @@ class LocalWorldSourceTests(unittest.TestCase):
         report = c.verify_geometry(c.GEOMETRY_WORLD_REF_ID, world_source=WORLD_SOURCE)
         self.assertIs(report["world_source_verified"], True)
         self.assertEqual(c.build_adjacency(self.source["cells"], self.source["names"]), c.ADJACENCY_GRAPH)
+        self.assertEqual(c.build_border_lengths(self.source["cells"], self.source["names"]), c.BORDER_LENGTHS)
         self.assertEqual(len(c.ADJACENCY_GRAPH), 69)
         for a, neighbors in c.ADJACENCY_GRAPH.items():
             self.assertNotIn(a, neighbors)

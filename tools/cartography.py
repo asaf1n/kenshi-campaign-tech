@@ -46,12 +46,13 @@ ADJACENCY_PATH = ASSET_DIR / "regions_adjacency.json"
 VIEWER_RELATIVE = Path("sites/map/index.html")
 DELIVERED_ARTIFACTS = {"regions_map.svg": Path("docs/reference/regions_map.svg"),
                        "regions_adjacency.json": Path("docs/reference/regions_adjacency.json")}
-ADJACENCY_FORMAT = "kenshi-region-adjacency/1"
+ADJACENCY_FORMAT = "kenshi-region-adjacency/2"
 WORLD_SOURCE_ENV = "KENSHI_WORLD_SOURCE"
-# Глава XI: Пойма → Гиблые земли. Цепочки заданы регионами, не точками и не локациями.
+# Примеры цепочек по умолчанию (глава XI: Пойма → Гиблые земли). Цепочки задаёт пользователь в просмотрщике;
+# шаг цепочки — пара регионов, не точек и не локаций.
 CHAPTER_XI_CHAINS: dict[str, list[str]] = {
-    "Вариант А — через Возрождение": ["Floodlands", "Rebirth", "Deadlands"],
-    "Вариант Б — через Руку Окрана (Край Мира)": ["Floodlands", "Arm of Okran", "Deadlands"],
+    "Вариант А — через Возрождение": ["Floodlands", "Rebirth", "Okran's Pride", "Skinner's Roam", "Deadlands"],
+    "Вариант Б — через Скрытый лес и Руку Окрана": ["Floodlands", "Hidden Forest", "Arm of Okran", "Skinner's Roam", "Deadlands"],
 }
 
 
@@ -112,10 +113,15 @@ def decode_raster(rle: list[list[int]], size: int = RASTER_GRID_SIZE) -> list[in
     return cells
 
 
-def build_adjacency(cells: list[int], names: dict[int, str],
-                    size: int = RASTER_GRID_SIZE) -> dict[str, list[str]]:
-    """4-связное соседство по именам регионов; NONE исключён, диагонали не считаются."""
-    graph: dict[str, set[str]] = {names[i]: set() for i in set(cells) if names[i] != "NONE"}
+def pair_key(a: str, b: str) -> str:
+    """Ключ неупорядоченной пары регионов: имена name_en по возрастанию через «|»."""
+    return "|".join(sorted((a, b)))
+
+
+def build_border_lengths(cells: list[int], names: dict[int, str],
+                         size: int = RASTER_GRID_SIZE) -> dict[str, int]:
+    """Длина общей границы: число пар пикселей 4-связности между регионами; NONE исключён, диагонали не считаются."""
+    lengths: dict[str, int] = {}
     for py in range(size):
         for px in range(size):
             offset = py * size + px
@@ -123,8 +129,19 @@ def build_adjacency(cells: list[int], names: dict[int, str],
             for other in ([offset + 1] if px < size - 1 else []) + ([offset + size] if py < size - 1 else []):
                 b = names[cells[other]]
                 if a != b and "NONE" not in (a, b):
-                    graph[a].add(b)
-                    graph[b].add(a)
+                    key = pair_key(a, b)
+                    lengths[key] = lengths.get(key, 0) + 1
+    return dict(sorted(lengths.items()))
+
+
+def build_adjacency(cells: list[int], names: dict[int, str],
+                    size: int = RASTER_GRID_SIZE) -> dict[str, list[str]]:
+    """4-связное соседство по именам регионов; NONE исключён, диагонали не считаются."""
+    graph: dict[str, set[str]] = {names[i]: set() for i in set(cells) if names[i] != "NONE"}
+    for key in build_border_lengths(cells, names, size):
+        a, b = key.split("|")
+        graph[a].add(b)
+        graph[b].add(a)
     return {name: sorted(neighbors) for name, neighbors in sorted(graph.items())}
 
 
@@ -161,8 +178,9 @@ def region_at(world_source: dict[str, Any], x: float, z: float) -> str | None:
     return None if name == "NONE" else name
 
 
-def _adjacency_digest(adjacency: dict[str, list[str]]) -> str:
-    payload = json.dumps(adjacency, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+def _adjacency_digest(adjacency: dict[str, list[str]], borders: dict[str, int]) -> str:
+    payload = json.dumps({"adjacency": adjacency, "border_lengths": borders}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -171,11 +189,12 @@ def cells_digest(cells: list[int]) -> str:
     return hashlib.sha256(struct.pack(f"<{len(cells)}I", *cells)).hexdigest()
 
 
-def adjacency_document(adjacency: dict[str, list[str]], cells: list[int]) -> dict[str, Any]:
+def adjacency_document(adjacency: dict[str, list[str]], borders: dict[str, int], cells: list[int]) -> dict[str, Any]:
     return {"format": ADJACENCY_FORMAT, "world_ref_id": GEOMETRY_WORLD_REF_ID,
             "raster_source_sha256": RASTER_SOURCE_SHA256, "raster_cells_sha256": cells_digest(cells),
             "algorithm": GEOMETRY_ALGORITHM,
-            "adjacency_sha256": _adjacency_digest(adjacency), "adjacency": adjacency}
+            "adjacency_sha256": _adjacency_digest(adjacency, borders), "adjacency": adjacency,
+            "border_lengths": borders}
 
 
 def load_adjacency_document(path: Path = ADJACENCY_PATH) -> dict[str, Any]:
@@ -185,7 +204,9 @@ def load_adjacency_document(path: Path = ADJACENCY_PATH) -> dict[str, Any]:
         if document.get(key) != expected:
             raise ValueError(f"Несовместимая геометрия: таблица соседства, поле {key}")
     adjacency = document.get("adjacency")
-    if not isinstance(adjacency, dict) or document.get("adjacency_sha256") != _adjacency_digest(adjacency):
+    borders = document.get("border_lengths")
+    if (not isinstance(adjacency, dict) or not isinstance(borders, dict)
+            or document.get("adjacency_sha256") != _adjacency_digest(adjacency, borders)):
         raise ValueError("Несовместимая геометрия: SHA-256 таблицы соседства не совпадает")
     return document
 
@@ -195,8 +216,10 @@ def load_adjacency(path: Path = ADJACENCY_PATH) -> dict[str, list[str]]:
 
 
 ADJACENCY_GRAPH: dict[str, list[str]] = {}
+BORDER_LENGTHS: dict[str, int] = {}
 if ADJACENCY_PATH.is_file():
-    ADJACENCY_GRAPH = load_adjacency()
+    _document = load_adjacency_document()
+    ADJACENCY_GRAPH, BORDER_LENGTHS = _document["adjacency"], _document["border_lengths"]
 
 
 def are_regions_adjacent(reg_a_en: str, reg_b_en: str, graph: dict[str, list[str]] | None = None) -> bool:
@@ -215,7 +238,8 @@ def verify_geometry(world_ref_id: str, geometry_path: Path | None = None,
         source = load_world_source(world_source)
         if cells_digest(source["cells"]) != document.get("raster_cells_sha256"):
             raise ValueError("Несовместимая геометрия: ячейки исходного растра не совпадают с закреплёнными")
-        if build_adjacency(source["cells"], source["names"]) != adjacency:
+        if (build_adjacency(source["cells"], source["names"]) != adjacency
+                or build_border_lengths(source["cells"], source["names"]) != document["border_lengths"]):
             raise ValueError("Несовместимая геометрия: таблица соседства не совпадает с растром")
     geometry_path = geometry_path or GEOMETRY_SVG_PATH
     # text=auto в Git допускает CRLF. Хеш закрепляет текст SVG после CRLF/CR -> LF.
@@ -230,6 +254,15 @@ def verify_geometry(world_ref_id: str, geometry_path: Path | None = None,
 
 FORBIDDEN_VIEWER_WORDS = ("проходим", "проверен", "безопас", "фанатик", "исследован")
 RASTER_MARKERS = ("raster_rle", "_RASTER_DATA", "regions_map.rle", 'id="baseline"', "BASELINE")
+EDITOR_MARKERS = ('id="chain-region"', 'id="chain-add"', 'id="chain-save"', 'id="chain-clear"', 'id="chain-reset"',
+                  "chainSteps(", "chainCanSave(", "chainCanAdd(", "pluralRu(", "buildSummary(", "kindLabel(", "placeName(")
+
+
+def _strip_comments(html: str) -> str:
+    """Без комментариев HTML/JS: обязательные признаки должны быть в исполняемом тексте, а не в комментарии."""
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+    html = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    return re.sub(r"(?m)(^|\s)//[^\n]*$", "", html)
 
 
 def check_viewer_compat(html: str) -> list[str]:
@@ -244,7 +277,7 @@ def check_viewer_compat(html: str) -> list[str]:
 
 def _check_viewer_compat(html: str) -> list[str]:
     errors: list[str] = []
-    match = re.search(r'<script id="derived" type="application/json">(.*?)</script>', html, re.S)
+    match = re.search(r"<script\b[^>]*\bid=[\"']derived[\"'][^>]*>(.*?)</script>", html, re.S)
     if not match:
         return ["Нет блока derived"]
     try:
@@ -257,6 +290,8 @@ def _check_viewer_compat(html: str) -> list[str]:
         errors.append("world_ref_id просмотрщика не совпадает с геометрией")
     if derived.get("graph") != ADJACENCY_GRAPH:
         errors.append("Граф просмотрщика не совпадает с regions_adjacency.json")
+    if derived.get("border_lengths") != BORDER_LENGTHS:
+        errors.append("Длины границ просмотрщика не совпадают с regions_adjacency.json")
     svg_ns = "{http://www.w3.org/2000/svg}"
     paths = []
     for path in ET.fromstring(GEOMETRY_SVG_PATH.read_text(encoding="utf-8")).iter(svg_ns + "path"):
@@ -266,16 +301,17 @@ def _check_viewer_compat(html: str) -> list[str]:
     shown = [(row.get("name_en"), row.get("d")) for row in derived.get("geometry", [])]
     if sorted(shown, key=str) != sorted(paths, key=str):
         errors.append("Контуры просмотрщика не совпадают с regions_map.svg")
-    chains = re.search(r"const CHAINS = (\{.*?\});", html, re.S)
+    scan = _strip_comments(html)
+    chains = re.search(r"const DEFAULT_CHAINS = (\{.*?\});", scan, re.S)
     try:
-        if not chains or json.loads(chains[1].replace("'", '"')) != CHAPTER_XI_CHAINS:
-            errors.append("Цепочки просмотрщика не совпадают с CHAPTER_XI_CHAINS")
+        if not chains or json.loads(chains[1]) != CHAPTER_XI_CHAINS:
+            errors.append("Примеры цепочек просмотрщика (DEFAULT_CHAINS) не совпадают с CHAPTER_XI_CHAINS")
     except ValueError:
-        errors.append("Цепочки просмотрщика не разбираются")
+        errors.append("Примеры цепочек просмотрщика не разбираются")
     errors += [f"Растр в просмотрщике: {marker}" for marker in RASTER_MARKERS if marker in html]
     errors += [f"Недопустимая формулировка: {word}" for word in FORBIDDEN_VIEWER_WORDS if word in html.casefold()]
-    for required in ("../../published/", "confirm(", "устаревший снимок"):
-        if required not in html:
+    for required in ("../../published/", "confirm(", "устаревший снимок", *EDITOR_MARKERS):
+        if required not in scan:
             errors.append(f"В просмотрщике нет {required}")
     return errors
 
@@ -432,18 +468,24 @@ def visible_locations(world: dict[str, Any], *, show_secrets: bool = False,
 # --- Коридоры ----------------------------------------------------------------------
 
 def compare_corridors(chains: dict[str, list[str]] | None = None,
-                      graph: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
-    """Шаг цепочки — пара регионов. Нет общей границы в растре → status=gap, цепь не достраивается."""
+                      graph: dict[str, list[str]] | None = None,
+                      borders: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    """Шаг цепочки — пара регионов. Нет общей границы в растре → status=gap, цепь не достраивается.
+
+    border_length — число пар пикселей общей границы (0 для разрыва)."""
     graph = graph if graph is not None else ADJACENCY_GRAPH
+    borders = borders if borders is not None else BORDER_LENGTHS
     result: list[dict[str, Any]] = []
     for name, regions in (chains if chains is not None else CHAPTER_XI_CHAINS).items():
         if len(regions) < 2:
             raise ValueError("Цепочка должна содержать минимум два региона")
         if any(region not in graph for region in regions):
             raise ValueError("Неизвестный регион цепочки")
-        steps = [{"from_region": a, "to_region": b,
-                  "status": "border" if are_regions_adjacent(a, b, graph) else "gap"}
-                 for a, b in zip(regions, regions[1:])]
+        steps = []
+        for a, b in zip(regions, regions[1:]):
+            adjacent = are_regions_adjacent(a, b, graph)
+            steps.append({"from_region": a, "to_region": b, "status": "border" if adjacent else "gap",
+                          "border_length": borders.get(pair_key(a, b), 0) if adjacent else 0})
         result.append({"name": name, "regions": list(regions), "steps": steps,
                        "complete": all(step["status"] == "border" for step in steps)})
     return result
@@ -453,8 +495,18 @@ def _region_names(world: dict[str, Any]) -> dict[str, str]:
     return {r["name_en"]: get_region_display_name(r["name_en"], r.get("name_ru", "")) for r in world["regions"]}
 
 
+def plural_ru(n: int, one: str, few: str, many: str) -> str:
+    """Склонение по числу: 1 пара, 2 пары, 5 пар, 11 пар, 21 пара."""
+    tail = abs(n) % 100
+    if 10 < tail < 20:
+        return many
+    return one if tail % 10 == 1 else few if 2 <= tail % 10 <= 4 else many
+
+
 def _step_text(step: dict[str, str], names: dict[str, str]) -> str:
-    label = "общая граница" if step["status"] == "border" else "разрыв: общей границы нет"
+    length = step.get("border_length", 0)
+    label = (f"общая граница, {length} {plural_ru(length, 'пара', 'пары', 'пар')} пикселей" if step["status"] == "border"
+             else "разрыв: общей границы нет")
     return f"{names.get(step['from_region'], step['from_region'])} → {names.get(step['to_region'], step['to_region'])}: {label}"
 
 
@@ -559,7 +611,8 @@ def main() -> None:
         if args.world_source is None:
             parser.exit(2, "--build-adjacency требует --world-source\n")
         source = load_world_source(args.world_source)
-        document = adjacency_document(build_adjacency(source["cells"], source["names"]), source["cells"])
+        document = adjacency_document(build_adjacency(source["cells"], source["names"]),
+                                      build_border_lengths(source["cells"], source["names"]), source["cells"])
         with ADJACENCY_PATH.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
         return
@@ -581,7 +634,7 @@ def main() -> None:
         print(json.dumps({"format": "kenshi-cartography-verification/1", "status": "passed",
                           "world_ref_id": GEOMETRY_WORLD_REF_ID,
                           "raster_source_sha256": RASTER_SOURCE_SHA256,
-                          "adjacency_sha256": _adjacency_digest(ADJACENCY_GRAPH),
+                          "adjacency_sha256": _adjacency_digest(ADJACENCY_GRAPH, BORDER_LENGTHS),
                           "raster_cells_sha256": load_adjacency_document()["raster_cells_sha256"],
                           "geometry_svg_sha256": GEOMETRY_SVG_SHA256,
                           "algorithm": GEOMETRY_ALGORITHM,
