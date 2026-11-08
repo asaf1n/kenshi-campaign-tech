@@ -9,6 +9,7 @@ import shutil
 import sys
 from typing import Any
 
+from tools import cartography
 from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
 from tools.git_sync import GitSyncError, abort_unfinished, prepare_clone, push_delivery, require_git, run_git
 from tools.io_utils import linked
@@ -94,8 +95,37 @@ def _write_encounters(pub_path: Path, target_repo: Path, game_time: str) -> str:
     return "written"
 
 
-def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> str:
-    """Записывает published/ и encounters.md в клон; идемпотентно. Возвращает статус encounters."""
+def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
+    """Доставляет regions_map.svg и regions_adjacency.json в docs/reference/; возвращает (статус, ошибки).
+
+    Сначала проверяется совместимость просмотрщика sites/map/index.html клона с этими файлами. Несовместимый
+    просмотрщик блокирует запись артефактов (incompatible); отсутствие просмотрщика (ветка ещё не влита) — не ошибка.
+    """
+    viewer = target_repo / cartography.VIEWER_RELATIVE
+    try:
+        errors = cartography.check_viewer_compat(viewer.read_text(encoding="utf-8")) if viewer.is_file() else []
+    except (OSError, UnicodeDecodeError) as exc:
+        errors = [f"Просмотрщик не прочитан: {type(exc).__name__}"]
+    if errors:
+        return "incompatible", errors
+    targets = {name: target_repo / rel for name, rel in cartography.DELIVERED_ARTIFACTS.items()}
+    if any(linked(path) for target in targets.values() for path in (target, target.parent, target.parent.parent) if path.exists()):
+        return "skipped", ["каталог назначения - ссылка"]
+    changed = False
+    for name, target in targets.items():
+        data = (cartography.ASSET_DIR / name).read_bytes().replace(b"\r\n", b"\n")
+        if target.is_file() and target.read_bytes().replace(b"\r\n", b"\n") == data:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        changed = True
+    return ("written" if changed else "unchanged"), []
+
+
+def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> tuple[str, str, list[str]]:
+    """Записывает published/, encounters.md и картографические артефакты в клон; идемпотентно.
+
+    Возвращает (статус encounters, статус картографии, ошибки картографии)."""
     target_published = target_repo / "published"
     target_published.mkdir(parents=True, exist_ok=True)
 
@@ -124,13 +154,16 @@ def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> str:
             if not any(legacy_dir.iterdir()):
                 legacy_dir.rmdir()
 
-    return _write_encounters(pub_path, target_repo, game_time)
+    encounters = _write_encounters(pub_path, target_repo, game_time)
+    carto, carto_errors = _write_cartography(target_repo)
+    return encounters, carto, carto_errors
 
 
 def _commit_release(target_repo: Path, game_time: str, snap_short: str) -> bool:
     paths = ["published/"]
     if (target_repo / OUTPUT_RELATIVE).is_file():
         paths.append(OUTPUT_RELATIVE.as_posix())
+    paths += [rel.as_posix() for rel in cartography.DELIVERED_ARTIFACTS.values() if (target_repo / rel).is_file()]
     require_git(target_repo, "add", *paths)
     if run_git(target_repo, "diff", "--cached", "--quiet").returncode == 0:
         return False
@@ -176,8 +209,9 @@ def deliver_to_companion(
     pushed = False
     git_error: str | None = None
     encounters = "skipped"
+    carto, carto_errors = "skipped", ["картография не выполнялась: сбой подготовки или записи выпуска"]
 
-    def write_release() -> str:
+    def write_release() -> tuple[str, str, list[str]]:
         return _write_release(pub_path, target_repo, game_time)
 
     def commit_release() -> bool:
@@ -191,7 +225,7 @@ def deliver_to_companion(
         if use_git:
             prepare_clone(target_repo)
             prepared = True
-        encounters = write_release()
+        encounters, carto, carto_errors = write_release()
         written = True
         warnings = validation.get("warnings", [])
         if warnings:
@@ -203,8 +237,8 @@ def deliver_to_companion(
                 own = run_git(target_repo, "rev-parse", "HEAD").stdout.strip() if committed else None
 
                 def rebuild() -> None:
-                    nonlocal committed, encounters
-                    encounters = write_release()
+                    nonlocal committed, encounters, carto, carto_errors
+                    encounters, carto, carto_errors = write_release()
                     committed = commit_release()
 
                 push_delivery(target_repo, own, rebuild)
@@ -219,6 +253,7 @@ def deliver_to_companion(
             abort_unfinished(target_repo)
 
     result: dict[str, Any] = {
+        # status отражает только доставку published/; состояние карты — отдельное поле cartography.
         "status": "failed" if git_error else "delivered",
         "game_time": game_time,
         "snapshot_id": snapshot_id,
@@ -226,7 +261,12 @@ def deliver_to_companion(
         "committed": committed,
         "pushed": pushed,
         "encounters": encounters,
+        "cartography": "ok" if carto in ("written", "unchanged") else carto,
+        "cartography_changed": carto == "written",
     }
+    if carto in ("incompatible", "skipped"):
+        result["cartography_reason"] = "; ".join(carto_errors)
+        sys.stderr.buffer.write(f"WARNING: картография не доставлена ({carto}): {result['cartography_reason']}\n".encode("utf-8"))
     if git_error:
         result["git_error"] = git_error
     return result

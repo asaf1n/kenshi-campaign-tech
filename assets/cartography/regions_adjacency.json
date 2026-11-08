@@ -1,0 +1,470 @@
+{
+ "adjacency": {
+  "Arach": [
+   "Shun",
+   "Spider Plains",
+   "Watcher's Rim"
+  ],
+  "Arm of Okran": [
+   "Bast",
+   "Hidden Forest",
+   "Northern Coast",
+   "Okran's Pride",
+   "Okran's Valley",
+   "Skimsands",
+   "Skinner's Roam",
+   "Wend"
+  ],
+  "Ashlands": [
+   "Sonorous Dark",
+   "The Pits"
+  ],
+  "Bast": [
+   "Arm of Okran",
+   "Northern Coast",
+   "Okran's Valley",
+   "Sinkuun",
+   "Skimsands",
+   "The Great Desert"
+  ],
+  "Berserker Country": [
+   "Purple Sands",
+   "The Shrieking Forest"
+  ],
+  "Bonefields": [
+   "Burning Forest",
+   "Fishman Island",
+   "Flats Lagoon",
+   "Greyshelf",
+   "High Bonefields",
+   "Royal Valley",
+   "Shem",
+   "South Wetlands",
+   "The Hook"
+  ],
+  "Border Zone": [
+   "Okran's Gulf",
+   "Okran's Pride",
+   "Shem",
+   "Skinner's Roam",
+   "Spider Plains",
+   "Stenn Desert",
+   "The Swamp",
+   "Vain"
+  ],
+  "Burning Forest": [
+   "Bonefields",
+   "High Bonefields",
+   "Shem",
+   "The Swamp"
+  ],
+  "Cannibal Plains": [
+   "Floodlands",
+   "Hidden Forest",
+   "Leviathan Coast",
+   "Northern Coast",
+   "Purple Sands",
+   "The Iron Trail"
+  ],
+  "Cheaters Run": [
+   "Royal Valley"
+  ],
+  "Darkfinger": [
+   "Northern Coast",
+   "Sinkuun"
+  ],
+  "Deadlands": [
+   "Grey Desert",
+   "Iron Valleys",
+   "Shem",
+   "Skinner's Roam",
+   "The Black Desert",
+   "Venge"
+  ],
+  "Dreg": [
+   "Fog Islands",
+   "Okran's Gulf",
+   "The Shrieking Forest",
+   "Vain"
+  ],
+  "Fishman Island": [
+   "Bonefields"
+  ],
+  "Flats Lagoon": [
+   "Bonefields",
+   "Greyshelf",
+   "Shem",
+   "Stobe's Gamble",
+   "Venge"
+  ],
+  "Floodlands": [
+   "Cannibal Plains",
+   "Hidden Forest",
+   "Okran's Gulf",
+   "Purple Sands",
+   "Rebirth",
+   "The Shrieking Forest",
+   "Wend"
+  ],
+  "Fog Islands": [
+   "Dreg",
+   "Okran's Gulf",
+   "The Shrieking Forest"
+  ],
+  "Forbidden Isle": [
+   "Stormgap Coast"
+  ],
+  "Greenbeach": [
+   "Stobe's Garden",
+   "The Outlands",
+   "The Pits East"
+  ],
+  "Grey Desert": [
+   "Deadlands",
+   "The Black Desert",
+   "The Eye",
+   "Venge"
+  ],
+  "Greyshelf": [
+   "Bonefields",
+   "Flats Lagoon",
+   "Royal Valley",
+   "Sonorous Dark",
+   "Stobe's Gamble"
+  ],
+  "Gut": [
+   "Heng",
+   "Howler Maze",
+   "Stormgap Coast",
+   "The Eye"
+  ],
+  "Heng": [
+   "Gut",
+   "Howler Maze",
+   "Skimsands",
+   "The Eye",
+   "The Great Desert"
+  ],
+  "Hidden Forest": [
+   "Arm of Okran",
+   "Cannibal Plains",
+   "Floodlands",
+   "Northern Coast",
+   "Wend"
+  ],
+  "High Bonefields": [
+   "Bonefields",
+   "Burning Forest",
+   "South Wetlands",
+   "The Swamp"
+  ],
+  "Howler Maze": [
+   "Gut",
+   "Heng"
+  ],
+  "Iron Valleys": [
+   "Deadlands",
+   "Skinner's Roam",
+   "The Black Desert"
+  ],
+  "Leviathan Coast": [
+   "Cannibal Plains",
+   "The Iron Trail"
+  ],
+  "Northern Coast": [
+   "Arm of Okran",
+   "Bast",
+   "Cannibal Plains",
+   "Darkfinger",
+   "Hidden Forest",
+   "Okran's Valley",
+   "Sinkuun"
+  ],
+  "Obedience": [],
+  "Okran's Gulf": [
+   "Border Zone",
+   "Dreg",
+   "Floodlands",
+   "Fog Islands",
+   "Okran's Pride",
+   "Rebirth",
+   "Vain"
+  ],
+  "Okran's Pride": [
+   "Arm of Okran",
+   "Border Zone",
+   "Okran's Gulf",
+   "Okran's Valley",
+   "Rebirth",
+   "Skinner's Roam",
+   "Wend"
+  ],
+  "Okran's Valley": [
+   "Arm of Okran",
+   "Bast",
+   "Northern Coast",
+   "Okran's Pride",
+   "Wend"
+  ],
+  "Purple Sands": [
+   "Berserker Country",
+   "Cannibal Plains",
+   "Floodlands",
+   "The Iron Trail",
+   "The Shrieking Forest"
+  ],
+  "Raptor Island": [],
+  "Rebirth": [
+   "Floodlands",
+   "Okran's Gulf",
+   "Okran's Pride",
+   "Wend"
+  ],
+  "Royal Valley": [
+   "Bonefields",
+   "Cheaters Run",
+   "Greyshelf",
+   "Sonorous Dark"
+  ],
+  "Shem": [
+   "Bonefields",
+   "Border Zone",
+   "Burning Forest",
+   "Deadlands",
+   "Flats Lagoon",
+   "Skinner's Roam",
+   "The Swamp",
+   "Venge"
+  ],
+  "Shun": [
+   "Arach",
+   "Spider Plains",
+   "The Crater",
+   "The Hook",
+   "Watcher's Rim"
+  ],
+  "Sinkuun": [
+   "Bast",
+   "Darkfinger",
+   "Northern Coast",
+   "The Great Desert"
+  ],
+  "Skimsands": [
+   "Arm of Okran",
+   "Bast",
+   "Heng",
+   "Spine Canyon",
+   "The Black Desert",
+   "The Eye",
+   "The Great Desert"
+  ],
+  "Skinner's Roam": [
+   "Arm of Okran",
+   "Border Zone",
+   "Deadlands",
+   "Iron Valleys",
+   "Okran's Pride",
+   "Shem"
+  ],
+  "Sniper Valley": [
+   "Sonorous Dark",
+   "Stobe's Gamble",
+   "The Crags",
+   "The Pits"
+  ],
+  "Sonorous Dark": [
+   "Ashlands",
+   "Greyshelf",
+   "Royal Valley",
+   "Sniper Valley",
+   "Stobe's Gamble",
+   "The Pits"
+  ],
+  "South Wetlands": [
+   "Bonefields",
+   "High Bonefields",
+   "The Crater",
+   "The Grid",
+   "The Hook",
+   "The Swamp"
+  ],
+  "Spider Plains": [
+   "Arach",
+   "Border Zone",
+   "Shun",
+   "Stenn Desert",
+   "The Crater",
+   "The Grid",
+   "The Swamp",
+   "Vain",
+   "Watcher's Rim"
+  ],
+  "Spine Canyon": [
+   "Skimsands",
+   "The Great Desert"
+  ],
+  "Stenn Desert": [
+   "Border Zone",
+   "Spider Plains",
+   "Vain"
+  ],
+  "Stobe's Gamble": [
+   "Flats Lagoon",
+   "Greyshelf",
+   "Sniper Valley",
+   "Sonorous Dark",
+   "Stobe's Garden",
+   "The Crags",
+   "The Unwanted Zone",
+   "Venge"
+  ],
+  "Stobe's Garden": [
+   "Greenbeach",
+   "Stobe's Gamble",
+   "The Crags",
+   "The Outlands",
+   "The Pits",
+   "The Pits East",
+   "The Unwanted Zone"
+  ],
+  "Stormgap Coast": [
+   "Forbidden Isle",
+   "Gut",
+   "The Eye",
+   "The Outlands",
+   "The Unwanted Zone",
+   "Venge"
+  ],
+  "The Black Desert": [
+   "Deadlands",
+   "Grey Desert",
+   "Iron Valleys",
+   "Skimsands",
+   "The Eye"
+  ],
+  "The Crags": [
+   "Sniper Valley",
+   "Stobe's Gamble",
+   "Stobe's Garden",
+   "The Pits"
+  ],
+  "The Crater": [
+   "Shun",
+   "South Wetlands",
+   "Spider Plains",
+   "The Grid",
+   "The Hook"
+  ],
+  "The Eye": [
+   "Grey Desert",
+   "Gut",
+   "Heng",
+   "Skimsands",
+   "Stormgap Coast",
+   "The Black Desert",
+   "Venge"
+  ],
+  "The Great Desert": [
+   "Bast",
+   "Heng",
+   "Sinkuun",
+   "Skimsands",
+   "Spine Canyon"
+  ],
+  "The Grid": [
+   "South Wetlands",
+   "Spider Plains",
+   "The Crater",
+   "The Swamp"
+  ],
+  "The Hook": [
+   "Bonefields",
+   "Shun",
+   "South Wetlands",
+   "The Crater"
+  ],
+  "The Iron Trail": [
+   "Cannibal Plains",
+   "Leviathan Coast",
+   "Purple Sands"
+  ],
+  "The Outlands": [
+   "Greenbeach",
+   "Stobe's Garden",
+   "Stormgap Coast",
+   "The Unwanted Zone"
+  ],
+  "The Pits": [
+   "Ashlands",
+   "Sniper Valley",
+   "Sonorous Dark",
+   "Stobe's Garden",
+   "The Crags",
+   "The Pits East"
+  ],
+  "The Pits East": [
+   "Greenbeach",
+   "Stobe's Garden",
+   "The Pits"
+  ],
+  "The Shrieking Forest": [
+   "Berserker Country",
+   "Dreg",
+   "Floodlands",
+   "Fog Islands",
+   "Purple Sands"
+  ],
+  "The Swamp": [
+   "Border Zone",
+   "Burning Forest",
+   "High Bonefields",
+   "Shem",
+   "South Wetlands",
+   "Spider Plains",
+   "The Grid"
+  ],
+  "The Unwanted Zone": [
+   "Stobe's Gamble",
+   "Stobe's Garden",
+   "Stormgap Coast",
+   "The Outlands",
+   "Venge"
+  ],
+  "Vain": [
+   "Border Zone",
+   "Dreg",
+   "Okran's Gulf",
+   "Spider Plains",
+   "Stenn Desert"
+  ],
+  "Venge": [
+   "Deadlands",
+   "Flats Lagoon",
+   "Grey Desert",
+   "Shem",
+   "Stobe's Gamble",
+   "Stormgap Coast",
+   "The Eye",
+   "The Unwanted Zone"
+  ],
+  "Watcher's Rim": [
+   "Arach",
+   "Shun",
+   "Spider Plains"
+  ],
+  "Wend": [
+   "Arm of Okran",
+   "Floodlands",
+   "Hidden Forest",
+   "Okran's Pride",
+   "Okran's Valley",
+   "Rebirth"
+  ]
+ },
+ "adjacency_sha256": "f781346043cd214b70b6377f21dc477fb7ce70aec5b4a9874a280cd0dc04f785",
+ "algorithm": "rle-four-neighbors/1",
+ "format": "kenshi-region-adjacency/1",
+ "raster_cells_sha256": "180cde73897b7b08ae7b1c1723e39d2d8307393c0cbb4aec287eabe5cd418e72",
+ "raster_source_sha256": "5f93a4ccfd2796dc12820d3a3f48a95606182ade626bd4a45260566c704105f2",
+ "world_ref_id": "sha256-4de10504d03d87e137cf00707bd235011a6991966151058f36b9165e0851c155"
+}
