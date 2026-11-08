@@ -95,7 +95,7 @@ python -m tools.campaign deliver-companion [--push]
 ```
 или автоматически флагом `--deliver-to "C:\Users\artem\Kenshi Compain"` при выполнении `pipeline`.
 
-Вместе с выгрузкой доставка генерирует `docs/reference/encounters.md` в `Kenshi-Compain` из таблиц справочника юнитов (пять из семи: `squad_*`, `faction_*`; `tools/encounters.py`, подробнее — `docs/data-contract.md`); файл входит в тот же коммит и не затрагивается, если таблиц в выпуске нет.
+Вместе с выгрузкой доставка генерирует `docs/reference/encounters.md` в `Kenshi-Compain` из таблиц справочника юнитов (пять из семи: `squad_*`, `faction_*`; `tools/encounters.py`, подробнее — `docs/data-contract.md`); файл входит в тот же коммит и не затрагивается, если таблиц в выпуске нет. Картографические производные `docs/reference/regions_map.svg` и `regions_adjacency.json` доставляются в том же коммите при совместимом просмотрщике `sites/map/index.html`; их состояние — поле `cartography` отчёта доставки (`docs/cartography.md`).
 
 ### Состав release bundle
 
