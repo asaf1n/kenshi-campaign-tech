@@ -355,20 +355,23 @@ class DeliveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as holder:
             clone, pub = self.make_clone(Path(holder), make_viewer())
             first = deliver_to_companion(pub, clone, auto_commit=True)
-            self.assertEqual((first["cartography"], first["committed"], first["status"]), ("written", True, "delivered"))
+            self.assertEqual((first["cartography"], first["cartography_changed"], first["committed"], first["status"]),
+                             ("ok", True, True, "delivered"))
             files = self.git("show", "--name-only", "--format=", "HEAD", cwd=clone)
             for name in ("docs/reference/regions_map.svg", "docs/reference/regions_adjacency.json", "published/manifest.json"):
                 self.assertIn(name, files)
             self.assertEqual(c.load_adjacency(clone / "docs/reference/regions_adjacency.json"), c.ADJACENCY_GRAPH)
             second = deliver_to_companion(pub, clone, auto_commit=True)
-            self.assertEqual((second["cartography"], second["committed"]), ("unchanged", False))
+            self.assertEqual((second["cartography"], second["cartography_changed"], second["committed"]), ("ok", False, False))
 
-    def test_incompatible_viewer_blocks_artifacts_and_fails_status(self) -> None:
+    def test_incompatible_viewer_blocks_artifacts_but_published_is_delivered(self) -> None:
+        """Ловит смешение статусов: сбой карты не должен помечать доставку published/ как неуспешную."""
         with tempfile.TemporaryDirectory() as holder:
             clone, pub = self.make_clone(Path(holder), make_viewer().replace("'Rebirth'", "'Wend'"))
             result = deliver_to_companion(pub, clone, auto_commit=True)
-            self.assertEqual((result["cartography"], result["status"]), ("incompatible", "failed"))
-            self.assertTrue(result["cartography_errors"])
+            self.assertEqual((result["cartography"], result["status"], result["committed"]), ("incompatible", "delivered", True))
+            self.assertIn("Цепочки просмотрщика", result["cartography_reason"])
+            self.assertIn("published/manifest.json", self.git("show", "--name-only", "--format=", "HEAD", cwd=clone))
             self.assertFalse((clone / "docs/reference/regions_map.svg").exists())
             self.assertTrue((clone / "published/manifest.json").is_file())
 
@@ -377,13 +380,23 @@ class DeliveryTests(unittest.TestCase):
             clone, pub = self.make_clone(Path(holder), "x")
             (clone / c.VIEWER_RELATIVE).write_bytes(b"\xff\xfe\x00bad")
             result = deliver_to_companion(pub, clone, auto_commit=False)
-            self.assertEqual((result["cartography"], result["status"]), ("incompatible", "failed"))
+            self.assertEqual((result["cartography"], result["status"]), ("incompatible", "delivered"))
+            self.assertTrue(result["cartography_reason"])
+
+    def test_published_failure_is_failed_while_cartography_reported_separately(self) -> None:
+        """Сбой git при доставке published/ даёт status=failed; поле cartography остаётся самостоятельным."""
+        with tempfile.TemporaryDirectory() as holder:
+            clone, pub = self.make_clone(Path(holder), make_viewer())
+            result = deliver_to_companion(pub, clone, auto_commit=True, auto_push=True)  # remote не настроен
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("git_error", result)
+            self.assertEqual(result["cartography"], "ok")
 
     def test_absent_viewer_is_not_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as holder:
             clone, pub = self.make_clone(Path(holder), None)
             result = deliver_to_companion(pub, clone, auto_commit=True)
-            self.assertEqual((result["cartography"], result["status"]), ("written", "delivered"))
+            self.assertEqual((result["cartography"], result["status"]), ("ok", "delivered"))
 
 
 @unittest.skipUnless(WORLD_SOURCE, "локальный режим: нет data/world/<world_ref_id>.json")

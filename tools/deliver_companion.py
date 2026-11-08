@@ -209,7 +209,7 @@ def deliver_to_companion(
     pushed = False
     git_error: str | None = None
     encounters = "skipped"
-    carto, carto_errors = "skipped", []
+    carto, carto_errors = "skipped", ["картография не выполнялась: сбой подготовки или записи выпуска"]
 
     def write_release() -> tuple[str, str, list[str]]:
         return _write_release(pub_path, target_repo, game_time)
@@ -253,18 +253,20 @@ def deliver_to_companion(
             abort_unfinished(target_repo)
 
     result: dict[str, Any] = {
-        "status": "failed" if git_error or carto == "incompatible" else "delivered",
+        # status отражает только доставку published/; состояние карты — отдельное поле cartography.
+        "status": "failed" if git_error else "delivered",
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),
         "committed": committed,
         "pushed": pushed,
         "encounters": encounters,
-        "cartography": carto,
+        "cartography": "ok" if carto in ("written", "unchanged") else carto,
+        "cartography_changed": carto == "written",
     }
-    if carto_errors:
-        result["cartography_errors"] = carto_errors
-        sys.stderr.buffer.write(f"WARNING: картография не доставлена: {'; '.join(carto_errors)}\n".encode("utf-8"))
+    if carto in ("incompatible", "skipped"):
+        result["cartography_reason"] = "; ".join(carto_errors)
+        sys.stderr.buffer.write(f"WARNING: картография не доставлена ({carto}): {result['cartography_reason']}\n".encode("utf-8"))
     if git_error:
         result["git_error"] = git_error
     return result
