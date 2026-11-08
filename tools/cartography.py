@@ -259,17 +259,17 @@ def _strip_comments(html: str) -> str:
     return re.sub(r"(?m)(^|\s)//[^\n]*$", "", html)
 
 
-def check_viewer_compat(html: str) -> list[str]:
+def check_viewer_compat(html: str, *, require_registry: bool = False) -> list[str]:
     """Совместимость просмотрщика с доставляемыми артефактами; пустой список — совместим.
 
     Любой сбой разбора (нетипичная структура derived и т.п.) даёт ошибку совместимости, а не исключение."""
     try:
-        return _check_viewer_compat(html)
+        return _check_viewer_compat(html, require_registry=require_registry)
     except (ValueError, TypeError, AttributeError, KeyError, ET.ParseError) as exc:
         return [f"Просмотрщик не разобран: {type(exc).__name__}"]
 
 
-def _check_viewer_compat(html: str) -> list[str]:
+def _check_viewer_compat(html: str, *, require_registry: bool) -> list[str]:
     errors: list[str] = []
     match = re.search(r"<script\b[^>]*\bid=[\"']derived[\"'][^>]*>(.*?)</script>", html, re.S)
     if not match:
@@ -303,10 +303,21 @@ def _check_viewer_compat(html: str) -> list[str]:
     except ValueError:
         errors.append("Примеры цепочек просмотрщика не разбираются")
     errors += [f"Растр в просмотрщике: {marker}" for marker in RASTER_MARKERS if marker in html]
+    registry_markers = ("location_registry.json", "locations_progress.json", "kenshi-location-registry/1")
+    if all(marker in scan for marker in registry_markers):
+        labels = re.search(r"^const VISIT\s*=\s*\{.*?^\};", html, re.M | re.S)
+        if labels:
+            # Название статуса локации допустимо только в словаре меток реестра.
+            block = re.sub(r"\bexplored\s*:\s*\{\s*label\s*:\s*(['\"])Исследован\1", "", labels[0], count=1)
+            html = html[:labels.start()] + block + html[labels.end():]
     errors += [f"Недопустимая формулировка: {word}" for word in FORBIDDEN_VIEWER_WORDS if word in html.casefold()]
     for required in ("../../published/", "confirm(", "устаревший снимок", *EDITOR_MARKERS):
         if required not in scan:
             errors.append(f"В просмотрщике нет {required}")
+    if require_registry:
+        for required in registry_markers:
+            if required not in scan:
+                errors.append(f"В просмотрщике нет {required}")
     return errors
 
 

@@ -144,6 +144,25 @@ def parse_towns(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def parse_town_discovery(records: Sequence[dict[str, Any]]) -> dict[str, bool]:
+    """Признак обнаружения Town state для однозначно определённого экземпляра."""
+    seen: set[str] = set()
+    result: dict[str, bool] = {}
+    for record in records:
+        if record.get("type") != 94:
+            continue
+        instance = record.get("string", {}).get("instance")
+        if not instance:
+            continue
+        discovered = record.get("bool", {}).get("discovered")
+        if instance in seen:
+            result.pop(instance, None)
+        elif isinstance(discovered, bool):
+            result[instance] = discovered
+        seen.add(instance)
+    return result
+
+
 def parse_registry(records: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Записи 34: реестр отрядов сохранения (stem -> метаданные)."""
     reg: dict[str, dict[str, Any]] = {}
@@ -372,11 +391,18 @@ def extract_world_state(
         "overridden_towns_count": len(towns_list),
     }
 
-    return {
+    result = {
         "unique_npcs": uniques_list,
         "town_overrides": towns_list,
         "summary": summary,
     }
+    discovery = parse_town_discovery(records)
+    if discovery:
+        result["town_discovery"] = [
+            {"instance_id": instance, "discovered": value}
+            for instance, value in sorted(discovery.items())
+        ]
+    return result
 
 
 def parse_quick_save(

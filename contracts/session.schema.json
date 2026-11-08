@@ -250,6 +250,18 @@
             "type": ["object", "null"],
             "required": ["unique_npcs", "town_overrides", "summary"],
             "properties": {
+              "town_discovery": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["instance_id", "discovered"],
+                  "properties": {
+                    "instance_id": {"type": "string", "minLength": 1},
+                    "discovered": {"type": "boolean"}
+                  }
+                }
+              },
               "unique_npcs": {
                 "type": "array",
                 "items": {

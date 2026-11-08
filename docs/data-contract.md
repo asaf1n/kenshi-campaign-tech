@@ -84,6 +84,7 @@ published/
   squad.md
   locations.json
   world_reference.json
+  location_registry.json
   timeline.jsonl
   tables/               # CSV и index.md, раздел «Табличные выгрузки»
     index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, races.csv, item_prices.csv, trade_modifiers.csv, unique_npcs.csv,
@@ -100,7 +101,7 @@ published/
 
 `manifest.json` содержит: `format: "kenshi-publication/1"`, `generated_at` (UTC ISO-8601), `snapshot_id`, `campaign_id` (канонический `"hot-lon"` для релизной публикации), `source_kind` (`save`/`export`), `source_format`, `source_sha256` (хеш именно указанного source_kind), `artifacts` (пути относительно `published/`; `artifacts.tables` — `tables/index.md`, необязательный ключ), `validation` (`passed` или `failed`), а также `world_ref_id` (`sha256-...`), связывающий пакет с детерминированным справочником мира. При успешном выпуске `validation.status="passed"`; неуспешный bundle не публикуется как актуальный. `snapshot_id` однозначно связывает файлы; в `changes.json` должна быть явная пара `from`/`to` или `valid:false` с причиной.
 
-Схема допускает необязательные `parent_snapshot_id`, `branch_id`, `campaign_id`, `game_time` (`string | number | null`, игровое время). Определение принадлежности публикации ведётся строго по `campaign_id` (по умолчанию `"hot-lon"`); публикация в канонический `published/` с другим `campaign_id` блокируется с ошибкой `PublisherError`, а валидатор `validate_publication` сверяет `campaign_id` манифеста с записью в `data/index.json`. Относительные пути `artifacts.locations`, `artifacts.world_reference` и `artifacts.screenshots` (`"screenshots/index.json"`) регистрируют соответствующие артефакты в пакете публикации. Неизвестные свойства manifest запрещены.
+Схема допускает необязательные `parent_snapshot_id`, `branch_id`, `campaign_id`, `game_time` (`string | number | null`, игровое время). Определение принадлежности публикации ведётся строго по `campaign_id` (по умолчанию `"hot-lon"`); публикация в канонический `published/` с другим `campaign_id` блокируется с ошибкой `PublisherError`, а валидатор `validate_publication` сверяет `campaign_id` манифеста с записью в `data/index.json`. Относительные пути `artifacts.locations`, `artifacts.world_reference`, `artifacts.location_registry` (`"location_registry.json"`) и `artifacts.screenshots` (`"screenshots/index.json"`) регистрируют соответствующие артефакты в пакете публикации. Ключ `artifacts.location_registry` может отсутствовать у прежнего выпуска. Неизвестные свойства manifest запрещены.
 
 Публичные данные не должны содержать абсолютных путей пользователя из `save.path`. Не публиковать сырые сейвы, произвольные большие текстовые поля, секреты или неразобранные бинарные блоки. Скриншоты игры из каталога `_screens` публикуются конвейером автоматически за 7-дневное окно (`now - 7d`) без ручного отбора в `published/screenshots/`; исходный каталог является read-only. Имена персонажей и числовые игровые показатели допустимы; автоматическая валидация проверяет публикуемый пакет на локальные пути пользователя (`C:\Users\...`, `/home/...`) и секреты.
 
@@ -273,9 +274,23 @@ Publisher читает журнал целиком, проверяет его, �
   - `near_location`: `location: null`, ближайшие известные локации в радиусе окрестности (с указанием 2D евклидова расстояния и `instance_id`), отсортированные по `(distance, instance_id)`.
   - `in_region`: `location: null`, подтверждённый растром регион (с пометкой границы 1152 ед. `border: true`).
   - `unknown`: `location: null`, `region: null` с явной причиной.
-  - Запрещён вывод фактов посещения, исследования или зачистки руин из координат.
+  - Для автоотметок посещения реестр использует подтверждённый `in_location`. `near_location`, `nearby_locations` и `in_region` не считаются свидетельством посещения. Пространственная привязка не устанавливает исследование или зачистку.
 - Пространственные группы `spatial_groups`: детерминированная кластеризация разделённых участников с сортировкой по `(name, id)`.
 - Перемещение `movement`: прямолинейное 2D евклидово смещение в плоскости `(X, Z)` строго при `diff.valid == true`. При невалидном сравнении или отсутствии baseline — `movement.valid = false`.
+
+## Реестр локаций и ручные отметки
+
+`publish` формирует `published/location_registry.json` по схеме [kenshi-location-registry/1](../contracts/location-registry.schema.json). Корневые `snapshot_id`, `branch_id`, `campaign_id`, `game_time` и `world_ref_id` совпадают с манифестом. `locations` содержит по одной записи на каждый `instance_id` справочника. Статика копируется из справочника. `template_faction` появляется при однозначной ссылке шаблона `TOWN` на фракцию в проверенных исходных файлах мира. Поле описывает шаблонного владельца.
+
+`presence` хранит первый и последний снимки с персонажами `in_location`. `property` хранит последний снимок с собственностью игрока `in_location`. Точка свидетельства содержит `snapshot_id`, `game_time` и `count`. Обход идёт от выбранного снимка по `parent_snapshot_id` до начала его цепочки. Чужие кампании, боковые ветки и отменённые более поздние снимки при откате не учитываются. Доступные разрешения берутся из `locations/` рядом с каталогом `snapshots/`. `coverage` показывает длину учтённой цепочки и число доступных разрешений. `auto_status` равен `visited` при наличии хотя бы одного свидетельства, иначе `no_evidence`.
+
+`discovered` и `discovered_source` отражают отдельный флаг `Town state.discovered` выбранного сейва. Сопоставление выполняется по `instance_id`. Если флаг недоступен, поля отсутствуют. Новые снимки содержат исходный флаг в `world_state.town_discovery`, публичная проекция переносит его в реестр. `publish --discovery-save <каталог сейва>` восстанавливает флаг для старого снимка только при совпадении полного хеша каталога с `source_sha256` до и после чтения.
+
+Ручной слой кампании `hot-lon` расположен в `Campaign/Хроники Хот Лон/locations_progress.json` игрового репозитория и соответствует схеме [kenshi-location-progress/1](../contracts/location-progress.schema.json). В корне указаны `campaign_id`, `world_ref_id` и `locations`. Запись содержит `instance_id`, `branch_id`, `status` (`visited` или `explored`), короткое свидетельство `evidence` и установленное `game_time` (`Day N HH:MM`), если оно известно. Ключ `(branch_id, instance_id)` уникален. Применяются записи ветки выпуска. Датированные отметки позже игрового времени выпуска исключаются.
+
+Перед коммитом `python -m tools.campaign check-location-progress --companion-dir <игровой клон> [--published-dir <выпуск>]` проверяет схему, справочник и дубли. Отметка должна сохранять максимальный подтверждённый статус из истории Git по первым родителям. При смене `world_ref_id` совпавшие `instance_id` переносятся напрямую. Прежние несопоставленные отметки сохраняются без изменений и возвращаются в диагностике. Новые и изменённые отметки требуют действующего ID. Команда завершается кодом `1`, если ручной слой отсутствует или не проходит проверку.
+
+`deliver-companion` проверяет ручной слой после подготовки игрового клона и до записи выпуска. Доставка вычисляет `status = max(auto_status, ручной статус)` по порядку `no_evidence < visited < explored`, при равенстве итог следует автостатусу. Источник указан в `status_source` (`none`, `auto`, `manual`), применённая отметка доступна в `manual`. Локальный реестр конвертера содержит только автостатусы. Выпуск с реестром свыше 150 000 символов не записывается. [Решение о реестре](adr/location-registry.md).
 
 ## Дипломатия и состояние мира: геополитические структуры FCS
 
@@ -462,4 +477,4 @@ Publisher читает журнал целиком, проверяет его, �
 
 ## Валидация проектных схем
 
-`python -m tools.campaign check-schemas` проверяет все 9 проектных примеров, включая `session-11.example.json`. Unit-тесты отдельно отвергают неизвестные свойства, неправильные типы/даты, абсолютные пути/выход через `../` и некорректные поля новых разделов v11. Старые формы примеров и все 53 исторических снимка остаются полностью валидными.
+`python -m tools.campaign check-schemas` проверяет проектные примеры, включая `session-11.example.json`, и определения схем реестра и ручных отметок. Unit-тесты отдельно отвергают неизвестные свойства, неправильные типы/даты, абсолютные пути/выход через `../` и некорректные поля новых разделов v11. Старые формы примеров и все 53 исторических снимка остаются полностью валидными.

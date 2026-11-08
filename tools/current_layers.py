@@ -18,6 +18,8 @@ def public_projection(value: Any) -> Any:
         for key, item in value.items():
             if key in DROPPED_KEYS:
                 continue
+            if key == "world_state" and isinstance(item, dict):
+                item = {name: part for name, part in item.items() if name != "town_discovery"}
             projected = public_projection(item)
             if key == "skills_base" and isinstance(projected, dict):
                 projected = {name: level for name, level in projected.items() if isinstance(level, bool) or level != 1.0}

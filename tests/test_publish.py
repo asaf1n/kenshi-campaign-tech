@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from tools.diff import diff, make_diff_id, store_diff
+from tools.index import CampaignIndexError
 from tools.io_utils import canonical, digest, read_json
+from tools.location_registry import REGISTRY_FILENAME
 from tools.publisher import PublisherError, publish, recover_if_needed
 from tools.rendering import render_brief, render_squad
 from tools.timeline import read_timeline
@@ -202,11 +204,24 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8").splitlines()[0], f"# Краткая сводка: {when}")
         self.assertEqual((self.published_dir / "squad.md").read_text(encoding="utf-8").splitlines()[0], f"# Состав отряда: {when}")
         manifest_bytes = (self.published_dir / "manifest.json").read_bytes()
-        validation = read_json(manifest_bytes)["validation"]
+        manifest = read_json(manifest_bytes)
+        validation = manifest["validation"]
         self.assertEqual((validation["status"], validation["warnings"]), ("passed", ["artifact:timeline: empty"]))
+        self.assertEqual(manifest["artifacts"]["location_registry"], REGISTRY_FILENAME)
+        registry = (self.published_dir / REGISTRY_FILENAME).read_bytes()
 
         publish(**kwargs)  # предупреждение не нарушает идемпотентность выпуска
         self.assertEqual((self.published_dir / "manifest.json").read_bytes(), manifest_bytes)
+        self.assertEqual((self.published_dir / REGISTRY_FILENAME).read_bytes(), registry)
+
+    def test_publish_does_not_hide_an_unreadable_index(self) -> None:
+        snap_id = "snap-broken-index"
+        _create_sample_snapshot(self.snapshots_dir, snap_id)
+        (self.root / "index.json").write_text("[", encoding="utf-8")
+        with self.assertRaises(CampaignIndexError):
+            publish(snapshot_id=snap_id, snapshots_dir=self.snapshots_dir, diffs_dir=self.diffs_dir,
+                    published_dir=self.published_dir)
+        self.assertFalse((self.published_dir / "manifest.json").exists())
 
     def test_publish_has_no_current_dir_and_legacy_manifest_stays_valid(self) -> None:
         """Публикация не создаёт current/ и удаляет устаревший; манифест без current_index валиден, прежний с ним тоже."""
@@ -281,6 +296,14 @@ class PublishTests(unittest.TestCase):
         bad_manifest["parent_snapshot_id"] = "fake-parent"
         manifest_path.write_bytes(canonical(bad_manifest))
         with self.assertRaises(PublicationValidationError):
+            validate_publication(self.published_dir)
+
+        manifest_path.write_bytes(canonical(manifest_orig))
+        registry_path = self.published_dir / REGISTRY_FILENAME
+        registry = read_json(registry_path.read_bytes())
+        registry["snapshot_id"] = "another-snapshot"
+        registry_path.write_bytes(canonical(registry))
+        with self.assertRaisesRegex(PublicationValidationError, "реестр|Реестр"):
             validate_publication(self.published_dir)
 
     def test_ac10_ac11_privacy_and_deterministic_rendering_reconciliation(self) -> None:

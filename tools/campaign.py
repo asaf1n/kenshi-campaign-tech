@@ -86,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     pub_parser.add_argument("--campaign-id")
     pub_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
     pub_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
+    pub_parser.add_argument("--discovery-save", type=Path,
+                            help="Прочитать обнаружение локаций из точного исходного сейва старого снимка")
     pub_parser.add_argument("--dry-run", action="store_true")
 
     # 7. pipeline
@@ -139,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
     deliv_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
     deliv_parser.add_argument("--no-commit", action="store_true", help="Не выполнять git commit в Kenshi-Compain")
     deliv_parser.add_argument("--push", action="store_true", help="Выполнить git push в Kenshi-Compain")
+
+    progress_parser = commands.add_parser("check-location-progress", help="Проверка ручных отметок перед коммитом")
+    progress_parser.add_argument("--published-dir", type=Path, help="Каталог выпуска со справочником мира")
+    progress_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
 
     # 7.3. sync-drive
     drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
@@ -388,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
                 timeline_path=args.timeline,
                 sessions_root=args.sessions_root,
                 screens_dir=effective_screens_dir,
+                discovery_save=args.discovery_save,
             )
 
         elif args.command == "annotate-screenshots":
@@ -507,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
                 auto_push=args.push,
             )
 
+        elif args.command == "check-location-progress":
+            from tools.deliver_companion import check_location_progress
+            result = check_location_progress(args.published_dir, args.companion_dir)
+
         elif args.command == "sync-drive":
             from tools.config import find_gdrive_root
             from tools.deliver_companion import companion_root
@@ -588,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync-drive" and result.get("status") != "synced":
             return 1
         if args.command == "check-save" and not result["belongs"]:
+            return 1
+        if args.command == "check-location-progress" and result["status"] != "passed":
             return 1
         if args.command == "screenshots-index" and result["indexed"] < result["frames"]:
             return 1
