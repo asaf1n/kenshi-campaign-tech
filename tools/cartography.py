@@ -255,7 +255,7 @@ def verify_geometry(world_ref_id: str, geometry_path: Path | None = None,
 FORBIDDEN_VIEWER_WORDS = ("проходим", "проверен", "безопас", "фанатик", "исследован")
 RASTER_MARKERS = ("raster_rle", "_RASTER_DATA", "regions_map.rle", 'id="baseline"', "BASELINE")
 EDITOR_MARKERS = ('id="chain-region"', 'id="chain-add"', 'id="chain-save"', 'id="chain-clear"', 'id="chain-reset"',
-                  "chainSteps(", "chainCanSave(", "chainCanAdd(", "пар пикселей")
+                  "chainSteps(", "chainCanSave(", "chainCanAdd(", "pluralRu(", "buildSummary(", "kindLabel(", "placeName(")
 
 
 def _strip_comments(html: str) -> str:
@@ -495,8 +495,17 @@ def _region_names(world: dict[str, Any]) -> dict[str, str]:
     return {r["name_en"]: get_region_display_name(r["name_en"], r.get("name_ru", "")) for r in world["regions"]}
 
 
+def plural_ru(n: int, one: str, few: str, many: str) -> str:
+    """Склонение по числу: 1 пара, 2 пары, 5 пар, 11 пар, 21 пара."""
+    tail = abs(n) % 100
+    if 10 < tail < 20:
+        return many
+    return one if tail % 10 == 1 else few if 2 <= tail % 10 <= 4 else many
+
+
 def _step_text(step: dict[str, str], names: dict[str, str]) -> str:
-    label = (f"общая граница, {step.get('border_length', 0)} пар пикселей" if step["status"] == "border"
+    length = step.get("border_length", 0)
+    label = (f"общая граница, {length} {plural_ru(length, 'пара', 'пары', 'пар')} пикселей" if step["status"] == "border"
              else "разрыв: общей границы нет")
     return f"{names.get(step['from_region'], step['from_region'])} → {names.get(step['to_region'], step['to_region'])}: {label}"
 

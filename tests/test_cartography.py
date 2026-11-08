@@ -84,7 +84,7 @@ def make_viewer() -> str:
     return ('<script id="derived" type="application/json">' + json.dumps(derived, ensure_ascii=False) + "</script>"
             + editor + "<script>const DEFAULT_CHAINS = " + chains + ";\nfetch('../../published/manifest.json');"
             + "confirm('Заменить выпуск?'); 'устаревший снимок'; chainSteps(); chainCanSave(); chainCanAdd();"
-            + " 'пар пикселей';</script>")
+            + " pluralRu(); buildSummary(); kindLabel(); placeName();</script>")
 
 
 class FixtureTests(unittest.TestCase):
@@ -162,6 +162,7 @@ class FixtureTests(unittest.TestCase):
         svg = c.export_svg(self.release, corridors)
         self.assertIn("общая граница, 11 пар пикселей", summary)
         self.assertIn("общая граница, 11 пар пикселей", svg)
+        self.assertIn("общая граница, 3 пары пикселей", summary)  # Arm of Okran — Skinner's Roam: склонение по числу
         root = ET.fromstring(svg)
         self.assertEqual(root.findall(".//s:polyline", NS), [])
         self.assertEqual(root.findall(".//s:line", NS), [])
@@ -451,12 +452,74 @@ class ViewerLogicTests(unittest.TestCase):
 
     def run_logic(self, expression: str):
         html = (COMPANION / c.VIEWER_RELATIVE).read_text(encoding="utf-8")
-        logic = re.search(r'<script id="chain-logic">(.*?)</script>', html, re.S)[1]
+        logic = "\n".join(re.search(rf'<script id="{name}">(.*?)</script>', html, re.S)[1] for name in ("chain-logic", "summary-logic"))
         data = json.dumps({"graph": c.ADJACENCY_GRAPH, "borders": c.BORDER_LENGTHS}, ensure_ascii=False)
         program = f"{logic}\nconst D = {data}; console.log(JSON.stringify({expression}));"
         done = subprocess.run([shutil.which("node"), "-e", program], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
+
+    def summary_context(self) -> dict:
+        def person(identity, name, status, region, **extra):
+            return {"id": identity, "name": name, "resolution_status": status, "region": {"name_en": region}, **extra}
+        chars = [person("ps:1", "Бык", "in_region", "Purple Sands"), person("ps:2", "Хоббс", "in_region", "Purple Sands"),
+                 person("ps:3", "Бык", "in_region", "Flats Lagoon"),
+                 person("ps:4", "Кот", "in_location", "Border Zone", location={"name_ru": "Скуин", "name_en": "Squin"}),
+                 person("ps:5", "Мью", "near_location", "The Swamp",
+                        nearby_locations=[{"name_ru": "Деревня Серодёров", "name_en": "Grayflayer Village"}]),
+                 {"id": "ps:6", "name": "Тень", "resolution_status": "unknown", "region": None}]
+        member = lambda *ids: [{"id": i} for i in ids]  # noqa: E731
+        groups = [{"group_id": "g1", "label": "Регион Пурпурные пески", "resolution_status": "in_region",
+                   "region": {"name_en": "Purple Sands"}, "characters": member("ps:1", "ps:2")},
+                  {"group_id": "g2", "label": "Скуин", "resolution_status": "in_location",
+                   "region": {"name_en": "Border Zone"}, "characters": member("ps:4")},
+                  {"group_id": "g3", "label": "Окрестности Деревня Серодёров", "resolution_status": "near_location",
+                   "region": {"name_en": "The Swamp"}, "characters": member("ps:5")}]
+        manifest = {"game_time": "Day 1 00:00", "campaign_id": "c", "branch_id": "b", "world_ref_id": "w", "snapshot_id": "s"}
+        return {"title": "T", "manifest": manifest, "locations": {"characters": chars, "spatial_groups": groups}, "disclaimer": "D"}
+
+    def build_summary(self, context: dict) -> list[str]:
+        names = {"Purple Sands": "Пурпурные пески", "Flats Lagoon": "Ровная лагуна", "Border Zone": "Пограничная зона", "The Swamp": "Болото"}
+        data = json.dumps(context, ensure_ascii=False)
+        text = self.run_logic(f"buildSummary({{...{data}, regionName: e => ({json.dumps(names, ensure_ascii=False)})[e] || e, routes: [], stepText: s => ''}})")
+        return text.split("\n")
+
+    def test_summary_names_locations_not_regions(self) -> None:
+        """Ловит вывод региона вместо локации для in_location/near_location."""
+        lines = self.build_summary(self.summary_context())
+        self.assertIn("- Кот: в локации — Скуин", lines)
+        self.assertIn("- Мью: рядом с локацией — Деревня Серодёров", lines)
+        self.assertIn("- Тень: положение неизвестно — нет данных", lines)
+        self.assertNotIn("- Кот: в локации — Пограничная зона", lines)
+
+    def test_summary_groups_and_names(self) -> None:
+        """Ловит поимённый список всей основной группы и ID у неодноимённых."""
+        lines = self.build_summary(self.summary_context())
+        self.assertIn("- Регион Пурпурные пески: 2 персонажа · в регионе · Пурпурные пески", lines)
+        self.assertIn("- Скуин: 1 персонаж · в локации · Пограничная зона", lines)
+        outside = lines[lines.index(next(x for x in lines if x.startswith("Вне основной группы"))) + 1:]
+        self.assertFalse(any(x.startswith("- Хоббс") for x in outside))       # основная группа поимённо не выводится
+        self.assertIn("- Бык: в регионе — Ровная лагуна (ps:3)", lines)       # ID — при совпадении имён
+        self.assertFalse(any("(ps:4)" in x or "(ps:5)" in x for x in lines))  # у остальных ID нет
+        self.assertIn("Одноимённые «Бык»: ps:1, ps:3", lines)
+
+    def test_kind_labels_and_plural(self) -> None:
+        for kind in ("town", "village", "outpost", "ruins", "military", "slave_camp", "prison", "poi"):
+            label = self.run_logic(f"kindLabel('{kind}')")
+            self.assertTrue(label and label != kind and label.isascii() is False, kind)
+        self.assertEqual(self.run_logic("kindLabel('новый_тип')"), "новый_тип")
+        forms = {1: "пара", 2: "пары", 4: "пары", 5: "пар", 11: "пар", 12: "пар", 14: "пар", 21: "пара", 22: "пары", 25: "пар", 101: "пара", 111: "пар"}
+        for number, form in forms.items():
+            with self.subTest(number=number):
+                self.assertEqual(self.run_logic(f"pluralRu({number}, 'пара', 'пары', 'пар')"), form)
+                self.assertEqual(c.plural_ru(number, "пара", "пары", "пар"), form)
+        self.assertEqual(self.run_logic("pairsText(3)"), "3 пары пикселей")
+
+    @unittest.skipUnless((PUBLISHED / "world_reference.json").is_file(), "нет локального published/")
+    def test_every_published_location_kind_has_label(self) -> None:
+        world = json.loads((PUBLISHED / "world_reference.json").read_text(encoding="utf-8"))
+        for kind in {row["kind"] for row in world["locations"]}:
+            self.assertNotEqual(self.run_logic(f"kindLabel({json.dumps(kind)})"), kind)
 
     def test_chain_rules(self) -> None:
         self.assertNotEqual(self.run_logic("chainCanSave([])"), "")
