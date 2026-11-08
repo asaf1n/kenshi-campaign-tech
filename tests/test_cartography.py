@@ -313,6 +313,21 @@ class ViewerCompatTests(unittest.TestCase):
         self.assertEqual(c.check_viewer_compat(viewer.replace('<script id="derived" type="application/json">',
                                                               '<script type="application/json" id="derived">')), [])
 
+    def test_registry_support_is_required_only_for_new_releases(self) -> None:
+        viewer = make_viewer()
+        self.assertEqual(c.check_viewer_compat(viewer), [])
+        self.assertTrue(c.check_viewer_compat(viewer, require_registry=True))
+        registry_viewer = viewer + """
+<script>
+const VISIT = {
+  explored:{label:'Исследован',color:'#167444',rank:2},
+};
+const REGISTRY = ['location_registry.json', 'locations_progress.json', 'kenshi-location-registry/1'];
+</script>
+"""
+        self.assertEqual(c.check_viewer_compat(registry_viewer, require_registry=True), [])
+        self.assertTrue(c.check_viewer_compat(registry_viewer + "<p>Маршрут исследован</p>", require_registry=True))
+
     @unittest.skipUnless((COMPANION / c.VIEWER_RELATIVE).is_file(), "нет sites/map/index.html в Kenshi-Compain")
     def test_delivered_viewer_is_compatible(self) -> None:
         self.assertEqual(c.check_viewer_compat((COMPANION / c.VIEWER_RELATIVE).read_text(encoding="utf-8")), [])

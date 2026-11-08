@@ -9,10 +9,15 @@ import shutil
 import sys
 from typing import Any
 
+from jsonschema import ValidationError
+
 from tools import cartography
 from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
 from tools.git_sync import GitSyncError, abort_unfinished, prepare_clone, push_delivery, require_git, run_git
-from tools.io_utils import linked
+from tools.io_utils import linked, read_json
+from tools.location_registry import (PROGRESS_RELATIVE, REGISTRY_FILENAME, merge_progress, registry_bytes,
+                                     validate_progress, validate_registry)
+from tools.validation import load_location_registry, validate_world_reference
 
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
 DEFAULT_PUBLISHED_DIR = Path(__file__).resolve().parents[1] / "published"
@@ -95,7 +100,7 @@ def _write_encounters(pub_path: Path, target_repo: Path, game_time: str) -> str:
     return "written"
 
 
-def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
+def _write_cartography(target_repo: Path, *, require_registry: bool) -> tuple[str, list[str]]:
     """Доставляет regions_map.svg и regions_adjacency.json в docs/reference/; возвращает (статус, ошибки).
 
     Сначала проверяется совместимость просмотрщика sites/map/index.html клона с этими файлами. Несовместимый
@@ -103,7 +108,8 @@ def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
     """
     viewer = target_repo / cartography.VIEWER_RELATIVE
     try:
-        errors = cartography.check_viewer_compat(viewer.read_text(encoding="utf-8")) if viewer.is_file() else []
+        errors = (cartography.check_viewer_compat(viewer.read_text(encoding="utf-8"), require_registry=require_registry)
+                  if viewer.is_file() else [])
     except (OSError, UnicodeDecodeError) as exc:
         errors = [f"Просмотрщик не прочитан: {type(exc).__name__}"]
     if errors:
@@ -122,11 +128,115 @@ def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
     return ("written" if changed else "unchanged"), []
 
 
-def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> tuple[str, str, list[str]]:
+def _git_blob(repo: Path, revision: str, relative: Path) -> str | None:
+    entry = require_git(repo, "ls-tree", "-z", revision, "--", relative.as_posix())
+    if not entry:
+        return None
+    mode, kind, blob = entry.split("\t", 1)[0].split()
+    if kind != "blob" or mode not in ("100644", "100755"):
+        raise ValueError(f"Исторический {relative.name} не является обычным файлом")
+    return blob
+
+
+def _progress_baseline(repo: Path, campaign_id: str, world_ref: dict[str, Any]) -> dict[str, Any] | None:
+    if not (repo / ".git").exists() or run_git(repo, "rev-parse", "--verify", "HEAD").returncode != 0:
+        return None
+    if require_git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise ValueError("Для проверки ручного слоя требуется полная история Git")
+    versions = require_git(repo, "log", "--first-parent", "--full-history", "--reverse", "--format=%H",
+                           "HEAD", "--", PROGRESS_RELATIVE.as_posix()).splitlines()
+    if not versions:
+        return None
+
+    current_ids = {row["instance_id"] for row in world_ref["locations"]}
+    historical_ids: dict[str, set[str]] = {}
+    baseline = None
+    last_blob = None
+    for revision in versions:
+        try:
+            blob = _git_blob(repo, revision, PROGRESS_RELATIVE)
+            if blob == last_blob:
+                continue
+            last_blob = blob
+            if blob is None:
+                continue
+            progress = read_json(require_git(repo, "cat-file", "blob", blob).encode("utf-8"))
+            world_blob = _git_blob(repo, revision, Path("published/world_reference.json"))
+            known = current_ids
+            if world_blob is not None:
+                if world_blob not in historical_ids:
+                    historical_world = read_json(require_git(repo, "cat-file", "blob", world_blob).encode("utf-8"))
+                    validate_world_reference(historical_world)
+                    historical_ids[world_blob] = {row["instance_id"] for row in historical_world["locations"]}
+                known = current_ids | historical_ids[world_blob]
+            known_world = {"world_ref_id": world_ref["world_ref_id"],
+                           "locations": [{"instance_id": instance_id} for instance_id in known]}
+            validate_progress(progress, campaign_id, known_world, previous=baseline)
+        except (ValueError, ValidationError, RecursionError):
+            # Невалидная старая версия не меняет подтверждённые статусы и не мешает исправить файл.
+            continue
+        baseline = progress
+    return baseline
+
+
+def _read_progress(
+    target_repo: Path, campaign_id: str | None, world_ref: dict[str, Any],
+) -> tuple[dict[str, Any] | None, list[str]]:
+    if campaign_id != "hot-lon":
+        return None, []
+
+    progress_path = target_repo / PROGRESS_RELATIVE
+    if any(linked(target_repo / path) for path in (PROGRESS_RELATIVE, *PROGRESS_RELATIVE.parents)):
+        raise ValueError("Путь к ручному слою содержит ссылку")
+
+    baseline = _progress_baseline(target_repo, campaign_id, world_ref)
+    if not progress_path.exists():
+        if baseline is not None:
+            raise ValueError(f"Ручной слой {PROGRESS_RELATIVE.name} удалён")
+        return None, []
+
+    progress = read_json(progress_path.read_bytes())
+    return progress, validate_progress(progress, campaign_id, world_ref, previous=baseline)
+
+
+def _read_release_world(pub_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    path = pub_path / "world_reference.json"
+    if manifest.get("artifacts", {}).get("world_reference") != path.name or linked(path):
+        raise ValueError("Требуется обычный world_reference.json из манифеста выпуска")
+    world_ref = read_json(path.read_bytes())
+    validate_world_reference(world_ref)
+    if world_ref["world_ref_id"] != manifest.get("world_ref_id"):
+        raise ValueError("world_reference.json относится к другой версии мира")
+    return world_ref
+
+
+def check_location_progress(published_dir: Path | None = None, companion_dir: Path | None = None) -> dict[str, Any]:
+    """Проверяет ручной слой клона относительно справочника и истории Git."""
+    pub_path = (published_dir or DEFAULT_PUBLISHED_DIR).resolve()
+    manifest = read_json((pub_path / "manifest.json").read_bytes())
+    if manifest.get("validation", {}).get("status") != "passed":
+        raise ValueError("Выпуск не прошёл валидацию")
+    world_ref = _read_release_world(pub_path, manifest)
+    progress, unmatched = _read_progress(companion_root(companion_dir), manifest.get("campaign_id"), world_ref)
+    return {
+        "status": "passed" if progress is not None else "absent",
+        "entries": len(progress["locations"]) if progress is not None else 0,
+        "unmatched_instance_ids": unmatched,
+    }
+
+
+def _write_release(
+    pub_path: Path, target_repo: Path, game_time: str, registry: bytes | None,
+) -> tuple[str, str, list[str]]:
     """Записывает published/, encounters.md и картографические артефакты в клон; идемпотентно.
 
     Возвращает (статус encounters, статус картографии, ошибки картографии)."""
     target_published = target_repo / "published"
+    registry_target = target_published / REGISTRY_FILENAME
+    if linked(target_published) or linked(registry_target):
+        raise ValueError("Путь назначения реестра содержит ссылку")
+    if registry_target.exists() and not registry_target.is_file():
+        raise ValueError(f"Путь назначения {REGISTRY_FILENAME} занят каталогом")
     target_published.mkdir(parents=True, exist_ok=True)
 
     # 1. Корневые артефакты и .gitkeep
@@ -137,6 +247,10 @@ def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> tuple[s
     for legacy in LEGACY_ARTIFACTS:
         if not (pub_path / legacy).is_file():
             (target_published / legacy).unlink(missing_ok=True)
+    if registry is None:
+        registry_target.unlink(missing_ok=True)
+    else:
+        registry_target.write_bytes(registry)
 
     gitkeep = pub_path / ".gitkeep"
     if gitkeep.is_file():
@@ -154,8 +268,15 @@ def _write_release(pub_path: Path, target_repo: Path, game_time: str) -> tuple[s
             if not any(legacy_dir.iterdir()):
                 legacy_dir.rmdir()
 
-    encounters = _write_encounters(pub_path, target_repo, game_time)
-    carto, carto_errors = _write_cartography(target_repo)
+    try:
+        encounters = _write_encounters(pub_path, target_repo, game_time)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(f"Предупреждение: {OUTPUT_RELATIVE.as_posix()} не обновлён: {exc}\n")
+        encounters = "skipped"
+    try:
+        carto, carto_errors = _write_cartography(target_repo, require_registry=registry is not None)
+    except OSError as exc:
+        carto, carto_errors = "skipped", [f"Ошибка записи картографии: {exc}"]
     return encounters, carto, carto_errors
 
 
@@ -193,7 +314,7 @@ def deliver_to_companion(
         raise FileNotFoundError(f"Файл manifest.json не найден в {pub_path}")
 
     try:
-        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        manifest = read_json(manifest_file.read_bytes())
     except Exception as exc:
         raise ValueError(f"Не удалось прочитать manifest.json: {exc}") from exc
 
@@ -208,11 +329,39 @@ def deliver_to_companion(
     committed = False
     pushed = False
     git_error: str | None = None
+    delivery_error: str | None = None
     encounters = "skipped"
     carto, carto_errors = "skipped", ["картография не выполнялась: сбой подготовки или записи выпуска"]
+    progress_status = "absent"
+    progress_reason: str | None = "Проверка ручного слоя не выполнена"
+    unmatched: list[str] = []
 
     def write_release() -> tuple[str, str, list[str]]:
-        return _write_release(pub_path, target_repo, game_time)
+        nonlocal progress_status, progress_reason, unmatched
+        progress_status, progress_reason, unmatched = "absent", "Проверка ручного слоя не выполнена", []
+        registry_data = None
+        if "location_registry" in manifest.get("artifacts", {}):
+            world_ref = _read_release_world(pub_path, manifest)
+            registry = load_location_registry(pub_path, manifest, world_ref)
+            progress_reason = "Ручной слой для кампании отсутствует"
+            try:
+                progress, unmatched = _read_progress(target_repo, manifest.get("campaign_id"), world_ref)
+                if progress is not None:
+                    merged = merge_progress(registry, progress)
+                    validate_registry(merged, manifest, world_ref)
+                    registry_data = registry_bytes(merged)
+                    progress_status, progress_reason = "ok", None
+            except ValidationError as exc:
+                field = ".".join(map(str, exc.absolute_path)) or "корень файла"
+                progress_status, progress_reason = "invalid", f"Нарушение схемы ручного слоя в {field} ({exc.validator})"
+            except (OSError, ValueError, GitSyncError, RecursionError) as exc:
+                progress_status, progress_reason = "invalid", str(exc)
+            if registry_data is None:
+                unmatched = []
+                registry_data = registry_bytes(merge_progress(registry, None))
+        else:
+            progress_reason = "В выпуске нет реестра локаций"
+        return _write_release(pub_path, target_repo, game_time, registry_data)
 
     def commit_release() -> bool:
         return _commit_release(target_repo, game_time, snap_short)
@@ -247,14 +396,16 @@ def deliver_to_companion(
         git_error = (f"{err}. Выгрузка в {target_published} {'сохранена в клоне' if written else 'не записана, клон не изменён'}; "
                      "после устранения причины повторите доставку (идемпотентно)")
         sys.stderr.buffer.write(f"WARNING: git-операции в Kenshi Compain: {git_error}\n".encode("utf-8"))
+    except (OSError, ValueError) as err:
+        delivery_error = str(err)
     finally:
         # Прерываем только свой rebase: чужое незавершённое состояние до prepare_clone не трогаем.
         if prepared:
             abort_unfinished(target_repo)
 
     result: dict[str, Any] = {
-        # status отражает только доставку published/; состояние карты — отдельное поле cartography.
-        "status": "failed" if git_error else "delivered",
+        # Диагностика ручного слоя и карты отделена от доставки published/.
+        "status": "failed" if git_error or delivery_error is not None else "delivered",
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),
@@ -263,12 +414,18 @@ def deliver_to_companion(
         "encounters": encounters,
         "cartography": "ok" if carto in ("written", "unchanged") else carto,
         "cartography_changed": carto == "written",
+        "location_progress": progress_status,
+        "location_progress_reason": progress_reason,
     }
     if carto in ("incompatible", "skipped"):
         result["cartography_reason"] = "; ".join(carto_errors)
         sys.stderr.buffer.write(f"WARNING: картография не доставлена ({carto}): {result['cartography_reason']}\n".encode("utf-8"))
     if git_error:
         result["git_error"] = git_error
+    if delivery_error is not None:
+        result["delivery_error"] = delivery_error
+    if unmatched:
+        result["location_progress_unmatched_instance_ids"] = unmatched
     return result
 
 

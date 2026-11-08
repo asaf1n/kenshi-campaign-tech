@@ -76,6 +76,9 @@
         "world_reference": {
           "$ref": "#/$defs/relativePath"
         },
+        "location_registry": {
+          "const": "location_registry.json"
+        },
         "screenshots": {
           "$ref": "#/$defs/relativePath"
         },

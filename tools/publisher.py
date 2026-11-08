@@ -23,7 +23,8 @@ from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
 from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index, save_index
-from tools.io_utils import canonical, digest, linked, read_json
+from tools.io_utils import canonical, digest, linked, outside, read_json
+from tools.location_registry import REGISTRY_FILENAME, build_registry, read_discovery_save, registry_bytes, resolve_template_factions
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.tables import INDEX_ARTIFACT, TABLES_DIR, build_tables, load_game_data
@@ -157,6 +158,7 @@ def publish(
     sessions_root: Path | None = None,
     screens_dir: Path | None = None,
     game_cache_dir: Path | None = None,
+    discovery_save: Path | None = None,
 ) -> dict[str, Any]:
     snapshots_dir = snapshots_dir.resolve()
     diffs_dir = diffs_dir.resolve()
@@ -175,6 +177,21 @@ def publish(
     source_kind = prov.get("source_kind", "save")
     source_format = prov.get("source_format", "kenshi-session/10")
     source_sha256 = prov.get("source_sha256")
+    loc_dir = snapshots_dir.parent / "locations"
+    cache_dir = game_cache_dir or ROOT / "data/cache"
+    idx_target = (index_path or (DEFAULT_INDEX_PATH if snapshots_dir == ROOT / "data/snapshots"
+                                 else snapshots_dir.parent / "index.json")).resolve()
+    discovery_rows = (cur.get("world_state") or {}).get("town_discovery") if source_kind == "save" else None
+    discovery = {
+        row["instance_id"]: row["discovered"]
+        for row in discovery_rows or []
+    }
+    if discovery_save is not None:
+        if source_kind != "save":
+            raise PublisherError("--discovery-save требует снимок из сейва")
+        for output in (published_dir, diffs_dir, loc_dir, idx_target, cache_dir):
+            outside(output, [discovery_save])
+        discovery = read_discovery_save(discovery_save, source_sha256)
     game_time_raw = prov.get("game_time") or cur.get("world", {})
     game_time = (
         f"Day {game_time_raw.get('day')} {game_time_raw.get('time')}"
@@ -183,19 +200,9 @@ def publish(
     )
 
     # Проверка индекса снимков и веток (data/index.json)
-    idx_target = (index_path or (snapshots_dir.parent / "index.json")).resolve()
-    idx_data: dict[str, Any] | None = None
-    if idx_target.is_file():
-        try:
-            idx_data = load_index(idx_target)
-        except Exception:
-            idx_data = None
-    elif DEFAULT_INDEX_PATH.is_file():
-        try:
-            idx_data = load_index(DEFAULT_INDEX_PATH)
-            idx_target = DEFAULT_INDEX_PATH.resolve()
-        except Exception:
-            idx_data = None
+    if idx_target.exists() and not idx_target.is_file():
+        raise PublisherError("Путь индекса снимков занят каталогом")
+    idx_data = load_index(idx_target) if idx_target.is_file() else None
 
     if idx_data is not None:
         idx_snaps = idx_data.get("snapshots", {})
@@ -310,7 +317,6 @@ def publish(
     # 2. Пространственное разрешение локаций
     prev_locations = None
     if prev_dir is not None:
-        loc_dir = ROOT / "data/locations"
         prev_loc_path = loc_dir / f"{effective_parent}.json"
         if prev_loc_path.is_file():
             prev_locations = read_json(prev_loc_path.read_bytes())
@@ -333,20 +339,18 @@ def publish(
 
     # Склады по поселениям требуют разрешённых локаций, которых нет при извлечении снимка.
     # Справочник игры для набора модов снимка: имена и цены складов, шаблоны предметов, реакции мира.
-    game_index, game_records, game_notes = load_game_data(cur, game_cache_dir or ROOT / "data/cache")
+    game_index, game_records, game_notes = load_game_data(cur, cache_dir)
     cur_property = cur.get("property")
     if isinstance(cur_property, dict) and cur_property.get("buildings"):
         cur_property["storage_by_location"] = aggregate_storage_by_location(
             cur_property["buildings"], locations_data, game_index, zone_settlements(locations_data, w_ref),
         )
 
-    # Сохраняем промежуточный результат в data/locations/<snapshot_id>.json
-    loc_dir = ROOT / "data/locations"
-    try:
-        loc_dir.mkdir(parents=True, exist_ok=True)
-        (loc_dir / f"{snapshot_id}.json").write_bytes(canonical(locations_data))
-    except Exception:
-        pass
+    def load_snapshot_locations(target_id: str) -> dict[str, Any] | None:
+        if target_id == snapshot_id:
+            return locations_data
+        path = loc_dir / f"{target_id}.json"
+        return read_json(path.read_bytes()) if path.is_file() else None
 
     # Авторский журнал читается целиком: повреждение не скрывается фильтром ветки.
     ledger = timeline_path or snapshots_dir.parent.parent / "timeline/events.jsonl"
@@ -427,6 +431,7 @@ def publish(
             "squad": "squad.md",
             "locations": "locations.json",
             "world_reference": "world_reference.json",
+            "location_registry": REGISTRY_FILENAME,
             "timeline": "timeline.jsonl",
             "tables": INDEX_ARTIFACT,
         },
@@ -438,11 +443,17 @@ def publish(
                 "artifacts",
                 "semantics",
                 "geography",
+                "location_registry",
                 "timeline",
                 "privacy",
             ],
         },
     }
+
+    registry_data = registry_bytes(build_registry(
+        manifest_data, w_ref, locations_data, idx_data,
+        load_snapshot_locations, discovery=discovery, factions=resolve_template_factions(w_ref),
+    ))
 
     if branch_switch:
         manifest_data["branch_switch"] = branch_switch
@@ -483,6 +494,9 @@ def publish(
 
         from tools import screenshot_delta, screenshot_publish
         from tools.screenshot_clustering import cluster_screenshots
+
+        if discovery_save is not None:
+            outside(screenshot_publish.ARCHIVE_DIR, [discovery_save])
 
         window_screenshots = collect_recent_screenshots(
             source_dir=target_screens_dir,
@@ -595,12 +609,6 @@ def publish(
             screenshots_feed_md = None
 
         # Индекс кадров и шапки PDF: дельта снимка, архивный хвост и первичная разметка
-        def load_snapshot_locations(target_id: str) -> dict[str, Any] | None:
-            if target_id == snapshot_id:
-                return locations_data
-            path = ROOT / "data/locations" / f"{target_id}.json"
-            return read_json(path.read_bytes()) if path.is_file() else None
-
         bundled = {item["published_name"] for item in collected_screenshots}
         annotations = {record.get("filename"): record for record in annotated_records}
 
@@ -660,6 +668,7 @@ def publish(
             from tools.current_layers import public_world_reference
 
             (staging_dir / "world_reference.json").write_bytes(canonical(public_world_reference(w_ref)))
+            (staging_dir / REGISTRY_FILENAME).write_bytes(registry_data)
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
@@ -799,6 +808,13 @@ def publish(
                     save_index(idx_data, idx_target, with_lock=False)
                 except Exception:
                     pass
+
+            # История реестра читает только разрешения успешно опубликованных снимков.
+            try:
+                loc_dir.mkdir(parents=True, exist_ok=True)
+                (loc_dir / f"{snapshot_id}.json").write_bytes(canonical(locations_data))
+            except OSError:
+                pass
 
         except Exception:
             if staging_dir.exists():

@@ -12,6 +12,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from tools.io_utils import linked, read_json
+from tools.location_registry import REGISTRY_MAX_CHARS, REGISTRY_FILENAME, validate_registry
 from tools.normalization import _AUTH, _PATH, _SECRET_TEXT, _TOKEN
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +73,8 @@ def _validate_evidence_ref(ref: str) -> None:
 
 
 def validate(value: Any, schema_name: str) -> None:
-    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "index", "session", "screenshots-index", "screenshot-annotations"}:
+    if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "location-registry",
+                           "location-progress", "index", "session", "screenshots-index", "screenshot-annotations"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -426,6 +428,8 @@ def validate_locations(
 
 
 def check_examples() -> int:
+    for name in ("location-registry", "location-progress"):
+        Draft202012Validator.check_schema(read_json((ROOT / "contracts" / f"{name}.schema.json").read_bytes()))
     count = 0
     for path in sorted((ROOT / "examples").glob("*.json")):
         value = read_json(path.read_bytes())
@@ -540,6 +544,25 @@ def validate_start_set_size(package_dir: Path, artifacts: dict[str, str]) -> Non
         )
 
 
+def load_location_registry(
+    package_dir: Path, manifest: dict[str, Any], world_ref: dict[str, Any], *,
+    index_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Читает объявленный реестр по фиксированному пути и сверяет его с выпуском."""
+    path = package_dir / REGISTRY_FILENAME
+    if manifest.get("artifacts", {}).get("location_registry") != REGISTRY_FILENAME or linked(path):
+        raise PublicationValidationError(f"artifacts.location_registry обязан указывать на обычный {REGISTRY_FILENAME}")
+    try:
+        raw = path.read_bytes()
+        if len(raw.decode("utf-8")) > REGISTRY_MAX_CHARS:
+            raise ValueError(f"размер превышает {REGISTRY_MAX_CHARS} символов")
+        registry = read_json(raw)
+        validate_registry(registry, manifest, world_ref, index_data=index_data)
+    except (OSError, ValueError, ValidationError) as error:
+        raise PublicationValidationError(f"Ошибка валидации {REGISTRY_FILENAME}: {error}") from error
+    return registry
+
+
 def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = None) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     manifest_path = package_dir / "manifest.json"
@@ -551,6 +574,14 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
         validate_manifest(manifest)
     except (ValidationError, Exception) as error:
         raise PublicationValidationError(f"Ошибка валидации схемы manifest.json: {error}") from error
+
+    if index_data is None:
+        idx_candidate = package_dir.parent / "data/index.json"
+        if idx_candidate.is_file():
+            try:
+                index_data = read_json(idx_candidate.read_bytes())
+            except (OSError, ValueError) as error:
+                raise PublicationValidationError("Индекс снимков выпуска не прочитан") from error
 
     canonical_pub_dir = (ROOT / "published").resolve()
     if package_dir == canonical_pub_dir:
@@ -571,6 +602,11 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
         raise PublicationValidationError("timeline.jsonl не зарегистрирован в artifacts.timeline")
     if "timeline" in artifacts and artifacts["timeline"] != "timeline.jsonl":
         raise PublicationValidationError("artifacts.timeline обязан указывать на timeline.jsonl")
+    registry_path = package_dir / REGISTRY_FILENAME
+    if "location_registry" not in artifacts and (registry_path.exists() or linked(registry_path)):
+        raise PublicationValidationError(f"{REGISTRY_FILENAME} не зарегистрирован в artifacts.location_registry")
+    if "location_registry" in artifacts and "world_reference" not in artifacts:
+        raise PublicationValidationError("Для location_registry требуется world_reference выпуска")
 
     checked_files: set[Path] = {manifest_path}
 
@@ -658,6 +694,8 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
 
         validate_world_reference(wref_data)
         validate_locations(loc_data, world_ref=wref_data)
+        if "location_registry" in artifacts:
+            load_location_registry(package_dir, manifest, wref_data, index_data=index_data)
 
         # Перекрёстные ссылки
         if loc_data.get("snapshot_id") != manifest.get("snapshot_id"):
@@ -824,14 +862,6 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
 
     # 6. Проверка согласованности с индексом data/index.json (при наличии)
     checked_index = False
-    if index_data is None:
-        idx_candidate = ROOT / "data/index.json"
-        if idx_candidate.is_file():
-            try:
-                index_data = read_json(idx_candidate.read_bytes())
-            except Exception:
-                index_data = None
-
     if index_data is not None and isinstance(index_data, dict):
         snap_id = manifest.get("snapshot_id")
         idx_snaps = index_data.get("snapshots", {})
@@ -868,6 +898,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             "artifacts",
             "semantics",
             "geography" if (has_locations and has_world_ref) else "no_geography",
+            *(["location_registry"] if "location_registry" in artifacts else []),
             "timeline" if "timeline" in artifacts else "no_timeline",
             "screenshots" if "screenshots" in artifacts else "no_screenshots",
             "screenshot_annotations" if "screenshot_annotations" in artifacts else "no_screenshot_annotations",
