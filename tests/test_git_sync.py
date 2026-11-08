@@ -125,7 +125,9 @@ class GitSyncTests(unittest.TestCase):
         }
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
 
-        self.assertEqual(self._deliver()["status"], "delivered")
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "ok"))
+        self.assertIsNone(result["location_progress_reason"])
         target_registry = self.clone / "published" / REGISTRY_FILENAME
         before = target_registry.read_bytes()
         row = next(row for row in read_json(before)["locations"] if row["instance_id"] == instance)
@@ -138,10 +140,14 @@ class GitSyncTests(unittest.TestCase):
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         progress["locations"][0]["evidence"] = "Уточнение сессии S-001"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
-        with self.assertRaisesRegex(ValueError, "понижена"):
-            self._deliver()
-        self.assertEqual(target_registry.read_bytes(), before)
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"], result["pushed"]), ("delivered", "invalid", True))
+        self.assertIn("понижена", result["location_progress_reason"])
+        self.assertEqual(target_registry.read_bytes(), canonical(registry))
+        self.assertEqual(self.git("show", f"main:published/{REGISTRY_FILENAME}", cwd=self.remote),
+                         canonical(registry).decode("utf-8"))
 
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         progress["locations"][0]["status"] = "explored"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         self.assertEqual(self._deliver()["status"], "delivered")
@@ -154,12 +160,36 @@ class GitSyncTests(unittest.TestCase):
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         progress["locations"][0]["evidence"] = "Исправление ссылки S-001"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
-        with self.assertRaisesRegex(ValueError, "Неизвестный instance_id"):
-            self._deliver()
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "invalid"))
+        self.assertIn("Неизвестный instance_id", result["location_progress_reason"])
+
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(PROGRESS_RELATIVE.as_posix(), "{")
+        (self.published / "brief.md").write_text("выпуск с невалидными отметками\n", encoding="utf-8")
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "invalid"))
+        self.assertTrue(result["location_progress_reason"])
+        self.assertIn("выпуск с невалидными отметками", self.git("show", "main:published/brief.md", cwd=self.remote))
+
+        (self.published / "brief.md").write_text("сбой записи\n", encoding="utf-8")
+        with mock.patch("tools.deliver_companion.shutil.copy2", side_effect=PermissionError("запись запрещена")):
+            result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"], result["pushed"]), ("failed", "invalid", False))
+        self.assertIn("запись запрещена", result["delivery_error"])
+        self.assertNotIn("сбой записи", self.git("show", "main:published/brief.md", cwd=self.remote))
+
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        progress["locations"].pop()
+        self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "ok"))
+        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["status"], "explored")
 
         del manifest["artifacts"]["location_registry"]
         (self.published / "manifest.json").write_bytes(canonical(manifest))
-        self.assertEqual(self._deliver()["status"], "delivered")
+        result = self._deliver()
+        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "absent"))
         self.assertFalse(target_registry.exists())
 
     def test_dirty_clone_refuses_without_changes(self) -> None:
