@@ -316,6 +316,10 @@ class ViewerCompatTests(unittest.TestCase):
             "no_confirm": viewer.replace("confirm(", "ask("),
             "no_stale_warning": viewer.replace("устаревший снимок", "снимок"),
             "no_derived": "<html></html>",
+            "derived_list": viewer.replace(original, '<script id="derived" type="application/json">[]</script>'),
+            "derived_null": viewer.replace(original, '<script id="derived" type="application/json">null</script>'),
+            "geometry_null": viewer.replace(original, '<script id="derived" type="application/json">{"geometry": null}</script>'),
+            "geometry_scalar": viewer.replace(original, '<script id="derived" type="application/json">{"geometry": [1]}</script>'),
         }
         for name, html in mutations.items():
             with self.subTest(mutation=name):
@@ -367,6 +371,13 @@ class DeliveryTests(unittest.TestCase):
             self.assertTrue(result["cartography_errors"])
             self.assertFalse((clone / "docs/reference/regions_map.svg").exists())
             self.assertTrue((clone / "published/manifest.json").is_file())
+
+    def test_unreadable_viewer_is_incompatible_not_a_crash(self) -> None:
+        with tempfile.TemporaryDirectory() as holder:
+            clone, pub = self.make_clone(Path(holder), "x")
+            (clone / c.VIEWER_RELATIVE).write_bytes(b"\xff\xfe\x00bad")
+            result = deliver_to_companion(pub, clone, auto_commit=False)
+            self.assertEqual((result["cartography"], result["status"]), ("incompatible", "failed"))
 
     def test_absent_viewer_is_not_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as holder:

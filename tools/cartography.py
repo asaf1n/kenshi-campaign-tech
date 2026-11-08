@@ -233,7 +233,16 @@ RASTER_MARKERS = ("raster_rle", "_RASTER_DATA", "regions_map.rle", 'id="baseline
 
 
 def check_viewer_compat(html: str) -> list[str]:
-    """Совместимость просмотрщика с доставляемыми артефактами; пустой список — совместим."""
+    """Совместимость просмотрщика с доставляемыми артефактами; пустой список — совместим.
+
+    Любой сбой разбора (нетипичная структура derived и т.п.) даёт ошибку совместимости, а не исключение."""
+    try:
+        return _check_viewer_compat(html)
+    except (ValueError, TypeError, AttributeError, KeyError, ET.ParseError) as exc:
+        return [f"Просмотрщик не разобран: {type(exc).__name__}"]
+
+
+def _check_viewer_compat(html: str) -> list[str]:
     errors: list[str] = []
     match = re.search(r'<script id="derived" type="application/json">(.*?)</script>', html, re.S)
     if not match:
@@ -242,6 +251,8 @@ def check_viewer_compat(html: str) -> list[str]:
         derived = json.loads(match[1])
     except ValueError:
         return ["Блок derived не разбирается как JSON"]
+    if not isinstance(derived, dict) or not isinstance(derived.get("geometry"), list)             or any(not isinstance(row, dict) for row in derived["geometry"]):
+        return ["Блок derived имеет неверную структуру"]
     if derived.get("world_ref_id") != GEOMETRY_WORLD_REF_ID:
         errors.append("world_ref_id просмотрщика не совпадает с геометрией")
     if derived.get("graph") != ADJACENCY_GRAPH:
@@ -542,17 +553,20 @@ def main() -> None:
     parser.add_argument("--local", action="store_true",
                         help=f"Локальный режим: data/world/<world_ref_id>.json или {WORLD_SOURCE_ENV}")
     parser.add_argument("--build-adjacency", action="store_true",
-                        help="Пересчитать docs/reference/regions_adjacency.json по --world-source")
+                        help="Пересчитать assets/cartography/regions_adjacency.json по --world-source")
     args = parser.parse_args()
     if args.build_adjacency:
         if args.world_source is None:
             parser.exit(2, "--build-adjacency требует --world-source\n")
         source = load_world_source(args.world_source)
         document = adjacency_document(build_adjacency(source["cells"], source["names"]), source["cells"])
-        ADJACENCY_PATH.write_text(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
-                                  encoding="utf-8")
+        with ADJACENCY_PATH.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(document, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
         return
-    release = load_published(args.published)
+    try:
+        release = load_published(args.published)
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        parser.exit(1, f"Ошибка чтения published: {exc}\n")
     if args.local and args.world_source is None:
         args.world_source = default_world_source()
         if args.world_source is None:

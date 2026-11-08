@@ -102,15 +102,18 @@ def _write_cartography(target_repo: Path) -> tuple[str, list[str]]:
     просмотрщик блокирует запись артефактов (incompatible); отсутствие просмотрщика (ветка ещё не влита) — не ошибка.
     """
     viewer = target_repo / cartography.VIEWER_RELATIVE
-    errors = cartography.check_viewer_compat(viewer.read_text(encoding="utf-8")) if viewer.is_file() else []
+    try:
+        errors = cartography.check_viewer_compat(viewer.read_text(encoding="utf-8")) if viewer.is_file() else []
+    except (OSError, UnicodeDecodeError) as exc:
+        errors = [f"Просмотрщик не прочитан: {type(exc).__name__}"]
     if errors:
         return "incompatible", errors
     targets = {name: target_repo / rel for name, rel in cartography.DELIVERED_ARTIFACTS.items()}
-    if any(linked(parent) for target in targets.values() for parent in (target.parent, target.parent.parent) if parent.exists()):
+    if any(linked(path) for target in targets.values() for path in (target, target.parent, target.parent.parent) if path.exists()):
         return "skipped", ["каталог назначения - ссылка"]
     changed = False
     for name, target in targets.items():
-        data = (cartography.ASSET_DIR / name).read_bytes()
+        data = (cartography.ASSET_DIR / name).read_bytes().replace(b"\r\n", b"\n")
         if target.is_file() and target.read_bytes().replace(b"\r\n", b"\n") == data:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
