@@ -84,7 +84,8 @@ def make_viewer() -> str:
     return ('<script id="derived" type="application/json">' + json.dumps(derived, ensure_ascii=False) + "</script>"
             + editor + "<script>const DEFAULT_CHAINS = " + chains + ";\nfetch('../../published/manifest.json');"
             + "confirm('Заменить выпуск?'); 'устаревший снимок'; chainSteps(); chainCanSave(); chainCanAdd();"
-            + " pluralRu(); buildSummary(); kindLabel(); placeName();</script>")
+            + " pluralRu(); buildSummary(); kindLabel(); placeName(); statusPlace();"
+            + " const alias = {'The Iron Trail': 'Железный шельф'};</script>")
 
 
 class FixtureTests(unittest.TestCase):
@@ -142,7 +143,6 @@ class FixtureTests(unittest.TestCase):
                 self.assertGreater(step["border_length"], 0)
         gap = c.compare_corridors({"x": ["Fog Islands", "Floodlands"]})[0]["steps"][0]
         self.assertEqual((gap["status"], gap["border_length"]), ("gap", 0))
-        self.assertEqual(c._region_names(self.release["world"])["Fog Islands"], "Острова тумана")
 
     def test_border_table_is_consistent(self) -> None:
         self.assertEqual({tuple(k.split("|")) for k in c.BORDER_LENGTHS},
@@ -156,31 +156,10 @@ class FixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "таблицы соседства"):
                 c.load_adjacency(path)
 
-    def test_no_route_claims_and_no_connecting_lines(self) -> None:
-        corridors = c.compare_corridors() + c.compare_corridors({"Разрыв": ["Fog Islands", "Floodlands"]})
-        summary = c.generate_summary(self.release, corridors)
-        svg = c.export_svg(self.release, corridors)
-        self.assertIn("общая граница, 11 пар пикселей", summary)
-        self.assertIn("общая граница, 11 пар пикселей", svg)
-        self.assertIn("общая граница, 3 пары пикселей", summary)  # Arm of Okran — Skinner's Roam: склонение по числу
-        root = ET.fromstring(svg)
-        self.assertEqual(root.findall(".//s:polyline", NS), [])
-        self.assertEqual(root.findall(".//s:line", NS), [])
-        self.assertIn("разрыв: общей границы нет", summary)
-        self.assertIn("разрыв: общей границы нет", svg)
-        texts = [summary, svg, (ROOT / "tools/cartography.py").read_text(encoding="utf-8").split("FORBIDDEN_VIEWER_WORDS")[0],
-                 " ".join(c.STATUS_LABELS.values()), c.DISCLAIMER]
-        for text in texts:
-            for word in FORBIDDEN:
-                self.assertNotIn(word, text.casefold())
-
     def test_characters_distinct_by_id(self) -> None:
         characters = self.release["locations"]["characters"]
         self.assertEqual(len({row["id"] for row in characters}), len(characters))
         self.assertEqual([r["name"] for r in characters].count("Бык"), 2)
-        summary = c.generate_summary(self.release)
-        for row in characters:
-            self.assertIn(f"({row['id']})", summary)
         duplicate = deepcopy(self.release)
         duplicate["locations"]["characters"].append(deepcopy(characters[0]))
         self.assertTrue(c.validate_release(duplicate["manifest"], duplicate["world"], duplicate["locations"]))
@@ -264,33 +243,6 @@ class FixtureTests(unittest.TestCase):
         self.assertAlmostEqual(svg[0], 106.524, delta=0.001)
         self.assertAlmostEqual(svg[1], 53.186, delta=0.001)
         world = self.release["world"]
-        self.assertFalse(any(row["is_secret"] for row in c.visible_locations(world)))
-        self.assertEqual(len(c.visible_locations(world, show_secrets=True)), len(world["locations"]))
-        self.assertNotIn("Тайник", c.export_svg(self.release))
-        self.assertIn("Тайник", c.export_svg(self.release, show_secrets=True))
-        self.assertIn("Тень", c.generate_summary(self.release))
-        self.assertNotIn("Тень: ", c.export_svg(self.release))
-
-    def test_export_and_iron_trail(self) -> None:
-        svg = c.export_svg(self.release, c.compare_corridors())
-        root = ET.fromstring(svg)
-        for key in ("world_ref_id", "snapshot_id", "branch_id", "game_time"):
-            self.assertIn(key + ": " + self.release["manifest"][key], svg)
-        self.assertIn(c.DISCLAIMER, svg)
-        self.assertEqual(len(root.findall("s:g/s:path", NS)), 69 + 10)  # 69 контуров + 5 регионов в каждой из двух цепочек
-        filtered = ET.fromstring(c.export_svg(self.release, kind="town", region="Border Zone", query="Хаб"))
-        self.assertEqual(json.loads(filtered.find("s:metadata", NS).text)["query"], "Хаб")
-        self.assertEqual(len(filtered.findall("s:circle", NS)), 1 + 3)  # локация + позиции трёх известных персонажей
-        escaped = deepcopy(self.release)
-        escaped["locations"]["characters"][0]["name"] = '<script>alert("x")</script>&'
-        self.assertEqual(ET.fromstring(c.export_svg(escaped)).findall(".//s:script", NS), [])
-        # Сопоставление по name_en; ru-название игры («Железный шлейф») не выводится.
-        self.assertEqual(c.get_region_display_name("The Iron Trail", "Железный шлейф"), "Железный шельф")
-        release = deepcopy(self.release)
-        release["locations"]["characters"][0]["region"] = {"name_en": "The Iron Trail", "name_ru": "Железный шлейф"}
-        text = c.generate_summary(release)
-        self.assertIn("Железный шельф", text)
-        self.assertNotIn("Железный шлейф", text)
 
     def test_geometry_fixture_mode_does_not_claim_source_check(self) -> None:
         report = c.verify_geometry(c.GEOMETRY_WORLD_REF_ID)
@@ -472,6 +424,7 @@ class ViewerLogicTests(unittest.TestCase):
         groups = [{"group_id": "g1", "label": "Регион Пурпурные пески", "resolution_status": "in_region",
                    "region": {"name_en": "Purple Sands"}, "characters": member("ps:1", "ps:2")},
                   {"group_id": "g2", "label": "Скуин", "resolution_status": "in_location",
+                   "location": {"name_ru": "Скуин"},
                    "region": {"name_en": "Border Zone"}, "characters": member("ps:4")},
                   {"group_id": "g3", "label": "Окрестности Деревня Серодёров", "resolution_status": "near_location",
                    "region": {"name_en": "The Swamp"}, "characters": member("ps:5")}]
@@ -487,19 +440,21 @@ class ViewerLogicTests(unittest.TestCase):
     def test_summary_names_locations_not_regions(self) -> None:
         """Ловит вывод региона вместо локации для in_location/near_location."""
         lines = self.build_summary(self.summary_context())
-        self.assertIn("- Кот: в локации — Скуин", lines)
-        self.assertIn("- Мью: рядом с локацией — Деревня Серодёров", lines)
-        self.assertIn("- Тень: положение неизвестно — нет данных", lines)
-        self.assertNotIn("- Кот: в локации — Пограничная зона", lines)
+        self.assertIn("- Кот — в локации: Скуин", lines)
+        self.assertIn("- Мью — рядом с локацией: Деревня Серодёров", lines)
+        self.assertIn("- Тень — положение неизвестно", lines)
+        self.assertNotIn("- Кот — в локации: Пограничная зона", lines)
+        self.assertFalse(any(" — " in x and ": " not in x.split(" — ", 1)[1] and "неизвестно" not in x for x in lines if x.startswith("- ") and " · " not in x))
 
     def test_summary_groups_and_names(self) -> None:
         """Ловит поимённый список всей основной группы и ID у неодноимённых."""
         lines = self.build_summary(self.summary_context())
-        self.assertIn("- Регион Пурпурные пески: 2 персонажа · в регионе · Пурпурные пески", lines)
-        self.assertIn("- Скуин: 1 персонаж · в локации · Пограничная зона", lines)
+        self.assertIn("- Регион Пурпурные пески: 2 персонажа · в регионе: Пурпурные пески", lines)
+        self.assertIn("- Скуин: 1 персонаж · в локации: Скуин · регион: Пограничная зона", lines)
+        self.assertIn("- Окрестности Деревня Серодёров: 1 персонаж · рядом с локацией: Деревня Серодёров · регион: Болото", lines)
         outside = lines[lines.index(next(x for x in lines if x.startswith("Вне основной группы"))) + 1:]
         self.assertFalse(any(x.startswith("- Хоббс") for x in outside))       # основная группа поимённо не выводится
-        self.assertIn("- Бык: в регионе — Ровная лагуна (ps:3)", lines)       # ID — при совпадении имён
+        self.assertIn("- Бык — в регионе: Ровная лагуна (ps:3)", lines)       # ID — при совпадении имён
         self.assertFalse(any("(ps:4)" in x or "(ps:5)" in x for x in lines))  # у остальных ID нет
         self.assertIn("Одноимённые «Бык»: ps:1, ps:3", lines)
 
@@ -512,7 +467,6 @@ class ViewerLogicTests(unittest.TestCase):
         for number, form in forms.items():
             with self.subTest(number=number):
                 self.assertEqual(self.run_logic(f"pluralRu({number}, 'пара', 'пары', 'пар')"), form)
-                self.assertEqual(c.plural_ru(number, "пара", "пары", "пар"), form)
         self.assertEqual(self.run_logic("pairsText(3)"), "3 пары пикселей")
 
     @unittest.skipUnless((PUBLISHED / "world_reference.json").is_file(), "нет локального published/")
@@ -596,6 +550,17 @@ class LocalWorldSourceTests(unittest.TestCase):
         for candidate in (sid, swapped):
             with self.assertRaisesRegex(ValueError, "Несовместимая геометрия"):
                 c.verify_release_against_source(candidate, WORLD_SOURCE)
+
+    def test_cli_has_no_summary_or_svg_modes(self) -> None:
+        """Сводка и SVG-экспорт живут только в просмотрщике: флаги и функции в конвертере удалены."""
+        for flag in ("--svg",):
+            done = subprocess.run([sys.executable, "-m", "tools.cartography", "--verify-geometry", flag, "x.svg"],
+                                  capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+            self.assertNotEqual(done.returncode, 0)
+        none = subprocess.run([sys.executable, "-m", "tools.cartography"], capture_output=True, text=True, encoding="utf-8", cwd=ROOT)
+        self.assertEqual(none.returncode, 2)  # режим обязателен: молчаливой сводки больше нет
+        for name in ("generate_summary", "export_svg", "visible_locations", "plural_ru", "get_region_display_name"):
+            self.assertFalse(hasattr(c, name), name)
 
     def test_cli_local_mode(self) -> None:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}

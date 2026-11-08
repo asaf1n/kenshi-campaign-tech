@@ -28,9 +28,6 @@ MAX_COORD = 147456.0
 RASTER_PIXEL_SIZE = 1152.0
 RASTER_GRID_SIZE = 256
 ZONE_SIZE = 4608.0
-REGION_DISPLAY_NAMES = {"The Iron Trail": "Железный шельф"}
-DISCLAIMER = "Схема общих границ регионов по растру areasmap.tga. Это не маршрут."
-MAP_TITLE = "Картографическая схема Kenshi"
 STATUS_LABELS = {
     "in_location": "в локации", "near_location": "рядом с локацией",
     "in_region": "в регионе", "unknown": "положение неизвестно",
@@ -92,10 +89,6 @@ def grid_to_world_center(px: int, py: int) -> tuple[float, float]:
         raise ValueError("Ячейка вне растра")
     return (RASTER_PIXEL_SIZE * (px + 0.5) + MIN_COORD,
             RASTER_PIXEL_SIZE * (RASTER_GRID_SIZE - 1 - py + 0.5) + MIN_COORD)
-
-
-def get_region_display_name(name_en: str, default_ru: str = "") -> str:
-    return REGION_DISPLAY_NAMES.get(name_en, default_ru or name_en)
 
 
 # --- Растр и соседство -------------------------------------------------------------
@@ -255,7 +248,8 @@ def verify_geometry(world_ref_id: str, geometry_path: Path | None = None,
 FORBIDDEN_VIEWER_WORDS = ("проходим", "проверен", "безопас", "фанатик", "исследован")
 RASTER_MARKERS = ("raster_rle", "_RASTER_DATA", "regions_map.rle", 'id="baseline"', "BASELINE")
 EDITOR_MARKERS = ('id="chain-region"', 'id="chain-add"', 'id="chain-save"', 'id="chain-clear"', 'id="chain-reset"',
-                  "chainSteps(", "chainCanSave(", "chainCanAdd(", "pluralRu(", "buildSummary(", "kindLabel(", "placeName(")
+                  "chainSteps(", "chainCanSave(", "chainCanAdd(", "pluralRu(", "buildSummary(", "kindLabel(", "placeName(", "statusPlace(",
+                  "'The Iron Trail'", "Железный шельф")
 
 
 def _strip_comments(html: str) -> str:
@@ -456,15 +450,6 @@ def select_release(candidates: list[dict[str, Any]], *, snapshot_id: str | None 
     return chosen[0]
 
 
-def visible_locations(world: dict[str, Any], *, show_secrets: bool = False,
-                      query: str = "", kind: str = "", region: str = "") -> list[dict[str, Any]]:
-    return [row for row in world["locations"]
-            if (show_secrets or not row.get("is_secret", False))
-            and (not kind or row.get("kind") == kind)
-            and (not region or row.get("region") == region)
-            and query.casefold() in (row.get("name_ru", "") + " " + row.get("name_en", "")).casefold()]
-
-
 # --- Коридоры ----------------------------------------------------------------------
 
 def compare_corridors(chains: dict[str, list[str]] | None = None,
@@ -491,121 +476,17 @@ def compare_corridors(chains: dict[str, list[str]] | None = None,
     return result
 
 
-def _region_names(world: dict[str, Any]) -> dict[str, str]:
-    return {r["name_en"]: get_region_display_name(r["name_en"], r.get("name_ru", "")) for r in world["regions"]}
-
-
-def plural_ru(n: int, one: str, few: str, many: str) -> str:
-    """Склонение по числу: 1 пара, 2 пары, 5 пар, 11 пар, 21 пара."""
-    tail = abs(n) % 100
-    if 10 < tail < 20:
-        return many
-    return one if tail % 10 == 1 else few if 2 <= tail % 10 <= 4 else many
-
-
-def _step_text(step: dict[str, str], names: dict[str, str]) -> str:
-    length = step.get("border_length", 0)
-    label = (f"общая граница, {length} {plural_ru(length, 'пара', 'пары', 'пар')} пикселей" if step["status"] == "border"
-             else "разрыв: общей границы нет")
-    return f"{names.get(step['from_region'], step['from_region'])} → {names.get(step['to_region'], step['to_region'])}: {label}"
-
-
-def generate_summary(release: dict[str, Any], corridors: list[dict[str, Any]] | None = None) -> str:
-    manifest, world, locations = release["manifest"], release["world"], release["locations"]
-    load_release(manifest, world, locations)
-    names = _region_names(world)
-    lines = [f"## {MAP_TITLE}", f"{manifest['game_time']} · {manifest['campaign_id']} · {manifest['branch_id']}",
-             f"world_ref_id: {manifest['world_ref_id']}", f"snapshot_id: {manifest['snapshot_id']}",
-             f"Персонажей: {len(locations['characters'])}"]
-    for row in locations["characters"]:
-        region = (row.get("region") or {}).get("name_en", "")
-        lines.append(f"- {row['name']} ({row['id']}): {STATUS_LABELS[row['resolution_status']]} — {names.get(region, region) or 'нет данных'}")
-    for corridor in corridors or []:
-        lines.append(f"- {corridor['name']}:")
-        lines += [f"  - {_step_text(step, names)}" for step in corridor["steps"]]
-    return "\n".join(lines + ["", DISCLAIMER])
-
-
-def export_svg(release: dict[str, Any], corridors: list[dict[str, Any]] | None = None,
-               *, show_secrets: bool = False, query: str = "", kind: str = "", region: str = "",
-               geometry_path: Path | None = None) -> str:
-    manifest, world, locations = release["manifest"], release["world"], release["locations"]
-    load_release(manifest, world, locations)
-    geometry = verify_geometry(manifest["world_ref_id"], geometry_path)["svg"]
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    svg_ns = "{http://www.w3.org/2000/svg}"
-
-    def element(tag: str, attrs: dict[str, str] | None = None, text: str | None = None) -> ET.Element:
-        node = ET.Element(svg_ns + tag, attrs or {})
-        node.text = text
-        return node
-    names = _region_names(world)
-    stamps = {key: manifest[key] for key in ("world_ref_id", "snapshot_id", "branch_id", "game_time", "campaign_id")}
-    footer = [MAP_TITLE, "Источник: published/manifest.json + world_reference.json + locations.json"]
-    footer += [f"{key}: {value}" for key, value in stamps.items() if key != "campaign_id"]
-    footer.append(f"Фильтры: секретные={show_secrets}; поиск={query}; тип={kind}; регион={get_region_display_name(region)}")
-    for corridor in corridors or []:
-        footer.append(corridor["name"])
-        footer += [f"  {_step_text(step, names)}" for step in corridor["steps"]]
-    footer.append(DISCLAIMER)
-    root = element("svg", {"viewBox": f"0 0 256 {262 + len(footer) * 3.7:.1f}", "width": "1024"})
-    root.append(element("title", text=MAP_TITLE))
-    stamps.update(source="published/manifest.json + world_reference.json + locations.json", show_secrets=show_secrets,
-                  query=query, kind=kind, region=region,
-                  geometry_world_ref_id=GEOMETRY_WORLD_REF_ID, raster_source_sha256=RASTER_SOURCE_SHA256,
-                  geometry_svg_sha256=GEOMETRY_SVG_SHA256, geometry_algorithm=GEOMETRY_ALGORITHM)
-    root.append(element("metadata", text=json.dumps(stamps, ensure_ascii=False)))
-    # Название-псевдоним применяется ко всем подписям исходной схемы.
-    for node in geometry.iter():
-        if node.text:
-            node.text = node.text.replace("Железный шлейф", "Железный шельф")
-    layer = element("g", {"id": "regions"})
-    layer.extend(list(geometry))
-    root.append(layer)
-    for row in visible_locations(world, show_secrets=show_secrets, query=query, kind=kind, region=region):
-        point = world_to_svg(row.get("x"), row.get("z"))
-        if point:
-            marker = element("circle", {"cx": str(point[0]), "cy": str(point[1]), "r": "0.65", "fill": "#26353b"})
-            marker.append(element("title", text=row.get("name_ru") or row["name_en"]))
-            root.append(marker)
-    for row in locations["characters"]:
-        coords = row.get("coordinates")
-        point = world_to_svg(coords[0], coords[2]) if isinstance(coords, list) and len(coords) == 3 else None
-        if row["resolution_status"] != "unknown" and point:
-            color = {"in_location": "#19764b", "near_location": "#b36a13", "in_region": "#235fa4"}[row["resolution_status"]]
-            marker = element("circle", {"cx": str(point[0]), "cy": str(point[1]), "r": "1.0", "fill": color})
-            marker.append(element("title", text=f"{row['name']}: {STATUS_LABELS[row['resolution_status']]}"))
-            root.append(marker)
-    # Регионы цепочек обводятся контуром; линий между регионами нет, разрыв не соединяется.
-    outlines = element("g", {"id": "corridors"})
-    colors = ["#9c3153", "#325baf"]
-    paths = list(geometry.iter(svg_ns + "path"))
-    for i, corridor in enumerate(corridors or []):
-        for name in corridor["regions"]:
-            for path in paths:
-                title = path.find(svg_ns + "title")
-                if title is not None and title.text and title.text.endswith(f"({name})"):
-                    outline = element("path", {"d": path.get("d", ""), "fill": "none", "stroke": colors[i % 2],
-                                               "stroke-width": "0.8", "stroke-dasharray": "2 1"})
-                    outline.append(element("title", text=f"{corridor['name']}: {names.get(name, name)}"))
-                    outlines.append(outline)
-    root.append(outlines)
-    for i, line in enumerate(footer):
-        root.append(element("text", {"x": "2", "y": str(260 + i * 3.7), "font-size": "2.1", "fill": "#18252a"}, line))
-    return ET.tostring(root, encoding="unicode")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description=MAP_TITLE)
+    parser = argparse.ArgumentParser(description="Геометрия мира Kenshi: проверка и пересборка производных артефактов")
     parser.add_argument("--published", type=Path, default=ROOT / "published")
-    parser.add_argument("--svg", type=Path, help="Записать схему в SVG")
-    parser.add_argument("--verify-geometry", action="store_true", help="Проверить геометрию без экспорта")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--verify-geometry", action="store_true", help="Проверить геометрию и выпуск published/")
     parser.add_argument("--geometry", type=Path, help="Путь к проверяемому SVG контуров")
     parser.add_argument("--world-source", type=Path, help="Полный локальный data/world/<world_ref_id>.json")
     parser.add_argument("--local", action="store_true",
                         help=f"Локальный режим: data/world/<world_ref_id>.json или {WORLD_SOURCE_ENV}")
-    parser.add_argument("--build-adjacency", action="store_true",
-                        help="Пересчитать assets/cartography/regions_adjacency.json по --world-source")
+    mode.add_argument("--build-adjacency", action="store_true",
+                      help="Пересчитать assets/cartography/regions_adjacency.json по --world-source")
     args = parser.parse_args()
     if args.build_adjacency:
         if args.world_source is None:
@@ -630,21 +511,14 @@ def main() -> None:
             verify_release_against_source(release, args.world_source)
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError) as exc:
         parser.exit(1, f"Ошибка проверки геометрии: {exc}\n")
-    if args.verify_geometry:
-        print(json.dumps({"format": "kenshi-cartography-verification/1", "status": "passed",
-                          "world_ref_id": GEOMETRY_WORLD_REF_ID,
-                          "raster_source_sha256": RASTER_SOURCE_SHA256,
-                          "adjacency_sha256": _adjacency_digest(ADJACENCY_GRAPH, BORDER_LENGTHS),
-                          "raster_cells_sha256": load_adjacency_document()["raster_cells_sha256"],
-                          "geometry_svg_sha256": GEOMETRY_SVG_SHA256,
-                          "algorithm": GEOMETRY_ALGORITHM,
-                          "world_source_verified": report["world_source_verified"]}, ensure_ascii=False))
-        return
-    corridors = compare_corridors()
-    if args.svg:
-        args.svg.write_text(export_svg(release, corridors, geometry_path=args.geometry), encoding="utf-8")
-    else:
-        print(generate_summary(release, corridors))
+    print(json.dumps({"format": "kenshi-cartography-verification/1", "status": "passed",
+                      "world_ref_id": GEOMETRY_WORLD_REF_ID,
+                      "raster_source_sha256": RASTER_SOURCE_SHA256,
+                      "adjacency_sha256": _adjacency_digest(ADJACENCY_GRAPH, BORDER_LENGTHS),
+                      "raster_cells_sha256": load_adjacency_document()["raster_cells_sha256"],
+                      "geometry_svg_sha256": GEOMETRY_SVG_SHA256,
+                      "algorithm": GEOMETRY_ALGORITHM,
+                      "world_source_verified": report["world_source_verified"]}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
