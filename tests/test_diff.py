@@ -187,7 +187,7 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(d_bad_parent["valid"])
         self.assertTrue(any("несовпадение родителя" in p for p in d_bad_parent["problems"]))
 
-        # 4. Убывание игрового времени (откат / ветвление)
+        # 4. Убывание игрового времени (перезагрузка)
         cur_snap_retro = copy.deepcopy(cur_snap2)
         cur_snap_retro["world"]["day"] = 9
         d_retro = diff(cur_snap, cur_snap_retro, prev_id="snap-1", cur_id="snap-retro")

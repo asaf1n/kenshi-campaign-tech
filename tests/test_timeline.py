@@ -1,4 +1,4 @@
-"""AC-12: целостность журнала, доказательства, ветки и публикация событий."""
+"""AC-12: целостность журнала, доказательства, цепочка снимков и публикация событий."""
 from __future__ import annotations
 
 import copy
@@ -19,7 +19,7 @@ from tools.io_utils import canonical, digest, read_json
 from tools.publisher import publish
 from tools.rendering import render_brief
 from tools.timeline import (
-    _writer_lock, append_event, create_session, filter_by_branch, import_events,
+    _writer_lock, append_event, create_session, filter_events_by_chain, import_events,
     load_sessions, read_timeline, resolve_timeline,
 )
 from tools.validation import check_privacy, validate_event, validate_publication, validate_timeline
@@ -43,22 +43,23 @@ class TimelineTests(unittest.TestCase):
         self.world_file = self.world_dir / f"{self.world['world_ref_id']}.json"
         self.world_file.write_bytes(canonical(self.world))
         self.index = empty_index()
-        for sid, parent, branch, day in (("A", None, "main", 15), ("B", "A", "main", 16), ("C", "A", "alt", 17)):
+        # C — боковой лист от A (повторная регистрация A и новый снимок), B — голова кампании.
+        for sid, parent, day in (("A", None, 15), ("C", "A", 17), ("B", "A", 16)):
             directory = _create_sample_snapshot(self.snapshots, sid, day=day, parent_snapshot_id=parent)
             current = read_json((directory / "current.json").read_bytes())
             for character, location in zip(current["characters"], self.world["locations"]):
                 character["position"] = [location[key] for key in ("x", "y", "z")]
             (directory / "current.json").write_bytes(canonical(current))
             provenance = read_json((directory / "provenance.json").read_bytes())
-            provenance.update(branch_id=branch, current_sha256=digest(canonical(current)))
+            provenance.update(current_sha256=digest(canonical(current)))
             (directory / "provenance.json").write_bytes(canonical(provenance))
             self.index["snapshots"][sid] = {
-                "snapshot_id": sid, "parent_snapshot_id": parent, "branch_id": branch,
+                "snapshot_id": sid, "parent_snapshot_id": parent,
                 "campaign_id": "fixture", "game_time": provenance["game_time"],
                 "world_ref_id": self.world["world_ref_id"], "source_kind": "save",
                 "source_sha256": provenance["source_sha256"], "registered_at": STAMP,
             }
-            self.index["branches"][branch] = {"name": branch, "head_snapshot_id": sid, "created_at": STAMP}
+            self.index["campaigns"]["fixture"] = {"head_snapshot_id": sid}
         self.index_path.write_bytes(canonical(self.index))
         for name, snapshots in (("session-main", ["A", "B"]), ("session-alt", ["A", "C"]),
                                 ("session-ambiguous", ["B", "C"]), ("session-root", ["A"])):
@@ -113,47 +114,60 @@ class TimelineTests(unittest.TestCase):
             asked.append((parent, child))
             return diffs.get((parent, child))
 
-        first = chain_events(index, "C", "main", load, lambda p, c: f"{p}__{c}")
+        first = chain_events(index, "C", load, lambda p, c: f"{p}__{c}")
         self.assertEqual(asked, [("A", "C")])
         self.assertEqual([(e["kind"], e["summary"]) for e in first],
                          [("squad_change", "В отряд вступили: Новичок"), ("state_delta", "Казна: 1 -> 5 (+4)")])
         self.assertEqual({e["game_time"] for e in first}, {"Day 17 14:30"})
         for event in first:
             validate_event(event)
-        self.assertEqual(first, chain_events(index, "C", "main", load, lambda p, c: f"{p}__{c}"))
+        self.assertEqual(first, chain_events(index, "C", load, lambda p, c: f"{p}__{c}"))
 
         long_chain = {"snapshots": {f"s{n}": {"parent_snapshot_id": f"s{n - 1}" if n else None} for n in range(40)}}
         self.assertEqual(len(chain_ids(long_chain, "s39")), WINDOW_EDGES + 1)
 
-    def test_branch_switch_detection_table(self) -> None:
-        """Откат времени и чужая или не совпадающая с головой родительская связь дают смену ветки; штатное продолжение нет."""
-        from tools.chain_timeline import detect_branch_switch
+    def test_reload_detection_table(self) -> None:
+        """Перезагрузка — только регрессия игрового времени относительно родителя."""
+        from tools.index import reload_of
 
         index = {"snapshots": {
-            "P": {"branch_id": "main", "game_time": {"day": 20, "time": "10:00"}},
-            "linear": {"branch_id": "main", "game_time": {"day": 21, "time": "09:00"}},
-            "rollback": {"branch_id": "main", "game_time": {"day": 19, "time": "23:59"}},
+            "P": {"parent_snapshot_id": None, "game_time": {"day": 20, "time": "10:00"}},
+            "linear": {"parent_snapshot_id": "P", "game_time": {"day": 21, "time": "09:00"}},
+            "same": {"parent_snapshot_id": "P", "game_time": {"day": 20, "time": "10:00"}},
+            "rollback": {"parent_snapshot_id": "P", "game_time": {"day": 19, "time": "23:59"}},
+            "unknown": {"parent_snapshot_id": "P", "game_time": None},
         }}
-        self.assertIsNone(detect_branch_switch(index, "P", "linear", "main"))  # линейное продолжение, даже если выпуски пропущены
-        self.assertIsNone(detect_branch_switch(index, None, "linear", "main"))
-        self.assertEqual(detect_branch_switch(index, "P", "rollback", "main")["reason"], "time_rollback")
-        self.assertEqual(detect_branch_switch(index, "P", "linear", "alt")["reason"], "parent_mismatch")
+        for sid, expected in (("P", None), ("linear", None), ("same", None), ("unknown", None),
+                              ("rollback", {"from_snapshot": "P", "from_game_time": {"day": 20, "time": "10:00"}})):
+            with self.subTest(sid):
+                self.assertEqual(reload_of(index, sid), expected)
 
-    def test_fork_publication_records_branch_switch_idempotently(self) -> None:
-        """Снимок ветки alt от родителя ветки main: branch_switch в манифесте и в таймлайне, повторный выпуск идентичен."""
-        def publish_fork() -> dict[str, bytes]:
+    def test_reload_publication_is_recorded_idempotently(self) -> None:
+        """Снимок R (день 14) после головы B (день 16): reload в манифесте и в таймлайне, повторный выпуск идентичен."""
+        _create_sample_snapshot(self.snapshots, "R", day=14)
+        provenance = read_json((self.snapshots / "R/provenance.json").read_bytes())
+        self.index["snapshots"]["R"] = {
+            "snapshot_id": "R", "parent_snapshot_id": "B", "campaign_id": "fixture",
+            "game_time": provenance["game_time"], "world_ref_id": self.world["world_ref_id"], "source_kind": "save",
+            "source_sha256": provenance["source_sha256"], "registered_at": "2026-11-01T13:00:00Z",
+        }
+        self.index["campaigns"]["fixture"] = {"head_snapshot_id": "R"}
+        self.index_path.write_bytes(canonical(self.index))
+
+        def publish_reload() -> dict[str, bytes]:
             with patch("tools.publisher.ROOT", self.root):
-                publish("C", self.snapshots, self.root / "data/diffs", self.published, index_path=self.index_path,
-                        world_dir=self.world_dir, timeline_path=self.ledger, sessions_root=self.root, branch_id="alt")
+                publish("R", self.snapshots, self.root / "data/diffs", self.published, index_path=self.index_path,
+                        world_dir=self.world_dir, timeline_path=self.ledger, sessions_root=self.root,
+                        generated_at=STAMP)
             return self.bundle()
 
-        first = publish_fork()
+        first = publish_reload()
         manifest = json.loads(first["manifest.json"])
-        self.assertEqual((manifest["branch_switch"]["reason"], manifest["branch_switch"]["from_branch"],
-                          manifest["branch_switch"]["to_branch"]), ("parent_mismatch", "main", "alt"))
+        self.assertEqual(manifest["reload"], {"from_snapshot": "B", "from_game_time": "Day 16 14:30"})
         events = [json.loads(line) for line in first["timeline.jsonl"].decode("utf-8").splitlines()]
-        self.assertIn("branch_switch", [event["kind"] for event in events])
-        self.assertEqual(publish_fork(), first)
+        self.assertEqual([event["kind"] for event in events], ["reload"])
+        self.assertEqual(events[0]["session_id"], "auto-chain")
+        self.assertEqual(publish_reload(), first)
 
     def test_import_statuses_idempotency_and_atomic_batch(self) -> None:
         """Повтор и ошибочный пакет не переписывают факты и не оставляют принятого префикса пакета."""
@@ -266,7 +280,7 @@ except OSError:
         self.assertEqual(brief, render_brief({}, {"valid": False}, "B", timeline=read_timeline(self.ledger)))
 
     def test_sessions_and_ancestry_exclude_parallel_or_ambiguous_events(self) -> None:
-        """A→B и A→C наследуют A; общая сессия B/C не доказывает принадлежность ни одной ветке."""
+        """A→B и A→C наследуют A; общая сессия B/C не доказывает принадлежность ни одной цепочке."""
         sessions = load_sessions(self.root, self.index)
         self.assertEqual(sessions["session-main"]["snapshot_ids"], ["A", "B"])
         notes = self.root / "sessions/session-main/notes.md"
@@ -288,13 +302,13 @@ except OSError:
             events.append(event)
         events.append(self.event("foreign-correction", "confirmed", kind="correction", corrects_event_id="alt"))
         before = copy.deepcopy(events)
-        for branch, snapshot, expected in (
-            ("main", "B", {"root", "main", "session-only-main", "session-only-root"}),
-            ("alt", "C", {"root", "alt", "session-only-root"}),
-            ("main", "A", {"root", "session-only-root"}),
+        for snapshot, expected in (
+            ("B", {"root", "main", "session-only-main", "session-only-root"}),
+            ("C", {"root", "alt", "session-only-root"}),
+            ("A", {"root", "session-only-root"}),
         ):
-            with self.subTest(branch=branch, snapshot=snapshot):
-                selected = filter_by_branch(events, branch, self.index, sessions, snapshot_id=snapshot)
+            with self.subTest(snapshot=snapshot):
+                selected = filter_events_by_chain(events, snapshot, self.index, sessions)
                 self.assertEqual({event["event_id"] for event in selected}, expected)
         self.assertEqual(events, before)
 
@@ -444,7 +458,7 @@ except OSError:
         self.assertEqual(recorded_events[0]["summary"], "Зачищена древняя лаборатория в Черной Пустыне")
 
         # 2. Публикация проецирует событие в release bundle
-        self.publish(branch_id="main")
+        self.publish()
         proj_events = read_timeline(self.published / "timeline.jsonl", projection=True)
         self.assertEqual(len(proj_events), 1)
         self.assertEqual(proj_events[0]["event_id"], "ev-clean-lab")
@@ -457,7 +471,7 @@ except OSError:
             "diff",
             "--from-day", "15",
             "--to-day", "16",
-            "--branch-id", "main",
+            "--campaign-id", "fixture",
             "--snapshots-dir", str(self.snapshots),
             "--index-file", str(self.index_path),
             "--output", str(out_diff),

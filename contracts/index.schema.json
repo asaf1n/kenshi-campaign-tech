@@ -1,49 +1,38 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/kenshi/index.schema.json",
-  "title": "Kenshi snapshots and branches index",
-  "description": "Контракт файлового реестра снимков и веток kenshi-index/1.",
+  "title": "Kenshi snapshots index",
+  "description": "Контракт файлового реестра снимков kenshi-index/2: одна линия на кампанию, родитель — голова кампании.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "format",
     "updated_at",
-    "active_branch_id",
-    "branches",
+    "campaigns",
     "snapshots"
   ],
   "properties": {
     "format": {
-      "const": "kenshi-index/1"
+      "const": "kenshi-index/2"
     },
     "updated_at": {
       "type": "string",
       "format": "date-time"
     },
-    "active_branch_id": {
-      "type": ["string", "null"]
-    },
-    "branches": {
+    "campaigns": {
       "type": "object",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "name",
-          "head_snapshot_id",
-          "created_at"
+          "head_snapshot_id"
         ],
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1
-          },
           "head_snapshot_id": {
-            "type": ["string", "null"]
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }
@@ -56,7 +45,6 @@
         "required": [
           "snapshot_id",
           "parent_snapshot_id",
-          "branch_id",
           "campaign_id",
           "game_time",
           "world_ref_id",
@@ -70,28 +58,41 @@
             "minLength": 1
           },
           "parent_snapshot_id": {
-            "type": ["string", "null"]
-          },
-          "branch_id": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "campaign_id": {
-            "type": ["string", "null"]
+            "type": "string",
+            "minLength": 1
           },
           "game_time": {
-            "type": ["object", "null"],
+            "type": [
+              "object",
+              "null"
+            ],
             "additionalProperties": false,
             "properties": {
               "day": {
-                "type": ["number", "null"]
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "time": {
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
           "world_ref_id": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_kind": {
             "enum": [

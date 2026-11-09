@@ -11,7 +11,8 @@ from unittest.mock import patch
 from tools.current_layers import public_projection
 from tools.io_utils import ExtractionError, canonical, digest, tree_hashes
 from tools.location_registry import (
-    build_registry, merge_progress, read_discovery_save, registry_bytes, validate_progress, validate_registry,
+    build_registry, merge_progress, read_discovery_save, registry_bytes, upgrade_progress, validate_progress,
+    validate_registry,
 )
 from tools.save_reader import extract_world_state
 
@@ -36,12 +37,12 @@ def _report(sid: str, characters: Iterable[tuple[str, str]] = (),
 
 
 def _progress(rows: list[dict], world_ref_id: str = "world-new") -> dict:
-    return {"format": "kenshi-location-progress/1", "campaign_id": "campaign",
+    return {"format": "kenshi-location-progress/2", "campaign_id": "campaign",
             "world_ref_id": world_ref_id, "locations": rows}
 
 
-def _mark(sid: str, status: str, branch: str = "active", game_time: str | None = None) -> dict:
-    row = {"instance_id": sid, "status": status, "evidence": "Подтверждение игрока", "branch_id": branch}
+def _mark(sid: str, status: str, game_time: str | None = None) -> dict:
+    row = {"instance_id": sid, "status": status, "evidence": "Подтверждение игрока"}
     if game_time is not None:
         row["game_time"] = game_time
     return row
@@ -49,19 +50,17 @@ def _mark(sid: str, status: str, branch: str = "active", game_time: str | None =
 
 class LocationRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.manifest = {"snapshot_id": "head", "branch_id": "active", "campaign_id": "campaign",
+        self.manifest = {"snapshot_id": "head", "campaign_id": "campaign",
                          "world_ref_id": "world-new", "game_time": "Day 13 08:00"}
 
     def test_only_retained_chain_and_in_location_count_as_visits(self) -> None:
-        chain = {"head": ("rollback", 13, "active"), "rollback": ("discarded", 7, "active"),
-                 "discarded": ("missing", 11, "active"), "missing": ("old", 2, "active"),
-                 "old": ("foreign", 1, "common"), "foreign": (None, 0, "foreign"),
-                 "side": ("old", 3, "other")}
+        # discarded (день 11) отменён перезагрузкой rollback (день 7); side — боковой лист; foreign — чужая кампания.
+        chain = {"head": ("rollback", 13), "rollback": ("discarded", 7), "discarded": ("missing", 11),
+                 "missing": ("old", 2), "old": ("foreign", 1), "foreign": (None, 0), "side": ("old", 3)}
         index = {"snapshots": {
-            sid: {"parent_snapshot_id": parent, "branch_id": branch,
-                  "campaign_id": "other" if sid == "foreign" else "campaign",
+            sid: {"parent_snapshot_id": parent, "campaign_id": "other" if sid == "foreign" else "campaign",
                   "game_time": {"day": day, "time": "8:00"}}
-            for sid, (parent, day, branch) in chain.items()
+            for sid, (parent, day) in chain.items()
         }}
         reports = {
             "old": _report("old", [("first", "in_location")] * 2),
@@ -106,7 +105,7 @@ class LocationRegistryTests(unittest.TestCase):
             with self.subTest(parent=parent):
                 index = {"snapshots": {"head": {"parent_snapshot_id": "ancestor"},
                                        "ancestor": {"parent_snapshot_id": parent}}}
-                with self.assertRaisesRegex(ValueError, "оборвана или содержит цикл"):
+                with self.assertRaisesRegex(ValueError, "оборвана|содержит цикл"):
                     build_registry(manifest, world, head, index, lambda _: None)
 
     def test_registry_rejects_evidence_outside_chain_or_in_reverse_order(self) -> None:
@@ -145,24 +144,34 @@ class LocationRegistryTests(unittest.TestCase):
              "Неизвестный instance_id"),
             ("отметка понижена", _progress([_mark("town", "visited"), historical], "world-old"), "удалена или понижена"),
             ("отметка удалена", _progress([historical], "world-old"), "удалена или понижена"),
-            ("повтор в ветке", _progress([*previous["locations"], _mark("town", "explored")], "world-old"), "Повтор отметки"),
+            ("повтор instance_id", _progress([*previous["locations"], _mark("town", "explored")], "world-old"), "Повтор отметки"),
             ("неизвестный ID в том же мире", _progress(previous["locations"]), "Неизвестный instance_id"),
         ]
+        # База из истории Git в формате /1: повтор instance_id в разных ветках даёт высший статус.
+        legacy = {**previous, "format": "kenshi-location-progress/1", "locations": [
+            {**_mark("town", "visited"), "branch_id": "old-line"}, {**_mark("town", "explored"), "branch_id": "line"},
+            {**historical, "branch_id": "line"}]}
+        self.assertEqual(upgrade_progress(legacy), previous)
+        cases += [
+            ("база /1, текущий /2", previous, None),
+            ("база /1, отметка понижена", _progress([_mark("town", "visited"), historical], "world-old"),
+             "удалена или понижена"),
+        ]
         for label, progress, error in cases:
+            baseline = legacy if label.startswith("база /1") else previous
             with self.subTest(label):
                 if error:
                     with self.assertRaisesRegex(ValueError, error):
-                        validate_progress(progress, "campaign", world, previous)
+                        validate_progress(progress, "campaign", world, baseline)
                 else:
-                    self.assertEqual(validate_progress(progress, "campaign", world, previous), ["orphan"])
+                    self.assertEqual(validate_progress(progress, "campaign", world, baseline), ["orphan"])
 
-    def test_merge_recomputes_from_auto_and_applies_only_branch_and_time(self) -> None:
-        world = _world(["visited", "tie", "other", "future", "historic"])
+    def test_merge_recomputes_from_auto_and_applies_only_up_to_release_time(self) -> None:
+        world = _world(["visited", "tie", "untouched", "future", "historic"])
         report = _report("head", [("visited", "in_location"), ("tie", "in_location")])
         registry = build_registry(self.manifest, world, report, None, lambda _: None)
         progress = _progress([
             _mark("visited", "explored"), _mark("tie", "visited"),
-            _mark("other", "explored", branch="other"),
             _mark("future", "visited", game_time="Day 13 08:01"),
             _mark("historic", "visited", game_time="Day 13 08:00"),
         ])
@@ -171,7 +180,7 @@ class LocationRegistryTests(unittest.TestCase):
         validate_registry(merged, self.manifest, world)
         self.assertEqual({row["instance_id"]: (row["status"], row["status_source"]) for row in merged["locations"]}, {
             "visited": ("explored", "manual"), "tie": ("visited", "auto"),
-            "other": ("no_evidence", "none"), "future": ("no_evidence", "none"), "historic": ("visited", "manual"),
+            "untouched": ("no_evidence", "none"), "future": ("no_evidence", "none"), "historic": ("visited", "manual"),
         })
         self.assertEqual(merge_progress(merged, None), registry)
 

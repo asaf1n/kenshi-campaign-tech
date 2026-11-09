@@ -155,11 +155,11 @@ class ExtractTests(unittest.TestCase):
         save = self.make_save()
         before = tree_hashes(save)
         protected = tree_hashes(self.config.game)
-        first = extract(save, "save", self.config, self.output, "campaign", "main")
+        first = extract(save, "save", self.config, self.output)
         self.assertEqual(before, tree_hashes(save))
         self.assertEqual(protected, tree_hashes(self.config.game))
         files = tree_hashes(self.output)
-        self.assertEqual(first, extract(save, "save", self.config, self.output, "campaign", "main"))
+        self.assertEqual(first, extract(save, "save", self.config, self.output))
         self.assertEqual(files, tree_hashes(self.output))
         meta = read_json((self.output / first["snapshot_id"] / "provenance.json").read_bytes())
         self.assertEqual(meta["source_files"], before)
@@ -168,13 +168,15 @@ class ExtractTests(unittest.TestCase):
         from tools.converter_worker import ENGINE_FILES
         self.assertEqual([p[0] for p in meta["converter"]["files"]], ENGINE_FILES)
         (self.config.game / "data/Newwworld.mod").write_bytes(struct.pack("<iiii", 17, 0, 0, 0) + b"mod-v2")
-        mod_changed = extract(save, "save", self.config, self.output, "campaign", "main")
+        mod_changed = extract(save, "save", self.config, self.output)
         self.assertNotEqual(first["snapshot_id"], mod_changed["snapshot_id"])
         mock_hashes = {k: "changed" for k in ENGINE_FILES}
         with patch("tools.extraction.engine_hashes", return_value=mock_hashes):
-            engine_changed = extract(save, "save", self.config, self.output, "campaign", "main")
+            engine_changed = extract(save, "save", self.config, self.output)
         self.assertNotEqual(mod_changed["snapshot_id"], engine_changed["snapshot_id"])
-        self.assertNotEqual(engine_changed["snapshot_id"], extract(save, "save", self.config, self.output, "campaign", "branch")["snapshot_id"])
+        # Идентичность и provenance не содержат внешнего контекста (кампания, родитель).
+        self.assertEqual(meta["format"], "kenshi-snapshot/2")
+        self.assertFalse({"campaign_id", "branch_id", "parent_snapshot_id"} & meta.keys())
 
     def test_save_missing_corrupt_and_source_changes(self) -> None:
         save = self.make_save()
@@ -266,7 +268,7 @@ class ExtractTests(unittest.TestCase):
             for seed in ("1", "42"):
                 output = self.root / f"hashseed-{kind}-{seed}"
                 command = [sys.executable, "-B", "-m", "tools.campaign", "extract", "--source-kind", kind,
-                           "--source", str(source), "--output", str(output), "--campaign-id", "test", "--branch-id", "main"]
+                           "--source", str(source), "--output", str(output)]
                 completed = subprocess.run(command, env=env | {"PYTHONHASHSEED": seed}, cwd=ROOT, capture_output=True)
                 self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
                 results.append((read_json(completed.stdout), tree_hashes(output)))

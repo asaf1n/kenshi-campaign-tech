@@ -1,17 +1,21 @@
-"""Реестр снимков, отслеживание родительства и веток: kenshi-index/1."""
+"""Реестр снимков kenshi-index/2: одна линия на кампанию, родитель — голова кампании."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import shutil
 import tempfile
 from typing import Any
 
 from tools.io_utils import canonical, read_json
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX_FORMAT = "kenshi-index/1"
+INDEX_FORMAT = "kenshi-index/2"
+LEGACY_INDEX_FORMAT = "kenshi-index/1"
 DEFAULT_INDEX_PATH = ROOT / "data/index.json"
+ENTRY_FIELDS = ("snapshot_id", "parent_snapshot_id", "campaign_id", "game_time", "world_ref_id",
+                "source_kind", "source_sha256", "registered_at")
 
 try:
     import msvcrt
@@ -21,7 +25,7 @@ except ImportError:
 
 
 class CampaignIndexError(RuntimeError):
-    """Отказ операций с индексом снимков и веток."""
+    """Отказ операций с индексом снимков."""
 
 
 # Алиас для совместимости
@@ -61,22 +65,17 @@ class IndexLock:
                     pass
 
 
-def empty_index(active_branch: str = "main") -> dict[str, Any]:
-    """Создание пустой структуры индекса kenshi-index/1."""
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
-        "format": INDEX_FORMAT,
-        "updated_at": now_iso,
-        "active_branch_id": active_branch,
-        "branches": {
-            active_branch: {
-                "name": "Основная ветка" if active_branch == "main" else active_branch,
-                "head_snapshot_id": None,
-                "created_at": now_iso,
-            }
-        },
-        "snapshots": {},
-    }
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _lock_for(target: Path) -> IndexLock:
+    return IndexLock(Path(tempfile.gettempdir()) / f"kenshi_{target.name}.lock")
+
+
+def empty_index() -> dict[str, Any]:
+    """Пустой индекс kenshi-index/2."""
+    return {"format": INDEX_FORMAT, "updated_at": _now(), "campaigns": {}, "snapshots": {}}
 
 
 def load_index(index_path: Path | None = None) -> dict[str, Any]:
@@ -88,7 +87,9 @@ def load_index(index_path: Path | None = None) -> dict[str, Any]:
         data = read_json(target.read_bytes())
     except Exception as err:
         raise CampaignIndexError(f"Ошибка чтения файла индекса {target}: {err}") from err
-
+    if data.get("format") == LEGACY_INDEX_FORMAT:
+        raise CampaignIndexError(
+            f"Индекс {target} в формате {LEGACY_INDEX_FORMAT}: выполните python -m tools.campaign index migrate --apply")
     if data.get("format") != INDEX_FORMAT:
         raise CampaignIndexError(f"Некорректный формат индекса: {data.get('format')} (ожидался {INDEX_FORMAT})")
     return data
@@ -99,33 +100,98 @@ def save_index(index_data: dict[str, Any], index_path: Path | None = None, with_
     target = (index_path or DEFAULT_INDEX_PATH).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    lock_file = Path(tempfile.gettempdir()) / f"kenshi_{target.name}.lock"
-
     def _do_write() -> Path:
         staging_file = target.parent / f".tmp-{os.getpid()}-{target.name}"
-        data_bytes = canonical(index_data)
         with open(staging_file, "wb") as f:
-            f.write(data_bytes)
+            f.write(canonical(index_data))
             f.flush()
             os.fsync(f.fileno())
         os.replace(staging_file, target)
         return target
 
     if with_lock:
-        with IndexLock(lock_file):
+        with _lock_for(target):
             return _do_write()
     return _do_write()
 
 
+def game_minutes(game_time: dict[str, Any] | None) -> int | None:
+    """Игровое время записи индекса `{day, time}` в минутах; неполное время даёт None."""
+    if not isinstance(game_time, dict) or game_time.get("day") is None:
+        return None
+    hours, _, minutes = str(game_time.get("time") or "").partition(":")
+    try:
+        return int(game_time["day"]) * 1440 + int(hours) * 60 + int(minutes or 0)
+    except ValueError:
+        return None
+
+
+def campaign_head(index_data: dict[str, Any], campaign_id: str) -> str | None:
+    return ((index_data.get("campaigns") or {}).get(campaign_id) or {}).get("head_snapshot_id")
+
+
+def campaign_chain(
+    index_data: dict[str, Any], snapshot_id: str, window: int | None = None, *, strict: bool = False,
+) -> list[str]:
+    """Цепочка от самого старого снимка к snapshot_id без снимков, отменённых перезагрузкой.
+
+    Снимок отменён, если его игровое время больше времени более позднего снимка цепочки. Обход останавливается
+    на границе кампании. window ограничивает число переходов (window + 1 снимок). strict требует, чтобы
+    цепочка доходила до корня без родителя: оборванная связь или цикл — ошибка.
+    """
+    snapshots = index_data.get("snapshots", {})
+    campaign = (snapshots.get(snapshot_id) or {}).get("campaign_id")
+    kept: list[str] = []
+    seen: set[str] = set()
+    cutoff: int | None = None
+    current: str | None = snapshot_id
+    while current is not None:
+        if current in seen:
+            if strict:
+                raise CampaignIndexError("Цепочка снимков в индексе содержит цикл")
+            break
+        entry = snapshots.get(current)
+        if entry is None:
+            if strict and current != snapshot_id:
+                raise CampaignIndexError("Цепочка снимков в индексе оборвана")
+            if current == snapshot_id:
+                kept.append(current)
+            break
+        if current != snapshot_id and entry.get("campaign_id") != campaign:
+            break
+        seen.add(current)
+        minutes = game_minutes(entry.get("game_time"))
+        if minutes is None or cutoff is None or minutes <= cutoff:
+            kept.append(current)
+            if minutes is not None:
+                cutoff = minutes
+        if window is not None and len(kept) > window:
+            break
+        current = entry.get("parent_snapshot_id")
+    return list(reversed(kept))
+
+
+def reload_of(index_data: dict[str, Any], snapshot_id: str) -> dict[str, Any] | None:
+    """Перезагрузка: игровое время снимка меньше времени родителя. Возвращает родителя и его время."""
+    snapshots = index_data.get("snapshots", {})
+    entry = snapshots.get(snapshot_id) or {}
+    parent_id = entry.get("parent_snapshot_id")
+    parent = snapshots.get(parent_id) if parent_id else None
+    if parent is None:
+        return None
+    before, after = game_minutes(parent.get("game_time")), game_minutes(entry.get("game_time"))
+    if before is None or after is None or after >= before:
+        return None
+    return {"from_snapshot": parent_id, "from_game_time": parent["game_time"]}
+
+
 def check_ancestry(index_data: dict[str, Any], ancestor_id: str, descendant_id: str) -> bool:
-    """Проверка, является ли ancestor_id предком descendant_id в графе родительства."""
+    """Проверка, является ли ancestor_id предком descendant_id в графе родительства индекса."""
     if ancestor_id == descendant_id:
         return True
-
     snapshots = index_data.get("snapshots", {})
     curr: str | None = descendant_id
     visited: set[str] = set()
-
     while curr and curr not in visited:
         visited.add(curr)
         snap = snapshots.get(curr)
@@ -135,357 +201,235 @@ def check_ancestry(index_data: dict[str, Any], ancestor_id: str, descendant_id: 
         if parent == ancestor_id:
             return True
         curr = parent
-
     return False
 
 
-def check_branch_compatibility(index_data: dict[str, Any], prev_id: str, cur_id: str) -> tuple[bool, str | None]:
-    """Проверка совместимости двух снимков для хронологического сравнения.
-
-    Снимки совместимы тогда и только тогда, когда prev_id является прямым предком cur_id.
-    Снимки из разных веток или параллельные ветки reload возвращают (False, 'different_branches').
-    """
-    if prev_id == cur_id:
-        return True, None
-
-    snapshots = index_data.get("snapshots", {})
-    cur_snap = snapshots.get(cur_id)
-    prev_snap = snapshots.get(prev_id)
-
-    # Если cur_id явно заявляет prev_id как родителя
-    if cur_snap and cur_snap.get("parent_snapshot_id") == prev_id:
-        return True, None
-
-    # Проверка транзитивного предка
+def check_chain_compatibility(index_data: dict[str, Any], prev_id: str, cur_id: str) -> tuple[bool, str | None]:
+    """Снимки сравнимы, если prev_id — предок cur_id в цепочке индекса; иначе (False, 'not_in_chain')."""
     if check_ancestry(index_data, ancestor_id=prev_id, descendant_id=cur_id):
         return True, None
-
-    # Иначе снимки принадлежат параллельным или разным веткам
-    return False, "different_branches"
+    return False, "not_in_chain"
 
 
 def check_time_regression(prev_time: dict[str, Any] | None, cur_time: dict[str, Any] | None) -> bool:
     """Проверка регрессии игрового времени (to < from)."""
-    if not prev_time or not cur_time:
-        return False
+    before, after = game_minutes(prev_time), game_minutes(cur_time)
+    return before is not None and after is not None and after < before
 
-    prev_day = prev_time.get("day")
-    cur_day = cur_time.get("day")
-    if prev_day is not None and cur_day is not None:
-        if cur_day < prev_day:
-            return True
-        if cur_day == prev_day:
-            pt = str(prev_time.get("time") or "")
-            ct = str(cur_time.get("time") or "")
-            if pt and ct and ct < pt:
-                return True
-    return False
+
+def _game_time(game_time: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not game_time or not isinstance(game_time, dict):
+        return None
+    return {"day": game_time.get("day"),
+            "time": str(game_time.get("time")) if game_time.get("time") is not None else None}
 
 
 def register_snapshot(
     snapshot_id: str,
-    parent_snapshot_id: str | None = None,
-    branch_id: str | None = None,
-    campaign_id: str | None = None,
+    campaign_id: str,
     game_time: dict[str, Any] | None = None,
     world_ref_id: str | None = None,
     source_kind: str = "save",
     source_sha256: str = "",
     registered_at: str | None = None,
     index_path: Path | None = None,
-    update_branch_head: bool = True,
 ) -> dict[str, Any]:
-    """Регистрация снимка в реестре data/index.json с защитой от циклов, дубликатов и сирот."""
+    """Регистрация снимка: родитель — голова кампании, снимок становится новой головой.
+
+    Повторная регистрация существующего снимка той же кампании ничего не меняет: ни запись, ни голову.
+    Иначе повторный запуск на старом слоте молча исключил бы из цепочки все более поздние снимки.
+    Возвращаемая запись содержит ключ `registration`: `new` или `existing`.
+    """
     if not snapshot_id or not str(snapshot_id).strip():
         raise CampaignIndexError("snapshot_id обязан быть непустой строкой")
-
-    if parent_snapshot_id is not None and parent_snapshot_id == snapshot_id:
-        raise CampaignIndexError(f"Снимок {snapshot_id} не может быть собственным родителем (цикл)")
+    if not campaign_id or not str(campaign_id).strip():
+        raise CampaignIndexError("campaign_id обязан быть непустой строкой")
 
     target = (index_path or DEFAULT_INDEX_PATH).resolve()
-    lock_file = Path(tempfile.gettempdir()) / f"kenshi_{target.name}.lock"
-
-    with IndexLock(lock_file):
+    with _lock_for(target):
         index_data = load_index(target)
         snapshots = index_data.setdefault("snapshots", {})
-        branches = index_data.setdefault("branches", {})
+        campaigns = index_data.setdefault("campaigns", {})
+        head = campaign_head(index_data, campaign_id)
 
-        # Проверка существующей записи (идемпотентность или конфликт)
         if snapshot_id in snapshots:
             existing = snapshots[snapshot_id]
-            is_same = (
-                existing.get("parent_snapshot_id") == parent_snapshot_id
-                and existing.get("source_kind") == source_kind
-                and existing.get("source_sha256") == source_sha256
-            )
-            if is_same:
-                return existing
-            raise CampaignIndexError(
-                f"Конфликт регистрационных данных для существующего снимка {snapshot_id}: "
-                f"существующий={existing}, новый parent={parent_snapshot_id}, sha={source_sha256}"
-            )
-
-        # Проверка родителя (защита от сирот и циклов)
-        if parent_snapshot_id is not None:
-            if parent_snapshot_id not in snapshots:
+            if (existing.get("campaign_id") != campaign_id or existing.get("source_kind") != source_kind
+                    or existing.get("source_sha256") != source_sha256):
                 raise CampaignIndexError(
-                    f"Родительский снимок {parent_snapshot_id} отсутствует в индексе (сирота)"
-                )
+                    f"Конфликт регистрационных данных для существующего снимка {snapshot_id}: "
+                    f"кампания {existing.get('campaign_id')} -> {campaign_id}, sha {existing.get('source_sha256')} -> {source_sha256}")
+            return {**existing, "registration": "existing", "is_head": head == snapshot_id}
 
-            # Проверка циклов (обход вверх от parent_snapshot_id)
-            curr = parent_snapshot_id
-            visited = {snapshot_id}
-            while curr:
-                if curr in visited:
-                    raise CampaignIndexError(f"Обнаружен цикл в графе родительства: {snapshot_id} -> {curr}")
-                visited.add(curr)
-                parent_entry = snapshots.get(curr)
-                if not parent_entry:
-                    break
-                curr = parent_entry.get("parent_snapshot_id")
-
-        # Определение ветки
-        eff_branch = branch_id or index_data.get("active_branch_id") or "main"
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        if eff_branch not in branches:
-            branches[eff_branch] = {
-                "name": eff_branch,
-                "head_snapshot_id": None,
-                "created_at": now_iso,
-            }
-
-        parsed_gt: dict[str, Any] | None = None
-        if game_time:
-            parsed_gt = {
-                "day": game_time.get("day"),
-                "time": str(game_time.get("time")) if game_time.get("time") is not None else None,
-            }
-
+        if head is not None and head not in snapshots:
+            raise CampaignIndexError(f"Голова кампании {campaign_id} отсутствует в индексе: {head}")
         entry = {
             "snapshot_id": snapshot_id,
-            "parent_snapshot_id": parent_snapshot_id,
-            "branch_id": eff_branch,
+            "parent_snapshot_id": head,
             "campaign_id": campaign_id,
-            "game_time": parsed_gt,
+            "game_time": _game_time(game_time),
             "world_ref_id": world_ref_id,
             "source_kind": source_kind,
             "source_sha256": source_sha256,
-            "registered_at": registered_at or now_iso,
+            "registered_at": registered_at or _now(),
         }
-
         snapshots[snapshot_id] = entry
-
-        if update_branch_head:
-            branches[eff_branch]["head_snapshot_id"] = snapshot_id
-
-        index_data["updated_at"] = now_iso
+        campaigns[campaign_id] = {"head_snapshot_id": snapshot_id}
+        index_data["updated_at"] = _now()
         save_index(index_data, target, with_lock=False)
-        return entry
+        return {**entry, "registration": "new", "is_head": True}
+
+
+def _validated(index_data: dict[str, Any]) -> dict[str, Any]:
+    from tools.validation import validate_index
+
+    validate_index(index_data)
+    return index_data
+
+
+def migrate_legacy(legacy: dict[str, Any]) -> dict[str, Any]:
+    """kenshi-index/1 -> kenshi-index/2: записи и связи сохраняются, ветки удаляются.
+
+    Голова кампании — голова ветки, содержащей последний по registered_at снимок кампании, если эта голова
+    относится к той же кампании; иначе сам последний снимок.
+    """
+    if legacy.get("format") != LEGACY_INDEX_FORMAT:
+        raise CampaignIndexError(f"Ожидался {LEGACY_INDEX_FORMAT}, получено {legacy.get('format')}")
+    old = legacy.get("snapshots", {})
+    snapshots: dict[str, Any] = {}
+    for sid, entry in sorted(old.items()):
+        if not entry.get("campaign_id"):
+            raise CampaignIndexError(f"Снимок {sid} без campaign_id: кампанию нельзя вывести")
+        snapshots[sid] = {field: entry.get(field) for field in ENTRY_FIELDS}
+    campaigns: dict[str, Any] = {}
+    for campaign in sorted({entry["campaign_id"] for entry in snapshots.values()}):
+        members = [sid for sid, entry in old.items() if entry.get("campaign_id") == campaign]
+        latest = max(members, key=lambda sid: (old[sid].get("registered_at") or "", sid))
+        head = ((legacy.get("branches") or {}).get(old[latest].get("branch_id")) or {}).get("head_snapshot_id")
+        if head not in snapshots or snapshots[head]["campaign_id"] != campaign:
+            head = latest
+        campaigns[campaign] = {"head_snapshot_id": head}
+    return _validated({"format": INDEX_FORMAT, "updated_at": legacy.get("updated_at") or _now(),
+                       "campaigns": campaigns, "snapshots": snapshots})
+
+
+def migrate_index(index_path: Path | None = None, apply: bool = False) -> dict[str, Any]:
+    """План или выполнение миграции файла индекса с резервной копией; повтор на /2 ничего не меняет."""
+    target = (index_path or DEFAULT_INDEX_PATH).resolve()
+    if not target.is_file():
+        raise CampaignIndexError(f"Файл индекса не найден: {target}")
+    with _lock_for(target):
+        raw = target.read_bytes()
+        data = read_json(raw)
+        if data.get("format") == INDEX_FORMAT:
+            _validated(data)
+            return {"status": "unchanged", "format": INDEX_FORMAT, "snapshots": len(data["snapshots"])}
+        migrated = migrate_legacy(data)
+        report = {
+            "status": "planned",
+            "from": LEGACY_INDEX_FORMAT, "to": INDEX_FORMAT,
+            "snapshots": len(migrated["snapshots"]),
+            "branches_removed": sorted((data.get("branches") or {})),
+            "campaigns": {cid: {"head_snapshot_id": c["head_snapshot_id"],
+                                "game_time": migrated["snapshots"][c["head_snapshot_id"]]["game_time"],
+                                "snapshots": sum(1 for e in migrated["snapshots"].values() if e["campaign_id"] == cid)}
+                          for cid, c in migrated["campaigns"].items()},
+        }
+        if not apply:
+            return report
+        backup = target.with_name(f"{target.name}.v1-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bak")
+        shutil.copyfile(target, backup)
+        if backup.read_bytes() != raw:
+            raise CampaignIndexError("Резервная копия индекса не совпадает с исходником")
+        save_index(migrated, target, with_lock=False)
+        _validated(read_json(target.read_bytes()))
+        return {**report, "status": "migrated", "backup": backup.name}
 
 
 def rebuild_index(snapshots_dir: Path, index_path: Path | None = None) -> dict[str, Any]:
-    """Восстановление реестра из существующих data/snapshots/*/provenance.json.
+    """Восстановление записей индекса из data/snapshots/*/provenance.json.
 
-    Не назначает текущий опубликованный снимок автоматически!
-    Проверяет отсутствие циклов, дубликатов и сирот.
+    Связи и кампании берутся из существующего индекса (/2 или /1), иначе из provenance kenshi-snapshot/1.
+    Снимки kenshi-snapshot/2 вне существующего индекса не содержат кампании и связи: они пропускаются
+    и перечисляются в отчёте. Головы кампаний сохраняются из существующего индекса, если снимок на месте.
     """
     snapshots_dir = snapshots_dir.resolve()
     target = (index_path or DEFAULT_INDEX_PATH).resolve()
-
     if not snapshots_dir.is_dir():
         raise CampaignIndexError(f"Каталог снимков {snapshots_dir} не найден")
 
-    # Сбор всех провенансов
-    raw_snapshots: dict[str, dict[str, Any]] = {}
-    for snap_dir in sorted(snapshots_dir.iterdir()):
-        if snap_dir.is_dir() and not snap_dir.name.startswith("."):
-            prov_file = snap_dir / "provenance.json"
-            if prov_file.is_file():
-                prov = read_json(prov_file.read_bytes())
-                sid = prov.get("snapshot_id") or snap_dir.name
-                if sid in raw_snapshots:
-                    raise CampaignIndexError(f"Дублирующийся snapshot_id при восстановлении: {sid}")
-                raw_snapshots[sid] = prov
-
-    # Проверка целостности связей и отсутствия циклов
-    for sid, prov in raw_snapshots.items():
-        parent_id = prov.get("parent_snapshot_id")
-        if parent_id is not None:
-            if parent_id == sid:
-                raise CampaignIndexError(f"Снимок {sid} ссылается сам на себя (цикл)")
-            if parent_id not in raw_snapshots:
-                raise CampaignIndexError(f"Снимок {sid} ссылается на отсутствующего родителя {parent_id} (сирота)")
-
-            curr = parent_id
-            visited = {sid}
-            while curr:
-                if curr in visited:
-                    raise CampaignIndexError(f"Обнаружен цикл в графе родительства: {sid} -> {curr}")
-                visited.add(curr)
-                p_prov = raw_snapshots.get(curr)
-                if not p_prov:
-                    break
-                curr = p_prov.get("parent_snapshot_id")
-
-    # Чтение существующего индекса для сохранения метаданных веток, если возможно
-    existing_index: dict[str, Any] = {}
+    existing: dict[str, Any] = {}
     if target.is_file():
         try:
-            existing_index = read_json(target.read_bytes())
+            existing = read_json(target.read_bytes())
         except Exception:
-            existing_index = {}
+            existing = {}
+    if existing.get("format") == LEGACY_INDEX_FORMAT:
+        existing = migrate_legacy(existing)
+    known = existing.get("snapshots", {}) if existing.get("format") == INDEX_FORMAT else {}
 
-    active_branch = existing_index.get("active_branch_id") or "main"
-    existing_branches = existing_index.get("branches", {})
-
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    branches: dict[str, Any] = {}
-    if active_branch in existing_branches:
-        branches[active_branch] = dict(existing_branches[active_branch])
-    else:
-        branches[active_branch] = {
-            "name": "Основная ветка" if active_branch == "main" else active_branch,
-            "head_snapshot_id": None,
-            "created_at": now_iso,
-        }
-
-    # Построение записей снимков
     snapshots: dict[str, Any] = {}
-    for sid, prov in raw_snapshots.items():
-        b_id = prov.get("branch_id") or active_branch
-        if b_id not in branches:
-            if b_id in existing_branches:
-                branches[b_id] = dict(existing_branches[b_id])
-            else:
-                branches[b_id] = {
-                    "name": b_id,
-                    "head_snapshot_id": None,
-                    "created_at": now_iso,
-                }
-
-        gt = prov.get("game_time")
-        parsed_gt = None
-        if gt and isinstance(gt, dict):
-            parsed_gt = {
-                "day": gt.get("day"),
-                "time": str(gt.get("time")) if gt.get("time") is not None else None,
-            }
-
+    skipped: list[str] = []
+    for snap_dir in sorted(snapshots_dir.iterdir()):
+        prov_file = snap_dir / "provenance.json"
+        if not snap_dir.is_dir() or snap_dir.name.startswith(".") or not prov_file.is_file():
+            continue
+        prov = read_json(prov_file.read_bytes())
+        sid = prov.get("snapshot_id") or snap_dir.name
+        if sid in snapshots:
+            raise CampaignIndexError(f"Дублирующийся snapshot_id при восстановлении: {sid}")
+        prior = known.get(sid, {})
+        campaign = prior.get("campaign_id") or prov.get("campaign_id")
+        if not campaign:
+            skipped.append(sid)
+            continue
         snapshots[sid] = {
             "snapshot_id": sid,
-            "parent_snapshot_id": prov.get("parent_snapshot_id"),
-            "branch_id": b_id,
-            "campaign_id": prov.get("campaign_id"),
-            "game_time": parsed_gt,
-            "world_ref_id": prov.get("world_ref_id"),
+            "parent_snapshot_id": prior["parent_snapshot_id"] if prior else prov.get("parent_snapshot_id"),
+            "campaign_id": campaign,
+            "game_time": _game_time(prov.get("game_time")),
+            "world_ref_id": prior.get("world_ref_id") or prov.get("world_ref_id"),
             "source_kind": prov.get("source_kind", "save"),
             "source_sha256": prov.get("source_sha256", ""),
-            "registered_at": prov.get("registered_at") or now_iso,
+            "registered_at": prior.get("registered_at") or _now(),
         }
+    for entry in snapshots.values():
+        if entry["parent_snapshot_id"] is not None and entry["parent_snapshot_id"] not in snapshots:
+            raise CampaignIndexError(
+                f"Снимок {entry['snapshot_id']} ссылается на отсутствующего родителя {entry['parent_snapshot_id']} (сирота)")
 
-    # Обновление головных снимков веток по топологическому порядку / времени
-    for sid, entry in snapshots.items():
-        bid = entry["branch_id"]
-        # Снимок является кандидатом на head, если у него нет детей в той же ветке
-        is_leaf = True
-        for other_sid, other_entry in snapshots.items():
-            if other_entry.get("parent_snapshot_id") == sid and other_entry.get("branch_id") == bid:
-                is_leaf = False
-                break
-        if is_leaf:
-            branches[bid]["head_snapshot_id"] = sid
+    campaigns: dict[str, Any] = {}
+    for campaign in sorted({entry["campaign_id"] for entry in snapshots.values()}):
+        head = campaign_head(existing, campaign)
+        if head not in snapshots:
+            members = [sid for sid, entry in snapshots.items() if entry["campaign_id"] == campaign]
+            head = max(members, key=lambda sid: (snapshots[sid]["registered_at"], sid))
+        campaigns[campaign] = {"head_snapshot_id": head}
 
-    rebuilt_data = {
-        "format": INDEX_FORMAT,
-        "updated_at": now_iso,
-        "active_branch_id": active_branch,
-        "branches": branches,
-        "snapshots": snapshots,
-    }
-
-    save_index(rebuilt_data, target, with_lock=True)
-    return rebuilt_data
+    rebuilt = _validated({"format": INDEX_FORMAT, "updated_at": _now(), "campaigns": campaigns, "snapshots": snapshots})
+    save_index(rebuilt, target, with_lock=True)
+    return {**rebuilt, "skipped_unindexed": skipped}
 
 
-def switch_branch(
-    branch_id: str,
-    create: bool = False,
-    name: str | None = None,
-    index_path: Path | None = None,
-) -> dict[str, Any]:
-    """Переключение активной ветки в data/index.json."""
-    target = (index_path or DEFAULT_INDEX_PATH).resolve()
-    lock_file = Path(tempfile.gettempdir()) / f"kenshi_{target.name}.lock"
-
-    with IndexLock(lock_file):
-        index_data = load_index(target)
-        branches = index_data.setdefault("branches", {})
-
-        if branch_id not in branches:
-            if not create:
-                raise CampaignIndexError(f"Ветка '{branch_id}' не найдена в индексе")
-            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            branches[branch_id] = {
-                "name": name or branch_id,
-                "head_snapshot_id": None,
-                "created_at": now_iso,
-            }
-
-        index_data["active_branch_id"] = branch_id
-        index_data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        save_index(index_data, target, with_lock=False)
-        return index_data
-
-
-def get_branch_tree(index_data: dict[str, Any]) -> dict[str, Any]:
-    """Формирование древовидной структуры снимков и веток."""
-    snapshots = index_data.get("snapshots", {})
-    branches = index_data.get("branches", {})
-    active_branch = index_data.get("active_branch_id")
-
-    children_map: dict[str | None, list[str]] = {}
-    for sid, entry in snapshots.items():
-        pid = entry.get("parent_snapshot_id")
-        children_map.setdefault(pid, []).append(sid)
-
-    def _build_subtree(node_id: str) -> dict[str, Any]:
-        node = snapshots.get(node_id, {})
-        kids = children_map.get(node_id, [])
-        return {
-            "snapshot_id": node_id,
-            "branch_id": node.get("branch_id"),
-            "game_time": node.get("game_time"),
-            "children": [_build_subtree(kid) for kid in kids],
-        }
-
-    roots = children_map.get(None, [])
-    tree_roots = [_build_subtree(r) for r in roots]
-
-    return {
-        "active_branch_id": active_branch,
-        "branches": branches,
-        "roots": tree_roots,
-    }
-
-
-def find_snapshot_by_day(index_data: dict[str, Any], day: int, branch_id: str | None = None) -> str | None:
-    """Найти снимок на ветке по игровому дню (или ближайший)."""
-    target_branch = branch_id or index_data.get("active_branch_id")
+def find_snapshot_by_day(index_data: dict[str, Any], day: int, campaign_id: str | None = None) -> str | None:
+    """Снимок цепочки головы кампании на игровой день (или ближайший)."""
+    campaigns = index_data.get("campaigns", {})
+    if campaign_id is None:
+        if len(campaigns) != 1:
+            return None
+        campaign_id = next(iter(campaigns))
+    head = campaign_head(index_data, campaign_id)
+    if head is None:
+        return None
     candidates = []
-    for sid, entry in index_data.get("snapshots", {}).items():
-        if target_branch and entry.get("branch_id") != target_branch:
-            continue
-        gt = entry.get("game_time")
-        if isinstance(gt, dict) and gt.get("day") is not None:
-            candidates.append((gt["day"], sid))
-
+    for sid in campaign_chain(index_data, head):
+        game_time = index_data["snapshots"][sid].get("game_time")
+        if isinstance(game_time, dict) and game_time.get("day") is not None:
+            candidates.append((game_time["day"], sid))
     if not candidates:
         return None
-
     exact = [sid for d, sid in candidates if d == day]
     if exact:
-        return exact[0]
-
+        return exact[-1]
     candidates.sort(key=lambda item: (abs(item[0] - day), -item[0]))
     return candidates[0][1]

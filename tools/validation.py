@@ -182,7 +182,7 @@ def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
         raise IndexValidationError(f"Ошибка валидации схемы index: {error}") from error
 
     snapshots = index_data.get("snapshots", {})
-    branches = index_data.get("branches", {})
+    campaigns = index_data.get("campaigns", {})
 
     # 1. Проверка соответствия ключей и snapshot_id внутри записей
     for sid_key, snap_entry in snapshots.items():
@@ -191,7 +191,7 @@ def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
                 f"Несовпадение ключа снимка '{sid_key}' и поля snapshot_id '{snap_entry.get('snapshot_id')}'"
             )
 
-    # 2. Проверка связей родительства (отсутствие сирот)
+    # 2. Проверка связей родительства (отсутствие сирот, родитель из той же кампании)
     for sid, snap_entry in snapshots.items():
         parent_id = snap_entry.get("parent_snapshot_id")
         if parent_id is not None:
@@ -199,6 +199,8 @@ def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
                 raise IndexValidationError(f"Снимок {sid} ссылается сам на себя как на родителя (цикл)")
             if parent_id not in snapshots:
                 raise IndexValidationError(f"Снимок {sid} ссылается на отсутствующего родителя '{parent_id}' (сирота)")
+            if snapshots[parent_id].get("campaign_id") != snap_entry.get("campaign_id"):
+                raise IndexValidationError(f"Родитель снимка {sid} относится к другой кампании")
 
     # 3. Защита от циклов (cycle detection)
     for sid in snapshots:
@@ -210,33 +212,29 @@ def validate_index(index_data: dict[str, Any]) -> dict[str, Any]:
             visited.add(curr)
             curr = snapshots[curr].get("parent_snapshot_id")
 
-    # 4. Проверка активной ветки
-    active_b = index_data.get("active_branch_id")
-    if active_b is not None and branches and active_b not in branches:
-        raise IndexValidationError(f"Активная ветка '{active_b}' отсутствует в словаре branches")
-
-    # 5. Проверка головных снимков веток
-    for bid, b_entry in branches.items():
-        head_id = b_entry.get("head_snapshot_id")
+    # 4. Головы кампаний
+    for cid, entry in campaigns.items():
+        head_id = entry.get("head_snapshot_id")
         if head_id is not None:
             if head_id not in snapshots:
-                raise IndexValidationError(f"Головной снимок '{head_id}' ветки '{bid}' отсутствует в snapshots")
-            if snapshots[head_id].get("branch_id") != bid:
+                raise IndexValidationError(f"Голова кампании '{cid}' отсутствует в snapshots: '{head_id}'")
+            if snapshots[head_id].get("campaign_id") != cid:
                 raise IndexValidationError(
-                    f"Головной снимок '{head_id}' ветки '{bid}' имеет branch_id '{snapshots[head_id].get('branch_id')}'"
-                )
+                    f"Голова кампании '{cid}' имеет campaign_id '{snapshots[head_id].get('campaign_id')}'")
+    missing = {e.get("campaign_id") for e in snapshots.values()} - set(campaigns)
+    if missing:
+        raise IndexValidationError(f"Кампании без головы в индексе: {sorted(missing)}")
 
     return {
         "status": "passed",
         "snapshots_count": len(snapshots),
-        "branches_count": len(branches),
-        "active_branch_id": active_b,
+        "campaigns": {cid: entry.get("head_snapshot_id") for cid, entry in sorted(campaigns.items())},
         "checks": [
             "schema",
             "snapshot_id_keys",
             "no_orphans",
             "no_cycles",
-            "branches_consistency",
+            "campaign_heads",
         ],
     }
 
@@ -434,13 +432,13 @@ def check_examples() -> int:
     for path in sorted((ROOT / "examples").glob("*.json")):
         value = read_json(path.read_bytes())
         fmt = value.get("format")
-        if fmt == "kenshi-publication/1":
+        if fmt == "kenshi-publication/2":
             validate(value, "manifest")
         elif fmt == "kenshi-world-reference/1":
             validate_world_reference(value)
         elif fmt == "kenshi-locations/1":
             validate_locations(value)
-        elif fmt == "kenshi-index/1":
+        elif fmt == "kenshi-index/2":
             validate_index(value)
         elif fmt in {"kenshi-session/10", "kenshi-session/11"}:
             validate(value, "session")
@@ -872,11 +870,6 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
                 raise PublicationValidationError(
                     f"Несовпадение parent_snapshot_id между manifest '{manifest.get('parent_snapshot_id')}' "
                     f"и data/index.json '{idx_entry.get('parent_snapshot_id')}'"
-                )
-            if manifest.get("branch_id") and idx_entry.get("branch_id") and manifest.get("branch_id") != idx_entry.get("branch_id"):
-                raise PublicationValidationError(
-                    f"Несовпадение branch_id между manifest '{manifest.get('branch_id')}' "
-                    f"и data/index.json '{idx_entry.get('branch_id')}'"
                 )
             if idx_entry.get("campaign_id") is not None and manifest.get("campaign_id") != idx_entry.get("campaign_id"):
                 raise PublicationValidationError(

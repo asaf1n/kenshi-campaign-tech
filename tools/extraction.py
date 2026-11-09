@@ -26,6 +26,17 @@ def transform_hash() -> str:
     return digest(canonical([[p.name, file_hash(p)] for p in sorted((ROOT / "tools").glob("*.py"))]))
 
 
+PROVENANCE_FORMAT = "kenshi-snapshot/2"
+
+
+def snapshot_identity(source_kind: str, source_sha256: str, faction_sid: str, converter_sha256: str | None,
+                      mods: Any) -> dict[str, Any]:
+    """Поля идентичности снимка. Кампания, родитель и прочие внешние значения сюда не входят."""
+    return {"source_kind": source_kind, "source_sha256": source_sha256, "faction_sid": faction_sid,
+            "converter_sha256": converter_sha256, "mods_sha256": digest(canonical(mods)),
+            "transform_sha256": transform_hash()}
+
+
 def convert_save(source: Path, config: Config, workspace: Path) -> dict[str, Any]:
     before = engine_hashes()
     request: dict[str, Any] = {"source": str(source), "workspace": str(workspace),
@@ -67,15 +78,11 @@ def store_snapshot(output: Path, snapshot_id: str, current: bytes, provenance: b
         stage.rename(target)
 
 
-def extract(source: Path, source_kind: str, config: Config, output: Path | None = None,
-            campaign_id: str | None = None, branch_id: str | None = None,
-            parent_snapshot_id: str | None = None) -> dict[str, Any]:
+def extract(source: Path, source_kind: str, config: Config, output: Path | None = None) -> dict[str, Any]:
+    """Неизменяемый снимок: идентичность — содержимое источника и параметры разбора, без внешнего контекста."""
     source = source.resolve(strict=True)
     if source_kind not in {"save", "export"}:
         raise ExtractionError("Неизвестный source_kind")
-    for value in (campaign_id, branch_id, parent_snapshot_id):
-        if value is not None and (not value.strip() or scrub(value) != value):
-            raise ExtractionError("Контекст должен быть непустым идентификатором без путей и секретов")
     output = outside(output or ROOT / "data/snapshots", [source, *config.protected()])
     if source_kind == "save":
         if not source.is_dir() or not (source / "quick.save").is_file():
@@ -105,15 +112,11 @@ def extract(source: Path, source_kind: str, config: Config, output: Path | None 
         if source_kind == "export":
             mods = {"status": "export_metadata_only", "metadata": current["meta"].get("game_data")}
             diagnostics["limitations"].append("export: байтовые версии исходного конвертера и модов не установлены")
-        if campaign_id is None or branch_id is None:
-            diagnostics["limitations"].append("Контекст кампании/ветки не задан полностью; родительство не выводится автоматически")
-        identity = {"source_kind": source_kind, "source_sha256": source_sha,
-                    "faction_sid": config.faction_sid, "converter_sha256": converter["sha256"] if converter else None,
-                    "mods_sha256": digest(canonical(mods)), "transform_sha256": transform_hash(),
-                    "campaign_id": campaign_id, "branch_id": branch_id, "parent_snapshot_id": parent_snapshot_id}
+        identity = snapshot_identity(source_kind, source_sha, config.faction_sid,
+                                     converter["sha256"] if converter else None, mods)
         snapshot_id = "sha256-" + digest(canonical(identity))
         current_bytes = canonical(current)
-        provenance = {"format": "kenshi-snapshot/1", "snapshot_id": snapshot_id, **identity,
+        provenance = {"format": PROVENANCE_FORMAT, "snapshot_id": snapshot_id, **identity,
                       "source_format": current["format"], "converter": converter, "mods": scrub(mods),
                       "source_files": before if source_kind == "save" else None,
                       "game_time": {k: current["world"].get(k) for k in ("day", "time")},

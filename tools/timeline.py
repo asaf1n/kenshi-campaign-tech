@@ -222,28 +222,24 @@ def resolve_timeline(events: list[dict[str, Any]], *, include_inferred: bool = F
     return sorted(resolved, key=lambda e: (e.get("game_day") is None, e.get("game_day") or 0, e["event_id"]))
 
 
-def filter_events_by_branch(
-    events: list[dict[str, Any]], branch_id: str, index_data: dict[str, Any],
-    sessions: dict[str, Any] | None = None, *, snapshot_id: str | None = None,
+def filter_events_by_chain(
+    events: list[dict[str, Any]], snapshot_id: str, index_data: dict[str, Any],
+    sessions: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """События цепочки снимка: предки без снимков, отменённых перезагрузкой."""
+    from tools.index import campaign_chain
+
     validate_index(index_data)
-    if branch_id not in index_data["branches"]:
-        raise ValueError("Неизвестная ветка таймлайна")
-    snapshots = index_data["snapshots"]
-    head = snapshot_id or index_data["branches"][branch_id]["head_snapshot_id"]
-    if head is not None and (head not in snapshots or snapshots[head]["branch_id"] != branch_id):
-        raise ValueError("Снимок публикации не принадлежит ветке")
-    ancestry = set()
-    while head is not None:
-        ancestry.add(head)
-        head = snapshots[head]["parent_snapshot_id"]
+    if snapshot_id not in index_data["snapshots"]:
+        raise ValueError("Снимок публикации отсутствует в индексе")
+    ancestry = set(campaign_chain(index_data, snapshot_id))
     selected = []
     for event in events:
         sid = event.get("snapshot_id")
         linked_ids = (sessions or {}).get(event["session_id"], {}).get("snapshot_ids", [])
         if (sid is not None and sid in ancestry) or (sid is None and linked_ids and set(linked_ids) <= ancestry):
             selected.append(event)
-    # Коррекция из выбранной ветки не может изменять утверждение другой ветки.
+    # Коррекция не может изменять утверждение вне цепочки.
     known = {e["event_id"] for e in selected}
     while True:
         kept = [e for e in selected if e["kind"] != "correction" or e["corrects_event_id"] in known]
@@ -252,8 +248,6 @@ def filter_events_by_branch(
         selected = kept
         known = {e["event_id"] for e in selected}
 
-
-filter_by_branch = filter_events_by_branch
 
 
 def snapshot_anchor(snapshot_id: str) -> str:

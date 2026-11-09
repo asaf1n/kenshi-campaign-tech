@@ -110,11 +110,11 @@ def main() -> int:
             "locations-run.json",
         ),
         (
-            "branches",
-            [sys.executable, "-m", "unittest", "tests/test_branches.py", "-v"],
-            ["python", "-m", "unittest", "tests/test_branches.py", "-v"],
-            "branches.log",
-            "branches-run.json",
+            "campaign_line",
+            [sys.executable, "-m", "unittest", "tests/test_campaign_line.py", "-v"],
+            ["python", "-m", "unittest", "tests/test_campaign_line.py", "-v"],
+            "campaign_line.log",
+            "campaign_line-run.json",
         ),
         (
             "timeline",

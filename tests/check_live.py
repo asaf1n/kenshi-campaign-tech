@@ -29,7 +29,6 @@ def main() -> int:
         default=None,
         help="каталог выпуска; по умолчанию временный (реальный published/ только явно)",
     )
-    parser.add_argument("--parent-snapshot-id")
     args = parser.parse_args()
     if args.published_dir is None:
         args.published_dir = Path(tempfile.mkdtemp(prefix="check_live_published_"))
@@ -48,11 +47,7 @@ def main() -> int:
             "--source-kind", args.source_kind,
             "--source", str(args.source),
             "--output", str(args.output),
-            "--campaign-id", "validation",
-            "--branch-id", "explicit-input",
         ]
-        if args.parent_snapshot_id:
-            command.extend(["--parent-snapshot-id", args.parent_snapshot_id])
 
         started = datetime.now(timezone.utc).isoformat()
         completed = subprocess.run(command, cwd=ROOT, env=os.environ | {"PYTHONHASHSEED": seed}, capture_output=True)
@@ -109,8 +104,6 @@ def main() -> int:
         snapshots_dir=args.output,
         diffs_dir=work_dir / "diffs",
         published_dir=args.published_dir,
-        parent_snapshot_id=args.parent_snapshot_id,
-        branch_id="explicit-input",
         campaign_id="validation",
         index_path=work_dir / "index.json",
     )

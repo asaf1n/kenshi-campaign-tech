@@ -33,7 +33,7 @@ def run() -> None:
 
     manifest = json.loads((ROOT / 'examples/manifest.example.json').read_text(encoding='utf-8'))
     event = json.loads((ROOT / 'examples/event.example.json').read_text(encoding='utf-8'))
-    assert manifest['format'] == 'kenshi-publication/1'
+    assert manifest['format'] == 'kenshi-publication/2'
     assert re.fullmatch(r'[0-9a-f]{64}', manifest['source_sha256'])
     assert manifest['source_kind'] == 'export'
     assert manifest['source_format'] == 'kenshi-session/10'

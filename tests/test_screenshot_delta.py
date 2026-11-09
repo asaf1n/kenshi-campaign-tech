@@ -38,11 +38,11 @@ class ScreenshotDeltaTests(unittest.TestCase):
     def _publish_pair(self, now: datetime, generated: datetime | None = None) -> dict:
         stamp = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
         _create_sample_snapshot(self.snapshots, PARENT, day=10, money=100)
-        _create_sample_snapshot(self.snapshots, CHILD, day=11, money=50, parent_snapshot_id=PARENT)
-        entry = {"branch_id": "main", "campaign_id": "test", "source_kind": "save", "world_ref_id": None}
+        _create_sample_snapshot(self.snapshots, CHILD, day=11, money=50)
+        entry = {"campaign_id": "test", "source_kind": "save", "world_ref_id": None}
         index = {
-            "format": "kenshi-index/1", "active_branch_id": "main", "updated_at": stamp(now),
-            "branches": {"main": {"name": "main", "created_at": stamp(now), "head_snapshot_id": CHILD}},
+            "format": "kenshi-index/2", "updated_at": stamp(now),
+            "campaigns": {"test": {"head_snapshot_id": CHILD}},
             "snapshots": {
                 PARENT: {**entry, "source_sha256": "0" * 64, "snapshot_id": PARENT, "parent_snapshot_id": None, "game_time": {"day": 10, "time": "14:30"},
                          "registered_at": stamp(now - timedelta(hours=2))},
@@ -52,7 +52,7 @@ class ScreenshotDeltaTests(unittest.TestCase):
         }
         (self.tmp / "data/index.json").write_bytes(canonical(index))
         return publish(snapshot_id=CHILD, snapshots_dir=self.snapshots, diffs_dir=self.diffs, published_dir=self.published,
-                       parent_snapshot_id=PARENT, screens_dir=self.screens, index_path=self.tmp / "data/index.json",
+                       screens_dir=self.screens, index_path=self.tmp / "data/index.json",
                        generated_at=stamp(generated or now))
 
     def test_publication_splits_delta_and_stays_idempotent(self) -> None:

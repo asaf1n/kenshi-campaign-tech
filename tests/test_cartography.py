@@ -37,8 +37,8 @@ PALETTE = ["Floodlands", "Rebirth", "Deadlands", "Arm of Okran", "Fog Islands", 
 def make_release() -> dict:
     """Малый выпуск для CI: регионы из графа, одноимённые персонажи, секретная и неизвестная записи."""
     world_id = c.GEOMETRY_WORLD_REF_ID
-    manifest = {"format": "kenshi-publication/1", "validation": {"status": "passed"}, "snapshot_id": "sha256-a",
-                "world_ref_id": world_id, "branch_id": "branch-a", "campaign_id": "camp", "game_time": "Day 1 00:00",
+    manifest = {"format": "kenshi-publication/2", "validation": {"status": "passed"}, "snapshot_id": "sha256-a",
+                "world_ref_id": world_id, "campaign_id": "camp", "game_time": "Day 1 00:00",
                 "generated_at": "2026-01-01T00:00:00Z"}
     regions = [{"index": 1000 + i, "name_en": name, "name_ru": name + "-ru", "sid": f"s{i}"} for i, name in enumerate(PALETTE)]
     regions.append({"index": 5, "name_en": "NONE", "name_ru": "NONE", "sid": "none"})
@@ -62,7 +62,7 @@ def make_release() -> dict:
                   person("ps:4", "Тень", "unknown", "Floodlands", 0.0, 0.0)]
     characters[3]["region"] = None
     locations = {"format": "kenshi-locations/1", "world_ref_id": world_id, "snapshot_id": "sha256-a",
-                 "branch_id": "branch-a", "characters": characters,
+                 "characters": characters,
                  "spatial_groups": [{"group_id": "g1", "resolution_status": "in_region",
                                      "characters": [{"id": "ps:1"}, {"id": "ps:2"}]}],
                  "movement": {"valid": False}}
@@ -164,9 +164,18 @@ class FixtureTests(unittest.TestCase):
         duplicate["locations"]["characters"].append(deepcopy(characters[0]))
         self.assertTrue(c.validate_release(duplicate["manifest"], duplicate["world"], duplicate["locations"]))
 
+    def test_legacy_release_with_branch_is_readable(self) -> None:
+        """Старый выпуск kenshi-publication/1 с branch_id читается; неизвестный формат отклоняется."""
+        legacy = deepcopy(self.release)
+        legacy["manifest"].update(format="kenshi-publication/1", branch_id="old-line")
+        legacy["locations"]["branch_id"] = "old-line"
+        self.assertEqual(c.validate_release(legacy["manifest"], legacy["world"], legacy["locations"]), [])
+        legacy["manifest"]["format"] = "kenshi-publication/3"
+        self.assertTrue(c.validate_release(legacy["manifest"], legacy["world"], legacy["locations"]))
+
     def test_snapshot_and_world_mismatch_warn(self) -> None:
         for document, key in (("world", "world_ref_id"), ("locations", "world_ref_id"),
-                              ("locations", "snapshot_id"), ("locations", "branch_id")):
+                              ("locations", "snapshot_id"), ("locations", "campaign_id")):
             candidate = deepcopy(self.release)
             candidate[document][key] = "different"
             with self.subTest(document=document, key=key), warnings.catch_warnings(record=True) as captured:
@@ -186,7 +195,6 @@ class FixtureTests(unittest.TestCase):
     def test_incomparable_releases_are_not_merged(self) -> None:
         other = deepcopy(self.release)
         other["manifest"]["snapshot_id"] = other["locations"]["snapshot_id"] = "sha256-other"
-        other["manifest"]["branch_id"] = other["locations"]["branch_id"] = "alt-branch"
         self.assertIs(c.select_release([self.release]), self.release)
         with self.assertRaises(c.AmbiguousReleaseError):
             c.select_release([self.release, other])
@@ -322,7 +330,7 @@ class ViewerCompatTests(unittest.TestCase):
 const VISIT = {
   explored:{label:'Исследован',color:'#167444',rank:2},
 };
-const REGISTRY = ['location_registry.json', 'locations_progress.json', 'kenshi-location-registry/1'];
+const REGISTRY = ['location_registry.json', 'locations_progress.json', 'kenshi-location-registry/2'];
 </script>
 """
         self.assertEqual(c.check_viewer_compat(registry_viewer, require_registry=True), [])
@@ -443,7 +451,7 @@ class ViewerLogicTests(unittest.TestCase):
                    "region": {"name_en": "Border Zone"}, "characters": member("ps:4")},
                   {"group_id": "g3", "label": "Окрестности Деревня Серодёров", "resolution_status": "near_location",
                    "region": {"name_en": "The Swamp"}, "characters": member("ps:5")}]
-        manifest = {"game_time": "Day 1 00:00", "campaign_id": "c", "branch_id": "b", "world_ref_id": "w", "snapshot_id": "s"}
+        manifest = {"game_time": "Day 1 00:00", "campaign_id": "c", "world_ref_id": "w", "snapshot_id": "s"}
         return {"title": "T", "manifest": manifest, "locations": {"characters": chars, "spatial_groups": groups}, "disclaimer": "D"}
 
     def build_summary(self, context: dict) -> list[str]:

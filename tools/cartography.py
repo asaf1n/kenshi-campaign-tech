@@ -32,6 +32,7 @@ STATUS_LABELS = {
     "in_location": "в локации", "near_location": "рядом с локацией",
     "in_region": "в регионе", "unknown": "положение неизвестно",
 }
+PUBLICATION_FORMATS = ("kenshi-publication/1", "kenshi-publication/2")
 GEOMETRY_WORLD_REF_ID = "sha256-4de10504d03d87e137cf00707bd235011a6991966151058f36b9165e0851c155"
 RASTER_SOURCE_SHA256 = "5f93a4ccfd2796dc12820d3a3f48a95606182ade626bd4a45260566c704105f2"
 GEOMETRY_SVG_SHA256 = "2000e4e46218f0aece2ccc5f7420ab9142935b59c6be7039ff6f3315359ef313"
@@ -303,7 +304,7 @@ def _check_viewer_compat(html: str, *, require_registry: bool) -> list[str]:
     except ValueError:
         errors.append("Примеры цепочек просмотрщика не разбираются")
     errors += [f"Растр в просмотрщике: {marker}" for marker in RASTER_MARKERS if marker in html]
-    registry_markers = ("location_registry.json", "locations_progress.json", "kenshi-location-registry/1")
+    registry_markers = ("location_registry.json", "locations_progress.json", "kenshi-location-registry/2")
     if all(marker in scan for marker in registry_markers):
         labels = re.search(r"^const VISIT\s*=\s*\{.*?^\};", html, re.M | re.S)
         if labels:
@@ -327,17 +328,18 @@ def validate_release(manifest: dict[str, Any], world: dict[str, Any],
                      locations: dict[str, Any]) -> list[str]:
     """Возвращает блокирующие ошибки; несовместимые выпуски не объединяются."""
     errors: list[str] = []
-    for label, document, expected in (("manifest", manifest, "kenshi-publication/1"),
-                                      ("world_reference", world, "kenshi-world-reference/1"),
-                                      ("locations", locations, "kenshi-locations/1")):
-        if not isinstance(document, dict) or document.get("format") != expected:
+    # Старые выпуски kenshi-publication/1 читаются; их branch_id игнорируется.
+    for label, document, expected in (("manifest", manifest, PUBLICATION_FORMATS),
+                                      ("world_reference", world, ("kenshi-world-reference/1",)),
+                                      ("locations", locations, ("kenshi-locations/1",))):
+        if not isinstance(document, dict) or document.get("format") not in expected:
             errors.append(f"{label}: неподдерживаемый format")
     if errors:
         return errors
     validation = manifest.get("validation")
     if not isinstance(validation, dict) or validation.get("status") != "passed":
         errors.append("manifest: validation.status должен быть passed")
-    for key in ("snapshot_id", "world_ref_id", "branch_id", "campaign_id", "game_time", "generated_at"):
+    for key in ("snapshot_id", "world_ref_id", "campaign_id", "game_time", "generated_at"):
         if not isinstance(manifest.get(key), str) or not manifest[key]:
             errors.append(f"manifest: отсутствует {key}")
     if not manifest.get("world_ref_id") == world.get("world_ref_id") == locations.get("world_ref_id"):
@@ -346,10 +348,9 @@ def validate_release(manifest: dict[str, Any], world: dict[str, Any],
         errors.append("world_ref_id не соответствует геометрии")
     if manifest.get("snapshot_id") != locations.get("snapshot_id"):
         errors.append("Несовпадение snapshot_id")
-    for key in ("branch_id", "campaign_id"):
-        for document in (world, locations):
-            if key in document and document[key] != manifest.get(key):
-                errors.append(f"Несовпадение {key}")
+    for document in (world, locations):
+        if "campaign_id" in document and document["campaign_id"] != manifest.get("campaign_id"):
+            errors.append("Несовпадение campaign_id")
     for document, key, identity in ((world, "locations", "instance_id"),
                                      (world, "regions", "index"),
                                      (locations, "characters", "id"),
@@ -445,14 +446,13 @@ def load_published(published: Path) -> dict[str, Any]:
 
 
 def select_release(candidates: list[dict[str, Any]], *, snapshot_id: str | None = None) -> dict[str, Any]:
-    """Выбор выпуска. Разные снимки, ветки или кампании не сливаются: нужен явный snapshot_id."""
+    """Выбор выпуска. Разные снимки или кампании не сливаются: нужен явный snapshot_id."""
     if not candidates:
         raise ValueError("Нет выпусков")
-    keys = {(r["manifest"]["campaign_id"], r["manifest"]["branch_id"], r["manifest"]["snapshot_id"])
-            for r in candidates}
+    keys = {(r["manifest"]["campaign_id"], r["manifest"]["snapshot_id"]) for r in candidates}
     if snapshot_id is None:
         if len(keys) > 1:
-            raise AmbiguousReleaseError("Несопоставимые выпуски (кампания, ветка или снимок): "
+            raise AmbiguousReleaseError("Несопоставимые выпуски (кампания или снимок): "
                                         "укажите snapshot_id явно")
         return candidates[0]
     chosen = [r for r in candidates if r["manifest"]["snapshot_id"] == snapshot_id]

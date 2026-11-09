@@ -36,8 +36,8 @@ def snapshot_chain(index_data: dict[str, Any] | None, snapshot_id: str) -> list[
 def delta_boundary(index_data: dict[str, Any] | None, snapshot_id: str, parent_id: str | None) -> str | None:
     """Время регистрации ближайшего предка с другим сейвом.
 
-    Родитель входит в идентичность снимка, поэтому повторный запуск на том же сейве даёт новый снимок. Граница по
-    прямому родителю обнуляла бы дельту при втором нажатии хоткея, и обязательные к анализу кадры исчезали бы.
+    Повторный запуск на том же сейве после правки конвертера даёт новый снимок (`transform_sha256`) с тем же
+    источником. Граница по прямому родителю обнуляла бы дельту, и обязательные к анализу кадры исчезали бы.
     """
     snapshots = (index_data or {}).get("snapshots", {})
     source = (snapshots.get(snapshot_id) or {}).get("source_sha256")

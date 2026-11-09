@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["format", "campaign_id", "world_ref_id", "locations"],
   "properties": {
-    "format": {"const": "kenshi-location-progress/1"},
+    "format": {"const": "kenshi-location-progress/2"},
     "campaign_id": {"type": "string", "minLength": 1},
     "world_ref_id": {"type": "string", "minLength": 1},
     "locations": {
@@ -14,10 +14,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["instance_id", "branch_id", "status", "evidence"],
+        "required": ["instance_id", "status", "evidence"],
         "properties": {
           "instance_id": {"type": "string", "minLength": 1},
-          "branch_id": {"type": "string", "minLength": 1},
           "status": {"enum": ["visited", "explored"]},
           "evidence": {"type": "string", "pattern": "\\S"},
           "game_time": {"type": "string", "pattern": "^Day [0-9]+ ([01][0-9]|2[0-3]):[0-5][0-9]$"}

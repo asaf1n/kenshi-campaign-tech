@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index
+from tools.index import DEFAULT_INDEX_PATH, check_chain_compatibility, load_index
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, linked, read_json
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -423,6 +423,16 @@ def _ref(s: dict[str, Any], file: str | None, snapshot_id: str | None = None) ->
     }
 
 
+REGRESSION_NOTE = "перезагрузка"
+
+
+def only_time_regression(diff_data: dict[str, Any]) -> bool:
+    """Невалидность diff объясняется только регрессией игрового времени (перезагрузкой), без иных проблем."""
+    problems = diff_data.get("problems") or []
+    return ("game_time_regression" in problems
+            and all(p == "game_time_regression" or p.startswith(REGRESSION_NOTE + ":") for p in problems))
+
+
 def diff(
     prev: dict[str, Any] | None,
     cur: dict[str, Any],
@@ -432,8 +442,6 @@ def diff(
     cur_id: str | None = None,
     explain: bool = False,
     parent_snapshot_id: str | None = None,
-    prev_branch_id: str | None = None,
-    cur_branch_id: str | None = None,
     index_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     head: dict[str, Any] = {
@@ -472,17 +480,15 @@ def diff(
 
     problems: list[str] = []
 
-    # Проверка веток и совместимости предков
-    if prev_id and cur_id and index_data is not None and isinstance(index_data, dict):
-        compat, branch_reason = check_branch_compatibility(index_data, prev_id, cur_id)
+    # Сравнимы только предок и потомок цепочки индекса
+    if (prev_id and cur_id and isinstance(index_data, dict)
+            and cur_id in index_data.get("snapshots", {})):
+        compat, chain_reason = check_chain_compatibility(index_data, prev_id, cur_id)
         if not compat:
-            problems.append(branch_reason or "different_branches")
-    else:
-        if prev_branch_id is not None and cur_branch_id is not None and prev_branch_id != cur_branch_id:
-            problems.append("different_branches")
-        if parent_snapshot_id is not None and prev_id is not None and prev_id != parent_snapshot_id:
-            problems.append("different_branches")
-            problems.append(f"несовпадение родителя: заявлен {parent_snapshot_id}, но сравнивается {prev_id}")
+            problems.append(chain_reason or "not_in_chain")
+    elif parent_snapshot_id is not None and prev_id is not None and prev_id != parent_snapshot_id:
+        problems.append("not_in_chain")
+        problems.append(f"несовпадение родителя: заявлен {parent_snapshot_id}, но сравнивается {prev_id}")
 
     if prev.get("format") not in COMPATIBLE or cur.get("format") not in COMPATIBLE:
         problems.append(f"разные форматы: {prev.get('format')} и {cur.get('format')}")
@@ -500,11 +506,11 @@ def diff(
     if prev_day is not None and cur_day is not None:
         if cur_day < prev_day:
             problems.append("game_time_regression")
-            problems.append(f"игровой день уменьшился: был {prev_day}, стал {cur_day} (возможно ветвление или откат)")
+            problems.append(f"{REGRESSION_NOTE}: игровой день уменьшился: был {prev_day}, стал {cur_day}")
         elif cur_day == prev_day and prev_time is not None and cur_time is not None:
             if str(cur_time) < str(prev_time):
                 problems.append("game_time_regression")
-                problems.append(f"игровое время уменьшилось в пределах дня {cur_day}: было {prev_time}, стало {cur_time}")
+                problems.append(f"{REGRESSION_NOTE}: игровое время уменьшилось в пределах дня {cur_day}: было {prev_time}, стало {cur_time}")
 
     pa = {c["id"]: c for c in prev.get("characters", []) if "id" in c}
     ca = {c["id"]: c for c in cur.get("characters", []) if "id" in c}
@@ -514,8 +520,8 @@ def diff(
         problems.append("ни одного общего id — вероятно, разные игры или формат идентификаторов")
 
     if problems:
-        if "different_branches" in problems:
-            main_reason = "different_branches"
+        if "not_in_chain" in problems:
+            main_reason = "not_in_chain"
         elif "game_time_regression" in problems:
             main_reason = "game_time_regression"
         else:
@@ -842,11 +848,9 @@ def diff_snapshots(
     cur = read_json(cur_raw)
     cur_prov = read_json((cur_dir / "provenance.json").read_bytes()) if (cur_dir / "provenance.json").is_file() else {}
     cur_id = cur_prov.get("snapshot_id", cur_dir.name)
-    cur_branch = cur_prov.get("branch_id")
 
     prev = None
     prev_id = None
-    prev_branch = None
     if prev_dir is not None:
         if not prev_dir.is_dir():
             raise ExtractionError(f"Каталог предыдущего снимка не найден: {prev_dir}")
@@ -854,9 +858,8 @@ def diff_snapshots(
         prev = read_json(prev_raw)
         prev_prov = read_json((prev_dir / "provenance.json").read_bytes()) if (prev_dir / "provenance.json").is_file() else {}
         prev_id = prev_prov.get("snapshot_id", prev_dir.name)
-        prev_branch = prev_prov.get("branch_id")
 
-    effective_parent = parent_snapshot_id or cur_prov.get("parent_snapshot_id")
+    effective_parent = parent_snapshot_id
 
     idx_data = index_data
     if idx_data is None:
@@ -879,8 +882,6 @@ def diff_snapshots(
         cur_id=cur_id,
         explain=explain,
         parent_snapshot_id=effective_parent,
-        prev_branch_id=prev_branch,
-        cur_branch_id=cur_branch,
         index_data=idx_data,
     )
 

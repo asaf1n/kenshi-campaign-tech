@@ -26,7 +26,10 @@ def _publication_header(publication: dict[str, Any] | None, day: Any, time: Any)
     return [
         f"- **snapshot_id:** `{publication.get('snapshot_id')}`",
         f"- **previous_snapshot_id:** `{publication.get('parent_snapshot_id')}`",
-        f"- **branch_id:** `{publication.get('branch_id')}`",
+        f"- **campaign_id:** `{publication.get('campaign_id')}`",
+        *([f"- **reload:** перезагрузка: игровое время откатилось с `{publication['reload'].get('from_game_time')}` "
+           f"до `Day {day}, {time}`; снимки позже `Day {day}, {time}` исключены из цепочки"]
+          if publication.get("reload") else []),
         f"- **game_time:** `Day {day}, {time}`",
         f"- **generated_at:** `{publication.get('generated_at')}`",
         "",

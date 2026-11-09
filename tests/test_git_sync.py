@@ -103,12 +103,13 @@ class GitSyncTests(unittest.TestCase):
         self.assertIn("неотправленный", self.git("log", "--format=%s", "main", cwd=self.remote))
 
     def test_registry_delivery_validates_fresh_progress_before_writing(self) -> None:
-        """Ловит слияние до актуализации клона, понижение отметки и устаревший реестр после доставки старого выпуска."""
+        """Ловит слияние до актуализации клона, понижение отметки (база в истории — формат /1 с branch_id)
+        и устаревший реестр после доставки старого выпуска."""
         world = read_json((ROOT / "examples/world-reference.example.json").read_bytes())
         world_ref_id = world["world_ref_id"]
         instance = world["locations"][0]["instance_id"]
         manifest = {
-            "snapshot_id": "snap-progress", "branch_id": "main", "campaign_id": "hot-lon",
+            "snapshot_id": "snap-progress", "campaign_id": "hot-lon",
             "world_ref_id": world_ref_id, "game_time": "Day 135 10:49", "validation": {"status": "passed"},
             "artifacts": {"world_reference": "world_reference.json", "location_registry": REGISTRY_FILENAME},
         }
@@ -135,7 +136,10 @@ class GitSyncTests(unittest.TestCase):
         self.assertEqual(source_registry.read_bytes(), canonical(registry))
         self.assertFalse(self._deliver()["committed"])
 
+        # Миграция ручного слоя на /2: база «не удалено и не понижено» остаётся в версии /1 из истории Git.
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        progress["format"] = "kenshi-location-progress/2"
+        del progress["locations"][0]["branch_id"]
         progress["locations"][0]["status"] = "visited"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         progress["locations"][0]["evidence"] = "Уточнение сессии S-001"
@@ -155,7 +159,7 @@ class GitSyncTests(unittest.TestCase):
 
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         progress["world_ref_id"] = "sha256-" + "f" * 64
-        progress["locations"].append({"branch_id": "main", "instance_id": "invented-id",
+        progress["locations"].append({"instance_id": "invented-id",
                                       "status": "visited", "evidence": "S-002"})
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         progress["locations"][0]["evidence"] = "Исправление ссылки S-001"
