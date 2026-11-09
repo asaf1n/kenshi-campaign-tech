@@ -8,7 +8,7 @@ from typing import Any
 from tools.campaign_check import MIN_SHARED_IDS, MIN_SHARED_SHARE, compare_with_parent, require_same_campaign, roster
 from tools.config import Config
 from tools.extraction import ROOT, extract
-from tools.index import campaign_head, load_index, register_snapshot
+from tools.index import campaign_head, load_index, parent_for, register_snapshot
 from tools.io_utils import read_json
 from tools.publisher import publish
 
@@ -39,11 +39,11 @@ def run_pipeline(
     extract_res = extract(source=source, source_kind=source_kind, config=config, output=snapshots_dir)
     snapshot_id = extract_res["snapshot_id"]
 
-    # Родитель — голова кампании в индексе; оператор его не выбирает.
+    # Родитель — голова кампании в индексе (без снимков того же сейва); оператор его не выбирает.
     index_before = load_index(idx_path)
     known = index_before.get("snapshots", {}).get(snapshot_id)
     parent_snapshot_id = (known.get("parent_snapshot_id") if known is not None
-                          else campaign_head(index_before, effective_campaign))
+                          else parent_for(index_before, effective_campaign, extract_res.get("source_sha256")))
 
     # До регистрации в индексе и публикации: чужой сейв не должен попасть в published/.
     campaign_check = _check_campaign(
