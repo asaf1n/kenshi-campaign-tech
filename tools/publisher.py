@@ -764,7 +764,7 @@ def publish(
             if backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
 
-            # История реестра читает только разрешения успешно опубликованных снимков.
+            # Кэш разрешённых локаций для расчёта смещения и разметки кадров окна цепочки.
             try:
                 loc_dir.mkdir(parents=True, exist_ok=True)
                 (loc_dir / f"{snapshot_id}.json").write_bytes(canonical(locations_data))

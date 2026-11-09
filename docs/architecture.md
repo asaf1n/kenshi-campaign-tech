@@ -14,8 +14,8 @@ immutable snapshots / campaign line index / events ledger
 locator + renderer + screenshots collector + atomic publisher
         |
 published/{manifest.json,extended/current.json,changes.json,locations.json,
-           world_reference.json (без regions_map и source_hashes),timeline.jsonl,brief.md,squad.md,changes.md,
-           tables/{index.md + 17 CSV: отряд, экипировка, склады, цены, торговые записи, NPC, Town Overrides, дипломатия,
+           world_reference.json (без regions_map и source_hashes),location_registry.json,timeline.jsonl,brief.md,squad.md,changes.md,
+           tables/{index.md + 19 CSV: отряд, экипировка, инвентари, расы, склады, цены, торговые записи, NPC, Town Overrides, дипломатия,
                    реакции мира, справочник юнитов},
            screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR; screenshots_latest.pdf вне git}}
         |

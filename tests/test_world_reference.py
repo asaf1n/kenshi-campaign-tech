@@ -18,7 +18,6 @@ from tools.validation import (
 from tools.world_reference import (
     build_world_reference,
     find_world_reference,
-    load_world_reference,
     save_world_reference,
 )
 

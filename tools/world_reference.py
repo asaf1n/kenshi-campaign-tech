@@ -1,7 +1,6 @@
 """Сборка, сохранение, загрузка и подбор справочника мира Kenshi."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +8,7 @@ import tempfile
 from typing import Any
 
 from tools.config import Config
-from tools.io_utils import ExtractionError, canonical, file_hash, read_json
+from tools.io_utils import ExtractionError, canonical, read_json
 from tools.normalization import scrub
 from tools.validation import validate_world_reference
 

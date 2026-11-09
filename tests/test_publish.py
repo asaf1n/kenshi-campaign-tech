@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import copy
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
-from typing import Any
 
-from tools.diff import diff, make_diff_id, store_diff
+from tools.diff import diff
 from tools.index import CampaignIndexError
 from tools.io_utils import canonical, digest, read_json
 from tools.location_registry import REGISTRY_FILENAME

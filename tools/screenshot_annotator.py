@@ -1,9 +1,6 @@
 """Фасадный модуль обратной совместимости, перенаправляющий на tools.screenshot_extractor."""
 from __future__ import annotations
 
-from typing import Any
-from pathlib import Path
-
 from tools.screenshot_extractor import (
     compress_image_for_ocr as compress_image_for_vlm,
     call_ocr_vision as call_gemini_vision,

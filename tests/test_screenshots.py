@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 import os
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -33,11 +32,10 @@ from tools import screenshot_publish
 from tools.io_utils import canonical, digest, read_json
 from tools.publisher import PublisherError, publish
 from tools.screenshots import (
-    build_screenshots_index,
     collect_recent_screenshots,
     compute_file_sha256,
 )
-from tools.validation import PublicationValidationError, validate, validate_publication
+from tools.validation import validate, validate_publication
 
 
 def _make_dummy_jpeg(path: Path, content: bytes = b"dummy_content", mtime: float | None = None) -> None:

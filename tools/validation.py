@@ -31,7 +31,7 @@ class LocationsValidationError(ValueError):
 
 
 class IndexValidationError(ValueError):
-    """Отказ валидации реестра снимков и веток."""
+    """Отказ валидации реестра снимков."""
 
 
 class TimelineValidationError(ValueError):

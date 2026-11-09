@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tools.index import DEFAULT_INDEX_PATH, check_chain_compatibility, load_index
-from tools.io_utils import ExtractionError, canonical, digest, file_hash, linked, read_json
+from tools.index import check_chain_compatibility, load_index
+from tools.io_utils import ExtractionError, canonical, linked, read_json
 
 ROOT = Path(__file__).resolve().parents[1]
 

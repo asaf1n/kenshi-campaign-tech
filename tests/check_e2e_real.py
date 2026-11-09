@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
-import math
 import os
 from pathlib import Path
 import shutil
@@ -28,15 +27,14 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 from tools.config import Config
-from tools.extraction import extract
-from tools.index import load_index, register_snapshot
+from tools.index import load_index
 from tools.io_utils import canonical, digest, file_hash, read_json, tree_hashes
 from tools.locator import resolve_locations
 from tools.pipeline import run_pipeline
 from tools.publisher import publish
 from tools.timeline import append_event, create_session
 from tools.validation import check_privacy, validate_publication
-from tools.world_reference import build_world_reference, load_world_reference
+from tools.world_reference import load_world_reference
 
 LANDMARKS_16 = [
     "Squin",
