@@ -49,7 +49,7 @@ class CurrentLayersTests(unittest.TestCase):
         self.assertIn("raw", SNAPSHOT["characters"][0]["items"][0])  # исходные данные не изменяются
 
     def test_start_set_limit(self) -> None:
-        """Превышение лимита стартового набора (manifest, brief, squad, changes) даёт ошибку публикации."""
+        """Превышение лимита стартового набора (manifest, brief, squad, changes.md) даёт ошибку публикации."""
         with tempfile.TemporaryDirectory() as tmp:
             package = Path(tmp)
             (package / "manifest.json").write_text("{}", encoding="utf-8")
@@ -58,6 +58,19 @@ class CurrentLayersTests(unittest.TestCase):
             (package / "brief.md").write_text("x" * (START_SET_LIMIT_CHARS - 1), encoding="utf-8")
             with self.assertRaises(PublicationValidationError):
                 validate_start_set_size(package, {"brief": "brief.md"})
+
+    def test_start_set_counts_changes_md_not_full_changes_json(self) -> None:
+        """В стартовый набор входит changes.md; объём полного changes.json лимит не затрагивает."""
+        with tempfile.TemporaryDirectory() as tmp:
+            package = Path(tmp)
+            artifacts = {"changes": "changes.json", "changes_md": "changes.md"}
+            (package / "manifest.json").write_text("{}", encoding="utf-8")
+            (package / "changes.json").write_text("x" * (START_SET_LIMIT_CHARS * 2), encoding="utf-8")
+            (package / "changes.md").write_text("x" * (START_SET_LIMIT_CHARS - 2), encoding="utf-8")
+            validate_start_set_size(package, artifacts)
+            (package / "changes.md").write_text("x" * (START_SET_LIMIT_CHARS - 1), encoding="utf-8")
+            with self.assertRaises(PublicationValidationError):
+                validate_start_set_size(package, artifacts)
 
     def test_manifest_schema_current_index_is_optional_and_deprecated(self) -> None:
         """Манифест без current_index валиден; манифест прежнего выпуска с current_index остаётся валидным."""
