@@ -25,24 +25,13 @@ def _world(ids: Iterable[str], world_ref_id: str = "world-new") -> dict:
     ]}
 
 
-def _report(sid: str, characters: Iterable[tuple[str, str]] = (),
-            buildings: Iterable[tuple[str, str]] = ()) -> dict:
-    return {
-        "snapshot_id": sid,
-        "characters": [{"resolution_status": status, "location": {"instance_id": location}}
-                       for location, status in characters],
-        "buildings": [{"resolution_status": status, "location": {"instance_id": location}}
-                      for location, status in buildings],
-    }
-
-
 def _progress(rows: list[dict], world_ref_id: str = "world-new") -> dict:
-    return {"format": "kenshi-location-progress/2", "campaign_id": "campaign",
+    return {"format": "kenshi-location-progress/3", "campaign_id": "campaign",
             "world_ref_id": world_ref_id, "locations": rows}
 
 
-def _mark(sid: str, status: str, game_time: str | None = None) -> dict:
-    row = {"instance_id": sid, "status": status, "evidence": "Подтверждение игрока"}
+def _mark(sid: str, game_time: str | None = None) -> dict:
+    row = {"instance_id": sid, "evidence": "S-20261109-1"}
     if game_time is not None:
         row["game_time"] = game_time
     return row
@@ -53,136 +42,83 @@ class LocationRegistryTests(unittest.TestCase):
         self.manifest = {"snapshot_id": "head", "campaign_id": "campaign",
                          "world_ref_id": "world-new", "game_time": "Day 13 08:00"}
 
-    def test_only_retained_chain_and_in_location_count_as_visits(self) -> None:
-        # discarded (день 11) отменён перезагрузкой rollback (день 7); side — боковой лист; foreign — чужая кампания.
-        chain = {"head": ("rollback", 13), "rollback": ("discarded", 7), "discarded": ("missing", 11),
-                 "missing": ("old", 2), "old": ("foreign", 1), "foreign": (None, 0), "side": ("old", 3)}
-        index = {"snapshots": {
-            sid: {"parent_snapshot_id": parent, "campaign_id": "other" if sid == "foreign" else "campaign",
-                  "game_time": {"day": day, "time": "8:00"}}
-            for sid, (parent, day) in chain.items()
-        }}
-        reports = {
-            "old": _report("old", [("first", "in_location")] * 2),
-            "discarded": _report("discarded", [("discarded", "in_location")]),
-            "side": _report("side", [("side", "in_location")]),
-            "foreign": _report("foreign", [("foreign", "in_location")]),
-            "rollback": _report("rollback", [("near", "near_location")], [("base", "in_location")]),
-        }
-        head = _report("head", [("first", "in_location"), ("region", "in_region")])
-        ids = ("near", "base", "first", "region", "side", "discarded", "foreign", "discovered")
+    def test_registry_holds_reference_statics_and_discovery_from_save(self) -> None:
+        ids = ("known", "unknown", "absent")
         world = _world(ids)
-        registry = build_registry(self.manifest, world, head, index, reports.get,
-                                  discovery={"discovered": True, "first": False})
-        validate_registry(registry, self.manifest, world, index_data=index)
-        self.assertEqual(registry["coverage"], {"chain_snapshots": 4, "location_snapshots": 3})
+        registry = build_registry(self.manifest, world, discovery={"known": True, "unknown": False})
+        validate_registry(registry, self.manifest, world)
         rows = {row["instance_id"]: row for row in registry["locations"]}
-        self.assertEqual(len(rows), len(ids))
-        self.assertEqual({sid for sid, row in rows.items() if row["auto_status"] == "visited"}, {"first", "base"})
-        self.assertEqual(rows["first"]["presence"], {
-            "first": {"snapshot_id": "old", "game_time": "Day 1 08:00", "count": 2},
-            "last": {"snapshot_id": "head", "game_time": "Day 13 08:00", "count": 1},
-        })
-        self.assertEqual(rows["base"]["property"]["snapshot_id"], "rollback")
-        self.assertTrue(rows["discovered"]["discovered"])
-        self.assertFalse(rows["first"]["discovered"])
-        self.assertNotIn("discovered", rows["near"])
-        rebuilt = build_registry(self.manifest, _world(reversed(ids)), head, index, reports.get,
-                                 discovery={"first": False, "discovered": True})
+        self.assertEqual(set(rows), set(ids))
+        self.assertTrue(rows["known"]["discovered"])
+        self.assertFalse(rows["unknown"]["discovered"])
+        self.assertNotIn("discovered", rows["absent"])
+        self.assertFalse(any("cleared" in row for row in rows.values()))
+        rebuilt = build_registry(self.manifest, _world(reversed(ids)), discovery={"unknown": False, "known": True})
         self.assertEqual(registry_bytes(registry), registry_bytes(rebuilt))
-
-    def test_incomplete_index_is_reported_and_corrupt_chains_are_rejected(self) -> None:
-        manifest = {**self.manifest, "parent_snapshot_id": "ancestor"}
-        world = _world(["town"])
-        head = _report("head", [("town", "in_location")])
-        for index in (None, {"snapshots": {"unrelated": {"parent_snapshot_id": None}}}):
-            with self.subTest(index=index):
-                registry = build_registry(manifest, world, head, index, lambda _: None)
-                self.assertEqual(registry["coverage"], {"chain_snapshots": 1, "location_snapshots": 1,
-                                                       "chain_incomplete": True})
-                validate_registry(registry, manifest, world, index_data=index)
-        for parent in ("missing", "head"):
-            with self.subTest(parent=parent):
-                index = {"snapshots": {"head": {"parent_snapshot_id": "ancestor"},
-                                       "ancestor": {"parent_snapshot_id": parent}}}
-                with self.assertRaisesRegex(ValueError, "оборвана|содержит цикл"):
-                    build_registry(manifest, world, head, index, lambda _: None)
-
-    def test_registry_rejects_evidence_outside_chain_or_in_reverse_order(self) -> None:
-        world = _world(["town"])
-        entry = {"game_time": {"day": 13, "time": "08:00"}}
-        index = {"snapshots": {"head": {**entry, "parent_snapshot_id": "ancestor"},
-                               "ancestor": {**entry, "parent_snapshot_id": None},
-                               "side": {**entry, "parent_snapshot_id": "ancestor"}}}
-        registry = build_registry(self.manifest, world, _report("head", [("town", "in_location")]),
-                                  index, lambda sid: _report(sid, [("town", "in_location")]))
-        validate_registry(registry, self.manifest, world, index_data=index)
-        for point, updates, with_index, error in [
-            ("first", {"snapshot_id": "side"}, True, "вне цепочки"),
-            ("last", {"game_time": "Day 13 08:01"}, False, "позже выпуска"),
-            ("first", {"game_time": "Day 13 07:59"}, True, "расходится с её временем"),
-            ("last", {"game_time": "Day 13 07:59"}, False, "противоречат"),
+        for label, mutate, error in [
+            ("чужой выпуск", lambda r: r.update(snapshot_id="other"), "другому выпуску"),
+            ("неполный набор", lambda r: r["locations"].pop(), "не все локации"),
+            ("статика", lambda r: r["locations"][0].update(kind="ruins"), "Статические поля"),
         ]:
-            with self.subTest(point=point, updates=updates):
+            with self.subTest(label):
                 changed = deepcopy(registry)
-                changed["locations"][0]["presence"][point].update(updates)
+                mutate(changed)
                 with self.assertRaisesRegex(ValueError, error):
-                    validate_registry(changed, self.manifest, world, index_data=index if with_index else None)
-        changed = deepcopy(registry)
-        presence = changed["locations"][0]["presence"]
-        presence["first"], presence["last"] = presence["last"], presence["first"]
-        with self.assertRaisesRegex(ValueError, "противоречат"):
-            validate_registry(changed, self.manifest, world, index_data=index)
+                    validate_registry(changed, self.manifest, world)
 
     def test_progress_transitions_preserve_orphans_and_reject_invalid_changes(self) -> None:
         world = _world(["town"])
-        historical = _mark("orphan", "visited")
-        previous = _progress([_mark("town", "explored"), historical], world_ref_id="world-old")
+        historical = _mark("orphan")
+        previous = _progress([_mark("town"), historical], world_ref_id="world-old")
         cases = [
             ("сохранённый ID", previous, None),
-            ("новый неизвестный ID", _progress([*previous["locations"], _mark("bogus", "visited")], "world-old"),
+            ("новый неизвестный ID", _progress([*previous["locations"], _mark("bogus")], "world-old"),
              "Неизвестный instance_id"),
-            ("отметка понижена", _progress([_mark("town", "visited"), historical], "world-old"), "удалена или понижена"),
-            ("отметка удалена", _progress([historical], "world-old"), "удалена или понижена"),
-            ("повтор instance_id", _progress([*previous["locations"], _mark("town", "explored")], "world-old"), "Повтор отметки"),
+            ("отметка удалена", _progress([historical], "world-old"), "удалена"),
+            ("повтор instance_id", _progress([*previous["locations"], _mark("town")], "world-old"), "Повтор отметки"),
             ("неизвестный ID в том же мире", _progress(previous["locations"]), "Неизвестный instance_id"),
         ]
-        # База из истории Git в формате /1: повтор instance_id в разных ветках даёт высший статус.
-        legacy = {**previous, "format": "kenshi-location-progress/1", "locations": [
-            {**_mark("town", "visited"), "branch_id": "old-line"}, {**_mark("town", "explored"), "branch_id": "line"},
-            {**historical, "branch_id": "line"}]}
-        self.assertEqual(upgrade_progress(legacy), previous)
-        cases += [
-            ("база /1, текущий /2", previous, None),
-            ("база /1, отметка понижена", _progress([_mark("town", "visited"), historical], "world-old"),
-             "удалена или понижена"),
-        ]
         for label, progress, error in cases:
-            baseline = legacy if label.startswith("база /1") else previous
             with self.subTest(label):
                 if error:
                     with self.assertRaisesRegex(ValueError, error):
-                        validate_progress(progress, "campaign", world, baseline)
+                        validate_progress(progress, "campaign", world, previous)
                 else:
-                    self.assertEqual(validate_progress(progress, "campaign", world, baseline), ["orphan"])
+                    self.assertEqual(validate_progress(progress, "campaign", world, previous), ["orphan"])
 
-    def test_merge_recomputes_from_auto_and_applies_only_up_to_release_time(self) -> None:
-        world = _world(["visited", "tie", "untouched", "future", "historic"])
-        report = _report("head", [("visited", "in_location"), ("tie", "in_location")])
-        registry = build_registry(self.manifest, world, report, None, lambda _: None)
-        progress = _progress([
-            _mark("visited", "explored"), _mark("tie", "visited"),
-            _mark("future", "visited", game_time="Day 13 08:01"),
-            _mark("historic", "visited", game_time="Day 13 08:00"),
-        ])
+    def test_legacy_progress_keeps_only_explored_marks(self) -> None:
+        """/1 и /2 из истории Git: отметкой зачистки становится explored, «посещено» снимается без нарушения базы."""
+        world = _world(["town", "lab"])
+        legacy_rows = [{"instance_id": "town", "status": "visited", "evidence": "День 7"},
+                       {"instance_id": "lab", "status": "explored", "evidence": "День 97", "game_time": "Day 9 10:00"}]
+        expected = _progress([{"instance_id": "lab", "evidence": "День 97", "game_time": "Day 9 10:00"}])
+        v2 = {**_progress(legacy_rows), "format": "kenshi-location-progress/2"}
+        v1 = {**v2, "format": "kenshi-location-progress/1",
+              "locations": [{**row, "branch_id": "line"} for row in legacy_rows]}
+        for legacy in (v1, v2):
+            with self.subTest(legacy["format"]):
+                self.assertEqual(upgrade_progress(legacy), expected)
+                self.assertEqual(validate_progress(expected, "campaign", world, legacy), [])
+                with self.assertRaisesRegex(ValueError, "удалена"):
+                    validate_progress(_progress([]), "campaign", world, legacy)
+
+    def test_merge_applies_cleared_marks_only_up_to_release_time(self) -> None:
+        world = _world(["lab", "untouched", "future", "historic"])
+        registry = build_registry(self.manifest, world, discovery={"lab": True})
+        progress = _progress([_mark("lab"), _mark("future", game_time="Day 13 08:01"),
+                              _mark("historic", game_time="Day 13 08:00")])
         validate_progress(progress, "campaign", world)
         merged = merge_progress(registry, progress)
         validate_registry(merged, self.manifest, world)
-        self.assertEqual({row["instance_id"]: (row["status"], row["status_source"]) for row in merged["locations"]}, {
-            "visited": ("explored", "manual"), "tie": ("visited", "auto"),
-            "untouched": ("no_evidence", "none"), "future": ("no_evidence", "none"), "historic": ("visited", "manual"),
+        self.assertEqual({row["instance_id"]: row.get("cleared") for row in merged["locations"]}, {
+            "lab": {"evidence": "S-20261109-1"}, "untouched": None, "future": None,
+            "historic": {"evidence": "S-20261109-1", "game_time": "Day 13 08:00"},
         })
         self.assertEqual(merge_progress(merged, None), registry)
+        late = deepcopy(merged)
+        next(row for row in late["locations"] if row["instance_id"] == "lab")["cleared"]["game_time"] = "Day 14 00:00"
+        with self.assertRaisesRegex(ValueError, "позже времени выпуска"):
+            validate_registry(late, self.manifest, world)
 
     def test_discovery_uses_only_unique_town_instances_and_verified_save(self) -> None:
         records = [

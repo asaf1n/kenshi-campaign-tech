@@ -543,10 +543,7 @@ def validate_start_set_size(package_dir: Path, artifacts: dict[str, str]) -> Non
         )
 
 
-def load_location_registry(
-    package_dir: Path, manifest: dict[str, Any], world_ref: dict[str, Any], *,
-    index_data: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+def load_location_registry(package_dir: Path, manifest: dict[str, Any], world_ref: dict[str, Any]) -> dict[str, Any]:
     """Читает объявленный реестр по фиксированному пути и сверяет его с выпуском."""
     path = package_dir / REGISTRY_FILENAME
     if manifest.get("artifacts", {}).get("location_registry") != REGISTRY_FILENAME or linked(path):
@@ -556,7 +553,7 @@ def load_location_registry(
         if len(raw.decode("utf-8")) > REGISTRY_MAX_CHARS:
             raise ValueError(f"размер превышает {REGISTRY_MAX_CHARS} символов")
         registry = read_json(raw)
-        validate_registry(registry, manifest, world_ref, index_data=index_data)
+        validate_registry(registry, manifest, world_ref)
     except (OSError, ValueError, ValidationError) as error:
         raise PublicationValidationError(f"Ошибка валидации {REGISTRY_FILENAME}: {error}") from error
     return registry
@@ -694,7 +691,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
         validate_world_reference(wref_data)
         validate_locations(loc_data, world_ref=wref_data)
         if "location_registry" in artifacts:
-            load_location_registry(package_dir, manifest, wref_data, index_data=index_data)
+            load_location_registry(package_dir, manifest, wref_data)
 
         # Перекрёстные ссылки
         if loc_data.get("snapshot_id") != manifest.get("snapshot_id"):

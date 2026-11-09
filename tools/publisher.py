@@ -418,8 +418,7 @@ def publish(
     }
 
     registry_data = registry_bytes(build_registry(
-        manifest_data, w_ref, locations_data, idx_data,
-        load_snapshot_locations, discovery=discovery, factions=resolve_template_factions(w_ref),
+        manifest_data, w_ref, discovery=discovery, factions=resolve_template_factions(w_ref),
     ))
 
     if reload is not None:

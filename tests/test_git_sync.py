@@ -103,7 +103,7 @@ class GitSyncTests(unittest.TestCase):
         self.assertIn("неотправленный", self.git("log", "--format=%s", "main", cwd=self.remote))
 
     def test_registry_delivery_validates_fresh_progress_before_writing(self) -> None:
-        """Ловит слияние до актуализации клона, понижение отметки (база в истории — формат /1 с branch_id)
+        """Ловит слияние до актуализации клона, удаление отметки зачистки (база в истории — формат /1 с branch_id)
         и устаревший реестр после доставки старого выпуска."""
         world = read_json((ROOT / "examples/world-reference.example.json").read_bytes())
         world_ref_id = world["world_ref_id"]
@@ -113,8 +113,7 @@ class GitSyncTests(unittest.TestCase):
             "world_ref_id": world_ref_id, "game_time": "Day 135 10:49", "validation": {"status": "passed"},
             "artifacts": {"world_reference": "world_reference.json", "location_registry": REGISTRY_FILENAME},
         }
-        locations = {"snapshot_id": "snap-progress", "characters": [], "buildings": []}
-        registry = build_registry(manifest, world, locations, None, lambda _: None)
+        registry = build_registry(manifest, world)
         source_registry = self.published / REGISTRY_FILENAME
         source_registry.write_bytes(canonical(registry))
         (self.published / "manifest.json").write_bytes(canonical(manifest))
@@ -132,35 +131,32 @@ class GitSyncTests(unittest.TestCase):
         target_registry = self.clone / "published" / REGISTRY_FILENAME
         before = target_registry.read_bytes()
         row = next(row for row in read_json(before)["locations"] if row["instance_id"] == instance)
-        self.assertEqual((row["auto_status"], row["status"], row["status_source"]), ("no_evidence", "explored", "manual"))
+        self.assertEqual(row["cleared"], {"evidence": "S-001"})
         self.assertEqual(source_registry.read_bytes(), canonical(registry))
         self.assertFalse(self._deliver()["committed"])
 
-        # Миграция ручного слоя на /2: база «не удалено и не понижено» остаётся в версии /1 из истории Git.
+        # Миграция на /3: база «не удалено» остаётся в версии /1 из истории Git; снятая отметка зачистки — ошибка.
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
-        progress["format"] = "kenshi-location-progress/2"
-        del progress["locations"][0]["branch_id"]
-        progress["locations"][0]["status"] = "visited"
-        self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
-        progress["locations"][0]["evidence"] = "Уточнение сессии S-001"
+        cleared = {"instance_id": instance, "evidence": "S-001"}
+        progress = {"format": "kenshi-location-progress/3", "campaign_id": "hot-lon", "world_ref_id": world_ref_id,
+                    "locations": []}
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         result = self._deliver()
         self.assertEqual((result["status"], result["location_progress"], result["pushed"]), ("delivered", "invalid", True))
-        self.assertIn("понижена", result["location_progress_reason"])
+        self.assertIn("удалена", result["location_progress_reason"])
         self.assertEqual(target_registry.read_bytes(), canonical(registry))
         self.assertEqual(self.git("show", f"main:published/{REGISTRY_FILENAME}", cwd=self.remote),
                          canonical(registry).decode("utf-8"))
 
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
-        progress["locations"][0]["status"] = "explored"
+        progress["locations"] = [dict(cleared)]
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         self.assertEqual(self._deliver()["status"], "delivered")
-        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["status"], "explored")
+        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["cleared"], {"evidence": "S-001"})
 
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         progress["world_ref_id"] = "sha256-" + "f" * 64
-        progress["locations"].append({"instance_id": "invented-id",
-                                      "status": "visited", "evidence": "S-002"})
+        progress["locations"].append({"instance_id": "invented-id", "evidence": "S-002"})
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         progress["locations"][0]["evidence"] = "Исправление ссылки S-001"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
@@ -188,7 +184,8 @@ class GitSyncTests(unittest.TestCase):
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         result = self._deliver()
         self.assertEqual((result["status"], result["location_progress"]), ("delivered", "ok"))
-        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["status"], "explored")
+        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["cleared"],
+                         {"evidence": "Исправление ссылки S-001"})
 
         del manifest["artifacts"]["location_registry"]
         (self.published / "manifest.json").write_bytes(canonical(manifest))

@@ -176,7 +176,7 @@ class CampaignLineTests(unittest.TestCase):
         authored = [{"event_id": sid, "snapshot_id": sid, "session_id": "s", "kind": "user_action"} for sid in (a, b, r)]
         self.assertEqual([e["event_id"] for e in filter_events_by_chain(authored, r, index)], [a, r])
         registry = read_json((self.published_dir / "location_registry.json").read_bytes())
-        self.assertEqual(registry["coverage"]["chain_snapshots"], 2)
+        self.assertEqual(registry["snapshot_id"], r)
 
         # A — предок R в цепочке: diff A->R валиден. Обратное направление (R не предок A) не сравнивается.
         self.assertTrue(diff_snapshots(self.snapshots_dir / a, self.snapshots_dir / r,
