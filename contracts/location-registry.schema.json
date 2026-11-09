@@ -1,51 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/kenshi/location-registry.schema.json",
-  "title": "Реестр локаций кампании",
+  "title": "Реестр локаций кампании: обнаружение из сейва и отметки зачистки",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "campaign_id", "snapshot_id", "world_ref_id", "game_time", "coverage", "locations"],
+  "required": ["format", "campaign_id", "snapshot_id", "world_ref_id", "game_time", "locations"],
   "properties": {
-    "format": {"const": "kenshi-location-registry/2"},
+    "format": {"const": "kenshi-location-registry/3"},
     "campaign_id": {"type": ["string", "null"], "minLength": 1},
     "snapshot_id": {"$ref": "#/$defs/id"},
     "world_ref_id": {"$ref": "#/$defs/id"},
     "game_time": {"type": ["string", "number", "null"]},
-    "coverage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["chain_snapshots", "location_snapshots"],
-      "properties": {
-        "chain_snapshots": {"type": "integer", "minimum": 1},
-        "location_snapshots": {"type": "integer", "minimum": 1},
-        "chain_incomplete": {"const": true}
-      },
-      "dependentSchemas": {
-        "chain_incomplete": {
-          "properties": {"chain_snapshots": {"const": 1}, "location_snapshots": {"const": 1}}
-        }
-      }
-    },
     "locations": {"type": "array", "items": {"$ref": "#/$defs/location"}}
   },
   "$defs": {
     "id": {"type": "string", "minLength": 1},
     "game_time": {"type": "string", "pattern": "^Day [0-9]+ ([01][0-9]|2[0-3]):[0-5][0-9]$"},
-    "point": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["snapshot_id", "game_time", "count"],
-      "properties": {
-        "snapshot_id": {"$ref": "#/$defs/id"},
-        "game_time": {"anyOf": [{"$ref": "#/$defs/game_time"}, {"type": "null"}]},
-        "count": {"type": "integer", "minimum": 1}
-      }
-    },
     "location": {
       "type": "object",
       "additionalProperties": false,
       "required": ["instance_id", "name_ru", "name_en", "kind", "region", "x", "z", "is_secret", "is_public",
-                   "unexplored_name", "auto_status", "status", "status_source"],
+                   "unexplored_name"],
       "dependentRequired": {"discovered": ["discovered_source"], "discovered_source": ["discovered"]},
       "properties": {
         "instance_id": {"$ref": "#/$defs/id"},
@@ -67,27 +42,13 @@
             "name_en": {"type": "string", "minLength": 1}
           }
         },
-        "presence": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["first", "last"],
-          "properties": {
-            "first": {"$ref": "#/$defs/point"},
-            "last": {"$ref": "#/$defs/point"}
-          }
-        },
-        "property": {"$ref": "#/$defs/point"},
         "discovered": {"type": "boolean"},
         "discovered_source": {"const": "quick.save:Town state.discovered"},
-        "auto_status": {"enum": ["no_evidence", "visited"]},
-        "status": {"enum": ["no_evidence", "visited", "explored"]},
-        "status_source": {"enum": ["none", "auto", "manual"]},
-        "manual": {
+        "cleared": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["status", "evidence"],
+          "required": ["evidence"],
           "properties": {
-            "status": {"enum": ["visited", "explored"]},
             "evidence": {"type": "string", "pattern": "\\S"},
             "game_time": {"$ref": "#/$defs/game_time"}
           }

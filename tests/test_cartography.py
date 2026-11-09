@@ -327,13 +327,11 @@ class ViewerCompatTests(unittest.TestCase):
         self.assertTrue(c.check_viewer_compat(viewer, require_registry=True))
         registry_viewer = viewer + """
 <script>
-const VISIT = {
-  explored:{label:'Исследован',color:'#167444',rank:2},
-};
-const REGISTRY = ['location_registry.json', 'locations_progress.json', 'kenshi-location-registry/2'];
+const REGISTRY = ['location_registry.json', 'locations_progress.json', 'kenshi-location-registry/3'];
 </script>
 """
         self.assertEqual(c.check_viewer_compat(registry_viewer, require_registry=True), [])
+        self.assertTrue(c.check_viewer_compat(registry_viewer.replace("registry/3", "registry/2"), require_registry=True))
         self.assertTrue(c.check_viewer_compat(registry_viewer + "<p>Маршрут исследован</p>", require_registry=True))
 
     @unittest.skipUnless((COMPANION / c.VIEWER_RELATIVE).is_file(), "нет sites/map/index.html в Kenshi-Compain")

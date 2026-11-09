@@ -304,13 +304,7 @@ def _check_viewer_compat(html: str, *, require_registry: bool) -> list[str]:
     except ValueError:
         errors.append("Примеры цепочек просмотрщика не разбираются")
     errors += [f"Растр в просмотрщике: {marker}" for marker in RASTER_MARKERS if marker in html]
-    registry_markers = ("location_registry.json", "locations_progress.json", "kenshi-location-registry/2")
-    if all(marker in scan for marker in registry_markers):
-        labels = re.search(r"^const VISIT\s*=\s*\{.*?^\};", html, re.M | re.S)
-        if labels:
-            # Название статуса локации допустимо только в словаре меток реестра.
-            block = re.sub(r"\bexplored\s*:\s*\{\s*label\s*:\s*(['\"])Исследован\1", "", labels[0], count=1)
-            html = html[:labels.start()] + block + html[labels.end():]
+    registry_markers = ("location_registry.json", "locations_progress.json", "kenshi-location-registry/3")
     errors += [f"Недопустимая формулировка: {word}" for word in FORBIDDEN_VIEWER_WORDS if word in html.casefold()]
     for required in ("../../published/", "confirm(", "устаревший снимок", *EDITOR_MARKERS):
         if required not in scan:
