@@ -60,6 +60,17 @@ def run_pipeline(
         index_path=idx_path,
     )
 
+    # Повтор старого снимка (не головы) не публикуется: выпуск откатился бы по времени без признака перезагрузки.
+    if not index_res["is_head"]:
+        return {
+            "pipeline_status": "skipped",
+            "reason": "снимок уже зарегистрирован и не является головой кампании; публикация и доставка не выполняются",
+            "snapshot_id": snapshot_id,
+            "campaign_check": campaign_check,
+            "extract": extract_res,
+            "index": index_res,
+        }
+
     publish_res = publish(
         snapshot_id=snapshot_id,
         snapshots_dir=snapshots_dir,

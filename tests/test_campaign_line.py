@@ -174,6 +174,25 @@ class CampaignLineTests(unittest.TestCase):
         self.assertFalse(loc["movement"]["valid"])
         self.assertEqual(loc["movement"]["characters"], [])
 
+    def test_pipeline_skips_publication_of_known_non_head_snapshot(self) -> None:
+        """Повтор старого слота (A при голове B) не публикуется и не доставляется; индекс не меняется."""
+        from unittest.mock import patch
+
+        from tools.config import Config
+        from tools.pipeline import run_pipeline
+
+        a, b = _sid("a"), _sid("b")
+        self.register(a, 10, "10:00")
+        self.register(b, 10, "14:00")
+        before = self.index_file.read_bytes()
+        with patch("tools.pipeline.extract", return_value={"snapshot_id": a}),                 patch("tools.pipeline.publish") as published:
+            result = run_pipeline(source=self.root, source_kind="save", config=Config.from_env(),
+                                  output_snapshots=self.snapshots_dir, published_dir=self.published_dir,
+                                  campaign_id="camp", index_path=self.index_file)
+        published.assert_not_called()
+        self.assertEqual((result["pipeline_status"], result["index"]["is_head"]), ("skipped", False))
+        self.assertEqual(self.index_file.read_bytes(), before)
+
     def test_reload_with_other_problems_still_blocks_publication(self) -> None:
         """Перезагрузка не прикрывает чужой состав: публикация прерывается, published/ не меняется."""
         a, r = _sid("a"), _sid("e")

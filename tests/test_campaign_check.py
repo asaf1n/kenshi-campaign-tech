@@ -43,7 +43,7 @@ class CampaignCheckTests(unittest.TestCase):
         argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--output", str(snapshots),
                 "--published-dir", str(published), "--campaign-id", "hot-lon", "--deliver-to", str(tmp / "companion"), "--sync-drive", *extra]
         with mock.patch("tools.pipeline.extract", return_value={"snapshot_id": CHILD}), \
-                mock.patch("tools.pipeline.register_snapshot", return_value={}), \
+                mock.patch("tools.pipeline.register_snapshot", return_value={"registration": "new", "is_head": True}), \
                 mock.patch("tools.pipeline.publish", return_value={"manifest": {"validation": {"status": "passed"}}}) as publish, \
                 mock.patch("tools.deliver_companion.deliver_to_companion", return_value={"status": "delivered"}) as deliver, \
                 mock.patch("tools.gdrive_sync.sync_drive", return_value={"status": "synced"}) as sync, \
