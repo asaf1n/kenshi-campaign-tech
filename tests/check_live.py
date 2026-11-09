@@ -33,6 +33,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.published_dir is None:
         args.published_dir = Path(tempfile.mkdtemp(prefix="check_live_published_"))
+    if args.output.resolve().is_relative_to((ROOT / "data").resolve()):
+        parser.error("--output внутри рабочих data/: укажите отдельный каталог проверки, например tests/.evidence/check_live/snapshots")
 
     overall_started = datetime.now(timezone.utc).isoformat()
     before = tree_hashes(args.source) if args.source_kind == "save" else file_hash(args.source)
@@ -98,16 +100,19 @@ def main() -> int:
 
     # 2. Проверка сквозной публикации извлечённого снимка
     snapshot_id = runs[0]["snapshot_id"]
+    # Рабочие data/ (индекс, дельты) не затрагиваются: публикация проверки пишет только во временный каталог.
+    work_dir = Path(tempfile.mkdtemp(prefix="check_live_data_"))
     gitkeep_before = (args.published_dir / ".gitkeep").read_bytes() if (args.published_dir / ".gitkeep").is_file() else b""
 
     pub_result = publish(
         snapshot_id=snapshot_id,
         snapshots_dir=args.output,
-        diffs_dir=ROOT / "data/diffs",
+        diffs_dir=work_dir / "diffs",
         published_dir=args.published_dir,
         parent_snapshot_id=args.parent_snapshot_id,
         branch_id="explicit-input",
         campaign_id="validation",
+        index_path=work_dir / "index.json",
     )
     assert pub_result["status"] == "published"
 

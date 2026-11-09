@@ -349,10 +349,12 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError(f"Нативная верификация на save1 завершилась с ошибками: {cs1['errors']}")
 
     print(f"[3/7] Прогон конвейера на первом сейве ({save0.name})...")
-    snaps_dir = ROOT / "data/snapshots"
-    diffs_dir = ROOT / "data/diffs"
+    # Рабочие data/ (индекс, снимки, дельты) не затрагиваются: сквозной прогон пишет только во временный каталог.
+    work_dir = Path(tempfile.mkdtemp(prefix="e2e_real_data_"))
+    snaps_dir = work_dir / "snapshots"
+    diffs_dir = work_dir / "diffs"
     pub_dir = args.published_dir
-    idx_path = ROOT / "data/index.json"
+    idx_path = work_dir / "index.json"
 
     res0 = run_pipeline(
         source=save0,
@@ -517,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_bytes(canonical(report))
     print(f"Отчет сквозной верификации сохранен: {args.report}")
+    shutil.rmtree(work_dir, ignore_errors=True)
     return 0
 
 

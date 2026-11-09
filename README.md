@@ -226,12 +226,12 @@ git diff --check
 Unit-тесты покрывают контракты; для Windows junction тестируется проверка отсутствия пересечения путей. Интеграционные тесты на реальных данных:
 
 ```powershell
-python tests/check_live.py --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --output data/snapshots --report tests/.evidence/save.json
+python tests/check_live.py --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/quicksave" --output tests/.evidence/check_live/snapshots --report tests/.evidence/save.json
 python tests/check_converter.py --report tests/.evidence/converter.json
 python tests/check_e2e_real.py --report tests/.evidence/e2e_real.json
 ```
 
-`check_live.py` подтверждает неизменность результатов при `PYTHONHASHSEED=1/42` и изоляцию чтения. `check_converter.py` подтверждает неизменность исходников нативного движка; `check_e2e_real.py` проверяет полный сквозной сценарий на реальных данных Kenshi.
+`check_live.py` подтверждает неизменность результатов при `PYTHONHASHSEED=1/42` и изоляцию чтения. Сквозные проверки пишут снимки, дельты и индекс только во временные каталоги; рабочие `data/` не затрагиваются. `check_converter.py` подтверждает неизменность исходников нативного движка; `check_e2e_real.py` проверяет полный сквозной сценарий на реальных данных Kenshi.
 
 ## Структура репозитория
 
