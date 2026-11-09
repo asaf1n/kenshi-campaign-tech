@@ -28,10 +28,6 @@ class CampaignIndexError(RuntimeError):
     """Отказ операций с индексом снимков."""
 
 
-# Алиас для совместимости
-IndexError = CampaignIndexError
-
-
 class IndexLock:
     """Файловая блокировка для защиты от гонок при записи data/index.json."""
 
@@ -149,13 +145,12 @@ def parent_for(index_data: dict[str, Any], campaign_id: str, source_sha256: str 
 
 
 def campaign_chain(
-    index_data: dict[str, Any], snapshot_id: str, window: int | None = None, *, strict: bool = False,
+    index_data: dict[str, Any], snapshot_id: str, window: int | None = None,
 ) -> list[str]:
     """Цепочка от самого старого снимка к snapshot_id без снимков, отменённых перезагрузкой.
 
     Снимок отменён, если его игровое время больше времени более позднего снимка цепочки. Обход останавливается
-    на границе кампании. window ограничивает число переходов (window + 1 снимок). strict требует, чтобы
-    цепочка доходила до корня без родителя: оборванная связь или цикл — ошибка.
+    на границе кампании. window ограничивает число переходов (window + 1 снимок).
     """
     snapshots = index_data.get("snapshots", {})
     campaign = (snapshots.get(snapshot_id) or {}).get("campaign_id")
@@ -165,13 +160,9 @@ def campaign_chain(
     current: str | None = snapshot_id
     while current is not None:
         if current in seen:
-            if strict:
-                raise CampaignIndexError("Цепочка снимков в индексе содержит цикл")
             break
         entry = snapshots.get(current)
         if entry is None:
-            if strict and current != snapshot_id:
-                raise CampaignIndexError("Цепочка снимков в индексе оборвана")
             if current == snapshot_id:
                 kept.append(current)
             break
@@ -227,12 +218,6 @@ def check_chain_compatibility(index_data: dict[str, Any], prev_id: str, cur_id: 
     if check_ancestry(index_data, ancestor_id=prev_id, descendant_id=cur_id):
         return True, None
     return False, "not_in_chain"
-
-
-def check_time_regression(prev_time: dict[str, Any] | None, cur_time: dict[str, Any] | None) -> bool:
-    """Проверка регрессии игрового времени (to < from)."""
-    before, after = game_minutes(prev_time), game_minutes(cur_time)
-    return before is not None and after is not None and after < before
 
 
 def _game_time(game_time: dict[str, Any] | None) -> dict[str, Any] | None:

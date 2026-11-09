@@ -12,25 +12,19 @@ import sys
 import tempfile
 import unittest
 
-from jsonschema import ValidationError
+import shutil
 from tools.config import Config
 from tools.io_utils import canonical, read_json
 from tools.locator import (
-    GAME_BUILDINGS_VICINITY_EXTENSION,
-    MAX_COORD,
-    MIN_COORD,
-    compute_zone,
     parse_3d_coordinates,
     resolve_locations,
 )
 from tools.publisher import PublisherError, publish
 from tools.validation import (
-    LocationsValidationError,
     validate,
     validate_locations,
-    validate_publication,
 )
-from tools.world_reference import build_world_reference, load_world_reference
+from tools.world_reference import build_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL_CONVERTER_SESSIONS = Path("C:/Users/artem/kenshi-platoon-export/sessions")
@@ -445,13 +439,15 @@ class LocationsTests(unittest.TestCase):
             (pub_dir / ".gitkeep").write_bytes(b"GITKEEP_CONTENT")
 
             snap_id = self.sample_snapshot_dir.name
+            snapshots_dir = tmp / "snapshots"
+            shutil.copytree(self.sample_snapshot_dir, snapshots_dir / snap_id)
             diffs_dir = tmp / "diffs"
             test_idx = tmp / "index.json"
 
             # 1. Первая успешная публикация
             res1 = publish(
                 snapshot_id=snap_id,
-                snapshots_dir=self.sample_snapshot_dir.parent,
+                snapshots_dir=snapshots_dir,
                 diffs_dir=diffs_dir,
                 published_dir=pub_dir,
                 world_ref_id=self.world_ref["world_ref_id"],
@@ -466,12 +462,12 @@ class LocationsTests(unittest.TestCase):
             with self.assertRaises(PublisherError):
                 publish(
                     snapshot_id=snap_id,
-                    snapshots_dir=self.sample_snapshot_dir.parent,
+                    snapshots_dir=snapshots_dir,
                     diffs_dir=diffs_dir,
                     published_dir=pub_dir,
                     world_ref_id=self.world_ref["world_ref_id"],
                     index_path=test_idx,
-                        fault_inject="geo_error",
+                    fault_inject="geo_error",
                 )
 
             # Проверка байтовой сохранности предыдущего релиза

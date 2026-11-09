@@ -41,11 +41,14 @@ published/
 ├── manifest.json
 ├── extended/current.json
 ├── changes.json
+├── changes.md
 ├── locations.json
 ├── world_reference.json
+├── location_registry.json
 ├── timeline.jsonl
 ├── brief.md
 ├── squad.md
+├── tables/
 └── screenshots/
     ├── index.json          # Машиночитаемый реестр kenshi-screenshots-index/1
     ├── index.md            # Индекс кадров: дельта снимка, архивный хвост, первичная разметка

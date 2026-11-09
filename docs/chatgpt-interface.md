@@ -7,21 +7,31 @@
 
 Репозиторий `kenshi-campaign-tech` выполняет роль автономного инженерного конвертера (upstream) и поставляет проверенный срез состояния `published/`.
 
-Проекты ChatGPT читают GitHub `main` (`published/` и документы кампании) в `Kenshi-Compain`. Google Диск - односторонняя резервная копия `main` и выгрузки в нативных форматах Google (Docs - вставка текста, Sheets - RAW), источник блокнотов Gemini при возврате к Gemini (работа с Gemini приостановлена); не источник истины ([docs/gdrive-sync.md](gdrive-sync.md)).
+Проекты ChatGPT читают GitHub `main` (`published/` и документы кампании) в `Kenshi-Compain`. Google Диск — односторонняя резервная копия `main` и выгрузки в нативных форматах Google (Docs — вставка текста, Sheets — RAW), источник блокнотов Gemini при возврате к Gemini (работа с Gemini приостановлена); не источник истины ([docs/gdrive-sync.md](gdrive-sync.md)).
 
-## Поставляемые артефакты (`published/`)
+## Поставляемые артефакты (`published/`, контракт `kenshi-publication/2`)
 
 При успешном прогоне конвейера (`pipeline`) в целевой каталог публикации формируется неизменяемый бандл из проверенных файлов:
-1. `manifest.json` — метаданные контрольной точки (`snapshot_id`, `campaign_id`, `game_time`, признак перезагрузки `reload`, статус валидации `validation.status`).
-2. `extended/current.json` — очищенный полный срез (схема `kenshi-session/11`), читать только выборочно.
+1. `manifest.json` (`kenshi-publication/2`) — метаданные контрольной точки (`snapshot_id`, `parent_snapshot_id`, `campaign_id`, `game_time`, признак перезагрузки `reload`, `world_ref_id`, реестр `artifacts`, статус валидации `validation.status`).
+2. `extended/current.json` (`kenshi-session/11`; для импортированных старых выгрузок поддерживается `kenshi-session/10`) — очищенный полный срез сохранения; читать только выборочно, когда данных сводок и таблиц недостаточно.
 3. `brief.md` — текстовая сводка ключевых изменений и оперативной обстановки.
 4. `squad.md` — детализированная ведомость бойцов, навыков, травм и экипировки.
-5. `changes.json` — дифференциальный срез относительно предыдущего снимка; `changes.md` — его читаемое зеркало с промежуточными снимками.
-6. `locations.json` — разрешенные пространственные координаты поселений и объектов.
-7. `world_reference.json` — справочник географии, зон, фракций и уникальных персонажей.
-8. `timeline.jsonl` — журнал подтвержденных игровых событий.
-9. `tables/` — табличные выгрузки состояния (CSV, UTF-8, и `index.md` со словарём колонок); перечень ниже.
-10. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` и `index.md` всегда; `annotations.jsonl` и `feed.md` только при распознанном тексте). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
+5. `changes.json` (`kenshi-session-diff/5`) — дифференциальный срез относительно предыдущего снимка цепочки; `changes.md` — его читаемое зеркало с разделом «Промежуточные снимки» по окну цепочки.
+6. `locations.json` (`kenshi-locations/1`) — разрешённые пространственные координаты участников отряда и построек игрока, пространственные группы `spatial_groups` и прямолинейное смещение `movement`.
+7. `world_reference.json` (`kenshi-world-reference/1`) — статический справочник географии мира (261 локация и палитра регионов `BIOME_GROUP` без растра `regions_map` и `source_hashes`).
+8. `location_registry.json` (`kenshi-location-registry/3`) — реестр всех 261 локаций справочника мира с флагом `discovered` из `Town state.discovered` сохранения, шаблонным владельцем `template_faction` и отметками зачистки `cleared` (`evidence`, `game_time`), накладываемыми при доставке из `Campaign/<кампания>/locations_progress.json` формата `kenshi-location-progress/3`.
+9. `timeline.jsonl` (`kenshi-event/1`) — опубликованная проекция подтверждённых игровых событий и автоматических событий дельт окна цепочки.
+10. `tables/` — табличные выгрузки состояния (19 CSV в UTF-8 и `tables/index.md` со словарём колонок); перечень ниже.
+11. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` формата `kenshi-screenshots-index/1` и `index.md` всегда; `annotations.jsonl` формата `kenshi-screenshot-annotation/1` и `feed.md` только при распознанном тексте; `screenshots_latest.pdf` вне git для копии на Google Диске). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
+
+## Разграничение ролей географических и справочных артефактов для ИИ-агента
+
+- `published/locations.json` (`kenshi-locations/1`) — **текущее положение отряда и построек игрока** в конкретном снимке (`in_location`, `near_location`, `in_region`, `unknown`), группировка участников `spatial_groups` и смещение `movement` между снимками. Не хранит историю посещений и статус зачистки объектов.
+- `published/location_registry.json` (`kenshi-location-registry/3`) — **реестр известности и зачистки всех 261 локаций мира**: флаг `discovered` (`true`/`false` из `Town state.discovered` сейва — открыто ли место на карте игры), `template_faction` (шаблонный владелец в данных мира) и поле `cleared` (`evidence`, `game_time`), накладываемое при доставке из ручного слоя `Campaign/<кампания>/locations_progress.json` (`kenshi-location-progress/3`) по подтверждённым при `[итог]` результатам зачистки.
+- `published/world_reference.json` (`kenshi-world-reference/1`) — **статический паспорт локаций и регионов** (координаты, зоны `col.row`, `confirmed_radius`, `radius_source`, `static_buildings`, палитра `regions`), неизменный для данного набора файлов игры и модов (`world_ref_id`).
+- Производные справочники в `docs/reference/` игрового репозитория (доставляются `deliver-companion` вне `published/`):
+  - `docs/reference/encounters.md` — сводка встреч, состава отрядов по регионам и городам и базовых отношений фракций, собираемая из таблиц `published/tables/`.
+  - `docs/reference/regions_map.svg` и `docs/reference/regions_adjacency.json` (`kenshi-region-adjacency/2`) — векторные контуры регионов и граф смежности регионов по 4-связности растра игры с длиной общих границ `border_lengths` (deliver-companion обновляет их при совместимом просмотрщике `sites/map/index.html`).
 
 ## Табличные выгрузки (`tables/`)
 
@@ -52,11 +62,16 @@
 
 ## Доставка в Kenshi-Compain
 
-Односторонняя доставка проверенных артефактов в игровой репозиторий выполняется автоматически через:
+Канонический запуск полного цикла (выбор подходящего сейва `check-save`, `pipeline`, доставка в `Kenshi-Compain` с наложением `locations_progress.json` на `location_registry.json`, генерацией `docs/reference/encounters.md`, обновлением картографических артефактов и синхронизацией Google Диска) выполняется одной командой:
+```powershell
+.\Initialize-Pipeline.ps1
+```
+
+Также доступна прямая доставка уже собранного `published/`:
 ```powershell
 python -m tools.campaign deliver-companion [--push]
 ```
-или с флагом `--deliver-to` в `pipeline`:
+или запуск `pipeline` с флагом `--deliver-to`:
 ```powershell
 python -m tools.campaign pipeline `
   --source-kind save `

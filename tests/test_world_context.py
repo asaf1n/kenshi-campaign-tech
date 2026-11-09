@@ -19,9 +19,6 @@ class DummyGameNames:
     def stats(self, sid: str) -> dict:
         return self.ix.get(sid, {})
 
-    def type_of(self, sid: str) -> str:
-        return self.ix.get(sid, {}).get("type", "RESEARCH")
-
     def name(self, sid: str) -> dict:
         entry = self.ix.get(sid, {})
         return {

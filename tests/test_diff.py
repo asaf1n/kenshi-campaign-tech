@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from tools.diff import COMPATIBLE, DIFF_FORMAT, diff, make_diff_id, store_diff
+from tools.diff import diff, make_diff_id, store_diff
 from tools.io_utils import canonical, read_json
 
 ROOT = Path(__file__).resolve().parents[1]

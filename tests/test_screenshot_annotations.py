@@ -1,7 +1,7 @@
 """Тесты технического экстрактора скриншотов Kenshi и технической хронологической ленты."""
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ from tools.screenshot_extractor import (
     extract_screenshots_batch,
     load_extractor_cache,
 )
-from tools.screenshot_feed import render_screenshot_feed, serialize_annotations_jsonl
+from tools.screenshot_feed import render_screenshot_feed
 from tools.validation import validate, validate_publication
 
 

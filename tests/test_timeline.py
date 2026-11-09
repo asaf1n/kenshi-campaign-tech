@@ -22,7 +22,7 @@ from tools.timeline import (
     _writer_lock, append_event, create_session, filter_events_by_chain, import_events,
     load_sessions, read_timeline, resolve_timeline,
 )
-from tools.validation import check_privacy, validate_event, validate_publication, validate_timeline
+from tools.validation import check_privacy, validate_event, validate_publication
 
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "2026-11-01T12:00:00Z"
