@@ -27,6 +27,7 @@ dist/
 
 # Локальные снимки регистрирует pipeline; публикация выполняется отдельно
 data/index.json
+data/index.json.*.bak
 data/gamedb_*.json
 data/snapshots/*/
 data/diffs/*
