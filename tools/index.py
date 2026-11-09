@@ -130,6 +130,24 @@ def campaign_head(index_data: dict[str, Any], campaign_id: str) -> str | None:
     return ((index_data.get("campaigns") or {}).get(campaign_id) or {}).get("head_snapshot_id")
 
 
+def parent_for(index_data: dict[str, Any], campaign_id: str, source_sha256: str | None) -> str | None:
+    """Родитель нового снимка: голова кампании, пропуская снимки того же исходного сейва.
+
+    Тот же сейв после обновления конвертера получает новый snapshot_id (версия кода входит в идентичность);
+    родителем становится ближайший предок с другим исходным сейвом, и diff идёт к предыдущему сейву, а не к себе.
+    """
+    snapshots = index_data.get("snapshots", {})
+    current = campaign_head(index_data, campaign_id)
+    seen: set[str] = set()
+    while source_sha256 and current is not None and current not in seen:
+        entry = snapshots.get(current)
+        if entry is None or entry.get("source_sha256") != source_sha256:
+            break
+        seen.add(current)
+        current = entry.get("parent_snapshot_id")
+    return current
+
+
 def campaign_chain(
     index_data: dict[str, Any], snapshot_id: str, window: int | None = None, *, strict: bool = False,
 ) -> list[str]:
@@ -234,7 +252,7 @@ def register_snapshot(
     registered_at: str | None = None,
     index_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Регистрация снимка: родитель — голова кампании, снимок становится новой головой.
+    """Регистрация снимка: родитель — голова кампании (без снимков того же сейва), снимок становится новой головой.
 
     Повторная регистрация существующего снимка той же кампании ничего не меняет: ни запись, ни голову.
     Иначе повторный запуск на старом слоте молча исключил бы из цепочки все более поздние снимки.
@@ -265,7 +283,7 @@ def register_snapshot(
             raise CampaignIndexError(f"Голова кампании {campaign_id} отсутствует в индексе: {head}")
         entry = {
             "snapshot_id": snapshot_id,
-            "parent_snapshot_id": head,
+            "parent_snapshot_id": parent_for(index_data, campaign_id, source_sha256),
             "campaign_id": campaign_id,
             "game_time": _game_time(game_time),
             "world_ref_id": world_ref_id,

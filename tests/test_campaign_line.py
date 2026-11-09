@@ -130,6 +130,22 @@ class CampaignLineTests(unittest.TestCase):
         with self.assertRaises(CampaignIndexError):
             self.register(a, 10, "10:00", campaign="other")
 
+    def test_reextraction_of_same_save_takes_parent_of_previous_extraction(self) -> None:
+        """Тот же сейв после обновления конвертера (новый snapshot_id, тот же source_sha256) не становится
+        собственным родителем: родитель — ближайший предок с другим сейвом, цепочка идёт мимо прежнего разбора."""
+        a, b, b2, b3, c = _sid("a"), _sid("b"), _sid("f"), _sid("9"), _sid("c")
+        self.register(a, 10, "10:00")
+        self.register(b, 10, "14:00")
+        same = _source_sha(b)
+        for sid in (b2, b3):
+            _create_snapshot_dir(self.snapshots_dir, sid, day=10, time_str="14:00")
+            entry = register_snapshot(sid, "camp", game_time={"day": 10, "time": "14:00"},
+                                      world_ref_id=SAMPLE_WREF["world_ref_id"], source_sha256=same,
+                                      index_path=self.index_file)
+            self.assertEqual((entry["parent_snapshot_id"], entry["is_head"]), (a, True))
+        self.assertEqual(self.register(c, 10, "16:00")["parent_snapshot_id"], b3)
+        self.assertEqual(campaign_chain(load_index(self.index_file), c), [a, b3, c])
+
     def test_reload_excludes_cancelled_snapshots_and_publishes_without_diff(self) -> None:
         """A 10:00 -> B 14:00 -> R 12:00 (перезагрузка): B отменён, diff B->R невалиден, публикация R успешна."""
         a, b, r = _sid("a"), _sid("b"), _sid("e")
