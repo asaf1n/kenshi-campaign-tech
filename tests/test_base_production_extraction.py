@@ -147,6 +147,40 @@ class TestBaseProductionSynthetic(unittest.TestCase):
             self.assertEqual(b_gdb["name"], "Верстак робототехники")
             self.assertEqual(b_gdb["template_name"], "Верстак робототехники")
 
+    def test_building_craft_queue_and_construction_deposited(self) -> None:
+        """Ловит потерю слотов 0..Nconstruction mats, очереди крафта current0..N и задела craft partial item."""
+        import tempfile
+        from tests.test_save_reader import _make_file, _make_record
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = Path(tmp)
+            zdir = tdir / "zone"
+            zdir.mkdir()
+            r_bench = _make_record(
+                kind=35, sid="bldg-craft", name="0",
+                bools={"is inside building": False, "is complete": False, "broken": True},
+                ints={"crit0": 0, "crit1": 1},
+                strings={"owner faction ID": DEFAULT_PLAYER_FACTION, "name": "Кузница",
+                         "current0": "weap-1", "current1": "weap-2", "craft partial item sid 0": "weap-1"},
+                floats={"0construction mats": 3.0, "1construction mats": 5.5,
+                        "current prog0": 0.45, "current prog1": 0.0, "craft partial item val 0": 0.45},
+            )
+            r30 = _make_record(
+                kind=30, sid="0-buildinglist", name="Buildings",
+                instances=[{"id": "inst-craft", "target": "tpl_forge", "states": ["bldg-craft"]}],
+            )
+            (zdir / "zone.18.35.zone").write_bytes(_make_file([r30, r_bench]))
+            b = read_player_property(tdir, DEFAULT_PLAYER_FACTION)["buildings"][0]
+            self.assertIs(b["broken"], True)
+            self.assertEqual(b["construction_deposited"], [3.0, 5.5])
+            self.assertEqual(b["craft_queue"], [
+                {"item_sid": "weap-1", "item_name": None, "progress": 0.45, "crit": 0},
+                {"item_sid": "weap-2", "item_name": None, "progress": 0.0, "crit": 1},
+            ])
+            self.assertEqual(b["craft_partial_items"], [
+                {"item_sid": "weap-1", "item_name": None, "amount": 0.45},
+            ])
+
 
 class TestBaseProductionRealSave(unittest.TestCase):
     """Интеграционные тесты на реальном сохранении autosave0."""
@@ -184,12 +218,15 @@ class TestBaseProductionRealSave(unittest.TestCase):
             self.assertTrue(bat["complete"])
 
         # 2. Недостроенная гарпунная турель (шаблон 2870-gamedata.base)
-        turret = next((b for b in all_buildings if b.get("template_sid") == "2870-gamedata.base" or b.get("sid") == "2074023-zone18.35-INGAME-S23"), None)
+        turret = next((b for b in all_buildings if b.get("sid") == "2074023-zone18.35-INGAME-S23"), None)
+        if turret is None:
+            turret = next((b for b in all_buildings if b.get("template_sid") == "2870-gamedata.base" and (b.get("construction_progress_raw") or 0) > 1.0), None)
         self.assertIsNotNone(turret)
         self.assertFalse(turret["complete"])
         self.assertTrue(turret["is_paused"])
         self.assertFalse(turret["power_on"])
         self.assertGreater(turret["construction_progress_raw"], 1.0)
+        self.assertEqual(turret.get("construction_deposited"), [1.0, 0.0, 0.0])
 
         # 3. Верстак робототехники / исследовательский верстак с питанием
         bench = next((b for b in all_buildings if b.get("sid") == "2577638-zone18.35-INGAME-S23"), None)

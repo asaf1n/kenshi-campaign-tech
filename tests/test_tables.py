@@ -269,8 +269,107 @@ class UnitReferenceTests(unittest.TestCase):
 
         empty = build_tables(mini_snapshot(), None, SNAPSHOT_ID)
         for name in ("unit_templates.csv", "unit_template_gear.csv", "squad_templates.csv", "squad_members.csv",
-                     "squad_spawns.csv", "faction_relations.csv", "faction_hostility.csv"):
+                     "squad_spawns.csv", "faction_relations.csv", "faction_hostility.csv",
+                     "research.csv", "build_catalog.csv", "biome_resources.csv"):
             self.assertEqual(len(empty[name].decode("utf-8").splitlines()), 1, name)
+
+    def test_production_and_research_tables(self) -> None:
+        """Ловит перепутанный порядок слотов стройматериалов (construction_order vs сортировка по sid),
+        неверный статус исследования (locked_prereq/available/completed), потерю unlock_status и привязки работников."""
+        prod_idx = {
+            **INDEX,
+            "580-gamedata.base": ["Building Material", "Стройматериалы", "ITEM", "gamedata.base", None],
+            "m-iron": ["Iron Plates", "Железные листы", "ITEM", "gamedata.base", None],
+            "m-elec": ["Electrical", "Электродетали", "ITEM", "gamedata.base", None],
+            "res-1": ["Tech 1", "Тех 1", "RESEARCH", "gamedata.base", None],
+            "res-2": ["Tech 2", "Тех 2", "RESEARCH", "gamedata.base", None],
+            "res-3": ["Tech 3", "Тех 3", "RESEARCH", "gamedata.base", None],
+            "b-turret": ["Harpoon", "Гарпун", "BUILDING", "gamedata.base", None],
+            "b-bench": ["Bench", "Верстак", "BUILDING", "gamedata.base", None],
+            "fn-craft": ["Craft", "Крафт", "BUILDING_FUNCTIONALITY", "gamedata.base", None],
+            "bg-1": ["Border Zone", "Пограничная зона", "BIOME_GROUP", "gamedata.base", None],
+        }
+        prod_records = {
+            "production": {
+                "functionalities": [{"sid": "fn-craft", "name": "Craft", "int": {"function": 7, "stat used": 62},
+                                     "float": {"production mult": 1.2}}],
+                "farms": [],
+                "buildings": [
+                    {
+                        "sid": "b-turret", "name": "Harpoon", "files": ["gamedata.base"],
+                        "string": {"building category": "Turrets"}, "bool": {"is node": False, "is interior furniture": False},
+                        "int": {"build materials": 0},
+                        # Намеренно не по алфавиту: m-iron (слот 0), m-elec (слот 1)
+                        "construction_order": [["m-iron", [6, 0, 0]], ["m-elec", [2, 0, 0]]],
+                        "refs": {"functionality": [["fn-craft", [0, 0, 0]]]},
+                    },
+                    {
+                        "sid": "b-bench", "name": "Bench", "files": ["gamedata.base"],
+                        "string": {"building category": "Crafting"}, "bool": {"is node": False, "is interior furniture": True},
+                        "int": {"build materials": 3, "power output": -5, "max operators": 1},
+                        "refs": {"functionality": [["fn-craft", [0, 0, 0]]]},
+                    },
+                ],
+                "research": [
+                    {"sid": "res-1", "name": "Tech 1", "files": ["gamedata.base"], "string": {"category": "TECH"},
+                     "int": {"level": 1, "time": 10}, "bool": {"is level upgrade": True},
+                     "refs": {"enable buildings": [["b-bench", [0, 0, 0]]]}},
+                    {"sid": "res-2", "name": "Tech 2", "files": ["gamedata.base"], "string": {"category": "SMITH"},
+                     "int": {"level": 2, "time": 20},
+                     "refs": {"requirements": [["res-1", [1, 0, 0]]], "enable buildings": [["b-turret", [0, 0, 0]]],
+                              "enable weapon type": [["476-gamedata.base", [0, 0, 0]]]}},
+                    {"sid": "res-3", "name": "Tech 3", "files": ["gamedata.base"], "string": {"category": "SMITH"},
+                     "int": {"level": 3, "time": 30},
+                     "refs": {"requirements": [["res-2", [1, 0, 0]]]}},
+                ],
+                "biome_resources": [
+                    {"sid": "bg-1", "name": "Border Zone", "files": ["gamedata.base"], "int": {"index": 12},
+                     "float": {"acidic water": 0.0, "acidic ground": 0.0, "farm water usage": 1.0},
+                     "env_resources": {"int": {"farming altitude min": 0, "farming altitude max": 100},
+                                       "float": {"arid": 1.0, "green": 0.2, "iron mult": 1.0, "copper mult": 0.6}},
+                     "seasons_detail": [{"sid": "s-1", "name": "Dry", "duration_weight": 100,
+                                         "weathers": [{"sid": "w-1", "name": "wind", "prob": 100,
+                                                       "wind_speed_min": 0.6, "wind_speed_max": 1.0,
+                                                       "affect_type": 1, "effect_affect_types": []}]}]},
+                ],
+            },
+        }
+        cur = mini_snapshot()
+        cur["research"] = {"tech_level": 2, "completed": [{"sid": "res-1", "repeat_level": 1}],
+                           "in_progress": [{"sid": "res-2", "progress_raw": 0.5}], "queue": [{"sid": "res-3"}]}
+        cur["characters"][0]["jobs"]["primary"] = [
+            {"task_name": "OPERATE_MACHINERY", "target_handle": [35, 0, 99, 0, 0], "target_name": "Верстак (Хранение)"},
+        ]
+        cur["property"]["buildings"][0]["interior"] = [{
+            "id": "b-int-1", "sid": "35-0-99", "zone": "24.40", "name": "Верстак", "template_sid": "b-bench",
+            "handle": [35, 0, 99, 0, 0], "floor": 0, "complete": True, "power_on": True, "production_progress": 0.25,
+            "craft_queue": [{"item_sid": "476-gamedata.base", "item_name": "Катана", "progress": 0.25, "crit": 0}],
+            "consumption": {"consumption amount-0": 1.5},
+        }]
+        cur["property"]["buildings"].append({
+            "id": "b-tur-1", "zone": "24.40", "name": "Гарпун", "template_sid": "b-turret", "town": "Деревня",
+            "complete": False, "construction_deposited": [4.0, 2.0],
+        })
+        wref = {"locations": [{"instance_id": "loc-1", "zone": "14.2", "name_ru": "Библиотека", "region": "Border Zone"}]}
+        files = build_tables(cur, None, SNAPSHOT_ID, prod_idx, prod_records, world_ref=wref)
+
+        b_rows = {r["instance_id"]: r for r in parse(files, "buildings.csv")}
+        self.assertEqual(b_rows["b-tur-1"]["construction_materials"], "Железные листы: 4/6; Электродетали: 2/2")
+        self.assertEqual(b_rows["b-int-1"]["active_craft"], "Катана (25%)")
+        self.assertEqual(b_rows["b-int-1"]["assigned_workers"], "Кан (OPERATE_MACHINERY)")
+
+        r_rows = {r["sid"]: r for r in parse(files, "research.csv")}
+        self.assertEqual((r_rows["res-1"]["status"], r_rows["res-2"]["status"], r_rows["res-3"]["status"]),
+                         ("completed", "in_progress", "queued"))
+        self.assertEqual(r_rows["res-2"]["enable_crafts_count"], "1")
+
+        c_rows = {r["sid"]: r for r in parse(files, "build_catalog.csv")}
+        self.assertEqual((c_rows["b-bench"]["unlock_status"], c_rows["b-turret"]["unlock_status"]), ("unlocked", "in_queue"))
+        self.assertEqual(c_rows["b-bench"]["construction_materials"], "Стройматериалы: 3")
+
+        bio_rows = parse(files, "biome_resources.csv")
+        self.assertEqual((bio_rows[0]["biome_sid"], bio_rows[0]["iron_mult"], bio_rows[0]["wind_speed_weighted_avg"]),
+                         ("bg-1", "1", "0.8"))
 
 
 class CalcColumnsTests(unittest.TestCase):

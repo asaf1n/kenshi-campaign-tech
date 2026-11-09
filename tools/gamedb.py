@@ -24,7 +24,7 @@ PO_RU: str = f"{KENSHI}/locale/ru_RU/gamedata.po"
 BASE_FILES: dict[str, str] = {"base": "gamedata.base", "Newwworld": "Newwworld.mod", "Dialogue": "Dialogue.mod",
               "rebirth": "rebirth.mod"}
 # Повышать при изменении состава полей индекса — старый кэш будет пересобран.
-INDEX_VERSION: int = 11
+INDEX_VERSION: int = 13
 
 # Поля шаблонов, нужные для характеристик предметов (itemstats.py). Остальное в индекс не попадает.
 STAT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -54,21 +54,30 @@ STAT_FIELDS: dict[str, tuple[str, ...]] = {
                          "swimming mult 1", "stealth mult", "stealth mult 1", "thievery mult", "thievery mult 1",
                          "ranged mult", "ranged mult 1", "unarmed damage bonus", "unarmed damage bonus 1",
                          "combat speed mult", "encumbrance mult", "overall mult"),
-    # Исследования и постройки игрока (player_assets.py).
-    "RESEARCH": ("level", "time", "money", "repeats", "blueprint only", "is level upgrade"),
-    "BUILDING": ("building category",),
+    # Исследования и постройки игрока (player_assets.py, tables.py).
+    "RESEARCH": ("category", "level", "time", "money", "repeats", "repeat mult", "blueprint only", "is level upgrade",
+                 "power increase", "power capacity increase", "production mult"),
+    "BUILDING": ("building category", "build materials", "build speed mult", "power output", "power capacity",
+                 "output rate", "max operators", "is interior furniture", "creates player town", "has inventory",
+                 "storage size width", "storage size height", "is node"),
     # Торговые поля (fcs.def: SQUAD_TEMPLATE.buy mult/sell mult; ITEMS_CULTURE.trade prices).
     "SQUAD_TEMPLATE": ("is trader", "buy mult", "sell mult"),
 }
-STAT_REFS: dict[str, tuple[str, ...]] = {"ARMOUR": ("part coverage", "races", "races exclude"), "CROSSBOW": ("ammo",),
-                                         "RESEARCH": ("enable buildings",),
-                                         "ITEMS_CULTURE": ("trade prices",), "TOWN": ("trade culture", "trade prices"),
-                                         "FACTION": ("trade culture",)}
+STAT_REFS: dict[str, tuple[str, ...]] = {
+    "ARMOUR": ("part coverage", "races", "races exclude"), "CROSSBOW": ("ammo",),
+    "RESEARCH": ("enable buildings", "improve buildings", "cost", "requirements"),
+    "BUILDING": ("construction", "upgrades to", "functionality", "farm data", "limit inventory"),
+    "ITEMS_CULTURE": ("trade prices",), "TOWN": ("trade culture", "trade prices"),
+    "FACTION": ("trade culture",),
+}
 # Глобальные константы не имеют типа в gamedata.po; запись опознаётся по номеру типа.
 CONSTANTS_TYPE_ID: int = 27
 # Типы без "#. Type:" в gamedata.po; имена сверены по разделам fcs.def (поля записей совпадают):
 # SQUAD_TEMPLATE (buy mult, vendors, leader), WORLD_EVENT_STATE (NPC is, player involvement).
-FCS_TYPE_NAMES: dict[int, str] = {52: "SQUAD_TEMPLATE", 110: "WORLD_EVENT_STATE"}
+FCS_TYPE_NAMES: dict[int, str] = {
+    0: "BUILDING", 52: "SQUAD_TEMPLATE", 62: "BUILDING_FUNCTIONALITY", 80: "WEATHER",
+    81: "SEASON", 82: "WEATHER_EFFECT", 97: "FARM_DATA", 99: "ENVIRONMENT_RESOURCES", 110: "WORLD_EVENT_STATE",
+}
 
 
 def find_mod(
@@ -288,6 +297,20 @@ FACTION_REFS: tuple[str, ...] = ("relations", "coexistence", "legal system", "ra
 RACE_TYPE_ID: int = 7
 WEATHER_IMMUNITY: str = "weather immunity"
 RACE_REFS: tuple[str, ...] = ("combat anatomy", "natural armour")
+# Исследования, здания, функциональность, фермы и ресурсы биомов (fcs.def).
+BUILDING_TYPE_ID, RESEARCH_TYPE_ID, FUNCTIONALITY_TYPE_ID = 0, 21, 62
+WEATHER_TYPE_ID, SEASON_TYPE_ID, WEATHER_EFFECT_TYPE_ID = 80, 81, 82
+FARM_DATA_TYPE_ID, ENV_RESOURCES_TYPE_ID = 97, 99
+RESEARCH_REFS: tuple[str, ...] = (
+    "cost", "requirements", "enable buildings", "improve buildings", "enable item",
+    "enable weapon type", "enable weapon model", "enable armour", "enable crossbow",
+    "enable robotics", "enable backpack", "blueprint item",
+)
+BUILDING_REFS: tuple[str, ...] = ("construction", "upgrades to", "functionality", "farm data", "limit inventory")
+FUNCTIONALITY_REFS: tuple[str, ...] = (
+    "consumes", "produces", "item crafts", "weapon crafts", "armour crafts",
+    "crossbow crafts", "robotics crafts", "backpack crafts",
+)
 
 
 def _ref_pairs(refs: dict[str, dict[str, Any]], cats: Sequence[str] | None = None) -> dict[str, list[list[Any]]]:
@@ -436,6 +459,82 @@ def race_records(db: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def production_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Сырые записи исследований (21), построек (14), функциональности (62), ферм (97) и ресурсов регионов (95/99/81/80)."""
+    records = db["records"]
+    tmap = type_map(db)
+    out: dict[str, list[dict[str, Any]]] = {
+        "research": [], "buildings": [], "functionalities": [], "farms": [], "biome_resources": [],
+    }
+    func_sids: set[str] = set()
+    farm_sids: set[str] = set()
+    for sid in sorted(records):
+        e = records[sid]
+        tid, refs = e["type_id"], e.get("refs", {})
+        if _removed(e):
+            continue
+        if tid == RESEARCH_TYPE_ID:
+            out["research"].append(_raw_record(sid, e, tmap, cats=RESEARCH_REFS))
+        elif tid == BUILDING_TYPE_ID:
+            row = _raw_record(sid, e, tmap, cats=BUILDING_REFS)
+            # Порядок слотов construction в файле определяет соответствие ключам <N>construction mats в сейве.
+            c_order = [[k, v] for k, v in (refs.get("construction") or {}).items()]
+            if c_order:
+                row["construction_order"] = c_order
+            out["buildings"].append(row)
+            func_sids.update(refs.get("functionality", {}))
+            farm_sids.update(refs.get("farm data", {}))
+        elif tid == BIOME_GROUP_TYPE_ID:
+            row = _raw_record(sid, e, tmap, cats=("resources", "seasons"))
+            res_sids = [r_sid for r_sid in refs.get("resources", {}) if r_sid in records and not _removed(records[r_sid])]
+            if res_sids:
+                row["env_resources"] = _raw_record(res_sids[0], records[res_sids[0]], tmap, cats=())
+            seasons_detail: list[dict[str, Any]] = []
+            for s_sid, s_val in sorted((refs.get("seasons") or {}).items()):
+                s_rec = records.get(s_sid)
+                if not s_rec or _removed(s_rec):
+                    continue
+                weathers: list[dict[str, Any]] = []
+                for w_sid, w_val in sorted((s_rec.get("refs", {}).get("weathers") or {}).items()):
+                    w_rec = records.get(w_sid)
+                    if not w_rec or _removed(w_rec):
+                        continue
+                    w_data = w_rec.get("data", {})
+                    w_float, w_int = w_data.get("float", {}), w_data.get("int", {})
+                    eff_affects = sorted({
+                        records[ef]["data"].get("int", {}).get("affect type")
+                        for ef in (w_rec.get("refs", {}).get("effects") or {})
+                        if ef in records and not _removed(records[ef])
+                        and records[ef]["data"].get("int", {}).get("affect type")
+                    })
+                    weathers.append({
+                        "sid": w_sid, "name": w_rec.get("name", ""),
+                        "prob": w_val[0] if w_val else 1,
+                        "wind_speed_min": w_float.get("wind speed min"),
+                        "wind_speed_max": w_float.get("wind speed max"),
+                        "affect_type": w_int.get("affect type"),
+                        "effect_affect_types": eff_affects,
+                    })
+                seasons_detail.append({
+                    "sid": s_sid, "name": s_rec.get("name", ""),
+                    "order": s_val[0] if s_val else 0,
+                    "duration_weight": s_val[1] if len(s_val) > 1 else 1,
+                    "weathers": weathers,
+                })
+            if seasons_detail:
+                row["seasons_detail"] = seasons_detail
+            out["biome_resources"].append(row)
+    out["functionalities"] = [
+        _raw_record(s, records[s], tmap, cats=FUNCTIONALITY_REFS)
+        for s in sorted(func_sids) if s in records and not _removed(records[s])
+    ]
+    out["farms"] = [
+        _raw_record(s, records[s], tmap, cats=())
+        for s in sorted(farm_sids) if s in records and not _removed(records[s])
+    ]
+    return out
+
+
 def _cache_key(fp: list[list[Any]]) -> str:
     return hashlib.sha1(json.dumps(fp).encode("utf-8")).hexdigest()[:16]
 
@@ -449,7 +548,7 @@ def _write_json(path: str, payload: Any) -> None:
 
 def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike | None,
              fp: list[list[Any]]) -> dict[str, list[Any]]:
-    """Один проход build() пишет индекс и кэш записей реакций, торговли и справочника юнитов."""
+    """Один проход build() пишет индекс и кэш записей реакций, торговли, юнитов, рас и производства."""
     key = _cache_key(fp)
     db = build(files, po_path)
     tmap = type_map(db)
@@ -467,14 +566,14 @@ def _rebuild(cache_dir: PathLike, files: Sequence[PathLike], po_path: PathLike |
     _write_json(os.path.join(cache_dir, f"gamedb_{key}.json"), {"fingerprint": fp, "index": index})
     _write_json(os.path.join(cache_dir, f"{RECORDS_PREFIX}{key}.json"),
                 {"fingerprint": fp, "reactions": reaction_records(db), "trade": trade_records(db),
-                 "units": unit_records(db), "races": race_records(db)})
+                 "units": unit_records(db), "races": race_records(db), "production": production_records(db)})
     return index
 
 
 def load_records(
     cache_dir: PathLike, files: Sequence[PathLike] | None = None, po_path: PathLike | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Сырые записи реакций мира, торговли и справочника юнитов для набора файлов; кэш пересобирается по отпечатку."""
+    """Сырые записи реакций мира, торговли, юнитов, рас и производства; кэш пересобирается по отпечатку."""
     files = files if files is not None else game_files()
     fp = fingerprint(files, po_path)
     cache_path = os.path.join(cache_dir, f"{RECORDS_PREFIX}{_cache_key(fp)}.json")
@@ -485,7 +584,7 @@ def load_records(
                 cached = json.load(fh)
             if isinstance(cached, dict) and cached.get("fingerprint") == fp:
                 return ({"reactions": cached["reactions"], "trade": cached["trade"], "units": cached["units"],
-                         "races": cached["races"]},
+                         "races": cached["races"], "production": cached["production"]},
                         {"cache": state, "files": len(files), "cache_file": os.path.basename(cache_path)})
         except (OSError, ValueError, KeyError):
             pass

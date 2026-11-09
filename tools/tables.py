@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from tools import itemstats, prosthetics
-from tools.world_context import ZONE_KEY_FORMAT, storage_rows, zone_settlements
+from tools.world_context import ZONE_KEY_FORMAT, _building_places, _clean_handle_tuple, _settlement, storage_rows, zone_settlements
 
 TABLES_DIR: str = "tables"
 INDEX_NAME: str = "index.md"
@@ -1302,6 +1302,692 @@ def races_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | No
                  "скорости, множители, анатомия", columns, rows)
 
 
+# --------------------------------------------------------------------------- постройки, исследования и ресурсы под форпост
+
+DEFAULT_BUILD_MAT_SID: str = "580-gamedata.base"
+RESEARCH_CRAFT_REFS: tuple[str, ...] = (
+    "enable item", "enable weapon type", "enable weapon model", "enable armour",
+    "enable crossbow", "enable robotics", "enable backpack",
+)
+BUILDING_CRAFT_REFS: tuple[str, ...] = (
+    "item crafts", "weapon crafts", "armour crafts", "crossbow crafts", "robotics crafts", "backpack crafts",
+)
+
+
+def _production(records: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    return (records or {}).get("production") or {}
+
+
+def _building_cost_slots(tpl_sid: str | None, b_rec: dict[str, Any] | None,
+                         index: dict[str, list[Any]] | None) -> list[tuple[str, str, int]]:
+    """Смета постройки по порядку слотов: [(item_sid, item_name, required_count)]."""
+    stats = _stats(index, tpl_sid)
+    order = (b_rec or {}).get("construction_order")
+    if not order and stats.get("refs:construction"):
+        order = [[k, v] for k, v in stats["refs:construction"].items()]
+    if order:
+        return [
+            (str(s), _label(index, str(s)) or str(s), int(v[0]) if isinstance(v, list) and v else 1)
+            for s, v in order
+        ]
+    b_ints = (b_rec or {}).get("int") or {}
+    b_bools = (b_rec or {}).get("bool") or {}
+    is_node = b_bools.get("is node") if "is node" in b_bools else stats.get("is node")
+    bm = b_ints.get("build materials") if "build materials" in b_ints else stats.get("build materials")
+    if not is_node and isinstance(bm, int) and bm > 0:
+        return [(DEFAULT_BUILD_MAT_SID, _label(index, DEFAULT_BUILD_MAT_SID) or "Стройматериалы", bm)]
+    return []
+
+
+def buildings_table(current: dict[str, Any], locations: dict[str, Any] | None,
+                    index: dict[str, list[Any]] | None, records: dict[str, Any] | None = None,
+                    zone_places: dict[str, str] | None = None) -> Table:
+    buildings = (current.get("property") or {}).get("buildings") or []
+    places = _building_places(locations)
+    b_records = {r["sid"]: r for r in _production(records).get("buildings") or []}
+
+    # Карта handle здания -> назначенные работники из jobs персонажей
+    workers_by_handle: dict[tuple[int | None, ...], list[str]] = defaultdict(list)
+    for ch in current.get("characters") or []:
+        c_name = ch.get("name") or ch.get("id") or "Персонаж"
+        jobs = ch.get("jobs") or {}
+        if isinstance(jobs, dict):
+            for t in (jobs.get("primary") or []) + (jobs.get("temporary") or []):
+                if not isinstance(t, dict):
+                    continue
+                th = _clean_handle_tuple(t.get("target_handle"))
+                if th:
+                    t_name = t.get("task_name") or str(t.get("task_code") or "")
+                    entry_str = f"{c_name} ({t_name})" if t_name else str(c_name)
+                    if entry_str not in workers_by_handle[th]:
+                        workers_by_handle[th].append(entry_str)
+
+    rows: list[dict[str, Any]] = []
+
+    def walk(b: dict[str, Any], parent_settlement: tuple[str | None, str] | None,
+             parent_zone: str | None, parent_id: str | None, parent_name: str | None) -> None:
+        zone = b.get("zone") or parent_zone
+        settlement, how = _settlement(b, zone, places, parent_settlement, zone_places)
+        loc_key = settlement or (ZONE_KEY_FORMAT.format(zone=zone) if zone else "неизвестно")
+        tpl_sid = b.get("template_sid")
+        stats = _stats(index, tpl_sid)
+        b_rec = b_records.get(tpl_sid or "")
+        label = b.get("name") or b.get("template_name") or b.get("template") or _label(index, tpl_sid) or "Здание"
+        category = b.get("category") or stats.get("building category") or ((b_rec or {}).get("string") or {}).get("building category")
+
+        slots = _building_cost_slots(tpl_sid, b_rec, index)
+        deposited = b.get("construction_deposited")
+        cost_parts: list[str] = []
+        if slots:
+            for i, (_s_sid, s_name, req) in enumerate(slots):
+                if isinstance(deposited, list) and i < len(deposited) and deposited[i] is not None:
+                    cost_parts.append(f"{s_name}: {cell(deposited[i])}/{req}")
+                else:
+                    cost_parts.append(f"{s_name}: {req}")
+        elif isinstance(deposited, list) and any(v for v in deposited if v is not None):
+            cost_parts = [f"слот {i}: {cell(v)}" for i, v in enumerate(deposited) if v is not None]
+
+        craft_parts: list[str] = []
+        for cq in b.get("craft_queue") or []:
+            c_name = cq.get("item_name") or _label(index, cq.get("item_sid")) or cq.get("item_sid")
+            prog = cq.get("progress")
+            pct = f" ({cell(round(prog * 100, 1))}%)" if isinstance(prog, (int, float)) else ""
+            craft_parts.append(f"{c_name}{pct}")
+
+        partial_parts: list[str] = []
+        for cp in b.get("craft_partial_items") or []:
+            p_name = cp.get("item_name") or _label(index, cp.get("item_sid")) or cp.get("item_sid")
+            partial_parts.append(f"{p_name}: {cell(cp.get('amount'))}")
+
+        raw_items = b.get("storage_items") or []
+        if raw_items:
+            stored_count = sum(int(it.get("quantity") or 1) for it in raw_items)
+        else:
+            stored_count = sum(int(r.get("quantity") or 0) for r in b.get("storage") or [])
+
+        bh = _clean_handle_tuple(b.get("handle"))
+        workers = _join(sorted(workers_by_handle.get(bh, []))) if bh else None
+
+        upgrades = stats.get("refs:upgrades to") or {u: v for u, v in ((b_rec or {}).get("refs") or {}).get("upgrades to", [])}
+        b_ints = (b_rec or {}).get("int") or {}
+        power_out = stats.get("power output") if "power output" in stats else b_ints.get("power output")
+        power_cap = stats.get("power capacity") if "power capacity" in stats else b_ints.get("power capacity")
+
+        b_id = str(b.get("id") or "")
+        rows.append({
+            "settlement": settlement,
+            "location_key": loc_key,
+            "settlement_status": how,
+            "zone": zone,
+            "instance_id": b_id,
+            "parent_instance_id": parent_id,
+            "parent_name": parent_name,
+            "name": label,
+            "template_sid": tpl_sid,
+            "category": category,
+            "is_interior": parent_id is not None,
+            "floor": b.get("floor"),
+            "complete": b.get("complete"),
+            "destroyed": b.get("destroyed"),
+            "broken": b.get("broken"),
+            "construction_progress_raw": b.get("construction_progress_raw"),
+            "construction_materials": _join(cost_parts),
+            "power_on": b.get("power_on"),
+            "gets_battery": b.get("gets_battery"),
+            "battery_charge": b.get("battery_charge"),
+            "tpl_power_output": power_out,
+            "tpl_power_capacity": power_cap,
+            "is_paused": b.get("is_paused"),
+            "is_repeat": b.get("is_repeat"),
+            "production_progress": b.get("production_progress"),
+            "resource_mult": b.get("resource_mult"),
+            "mining_resource_level": b.get("mining_resource_level"),
+            "active_craft": _join(craft_parts),
+            "partial_ingredients": _join(partial_parts),
+            "stored_items_count": stored_count if stored_count > 0 else None,
+            "assigned_workers": workers,
+            "upgrades_to": _join(_label(index, u) or u for u in upgrades),
+        })
+        next_parent = (settlement, how) if settlement else parent_settlement
+        for sub in b.get("interior") or []:
+            walk(sub, next_parent, zone, b_id, label)
+
+    for b in buildings:
+        walk(b, None, None, None, None)
+
+    rows.sort(key=lambda r: (
+        str(r["location_key"] or ""), str(r["zone"] or ""),
+        str(r["parent_instance_id"] or ""), str(r["instance_id"] or ""),
+    ))
+    columns = [
+        ("settlement", "Поселение; пусто, если не определено"),
+        ("location_key", "Ключ места: поселение или «зона N (поселение не определено)»"),
+        ("settlement_status", "Способ привязки: in_location, town, near_location, zone_location, zone"),
+        ("zone", "Зона карты"),
+        ("instance_id", "ID экземпляра постройки или жилы в сохранении"),
+        ("parent_instance_id", "ID родительского здания для интерьерного объекта; пусто у верхнего уровня"),
+        ("parent_name", "Название родительского здания"),
+        ("name", "Название постройки/станка/жилы (ru)"),
+        ("template_sid", "sid шаблона BUILDING в данных игры"),
+        ("category", "Категория постройки (`building category`: Production, Research, Crafting, Power, Storage, Mining, Training, Turret...)"),
+        ("is_interior", "true - объект внутри здания (`interior`); false - верхний уровень"),
+        ("floor", "Этаж внутри здания (`floornum`)"),
+        ("complete", "true - постройка завершена; false - недострой"),
+        ("destroyed", "true - разрушена"),
+        ("broken", "true - сломана (`broken`)"),
+        ("construction_progress_raw", "Сырой прогресс постройки из сохранения"),
+        ("construction_materials", "Смета и фактически вложенные материалы по слотам (`Материал: вложено/требуется`), через `; `"),
+        ("power_on", "Питание включено (`power on`)"),
+        ("gets_battery", "Подключено к сети/аккумуляторам (`gets battery`)"),
+        ("battery_charge", "Текущий заряд аккумулятора в сейве (`batterycharge`)"),
+        ("tpl_power_output", "Паспортная выработка (>0) или потребление (<0) энергии из шаблона BUILDING (`power output`)"),
+        ("tpl_power_capacity", "Паспортная ёмкость аккумулятора из шаблона BUILDING (`power capacity`)"),
+        ("is_paused", "Работа приостановлена (`pause`)"),
+        ("is_repeat", "Включён повтор очереди крафта (`repeat`)"),
+        ("production_progress", "Сырой прогресс цикла производства (`production amount`)"),
+        ("resource_mult", "Качество ресурсной жилы (`resource mult`, 0..1 для MINING)"),
+        ("mining_resource_level", "Уровень ресурса разработки (`mining resource level`)"),
+        ("active_craft", "Активная очередь крафта станка `предмет (прогресс%)` из `current0..N`, через `; `"),
+        ("partial_ingredients", "Вложенные в станок незавершённые ингредиенты `предмет: количество` из `craft partial item`, через `; `"),
+        ("stored_items_count", "Суммарное количество предметов во внутреннем контейнере объекта; подробно - storage.csv"),
+        ("assigned_workers", "Назначенные на этот объект работники отряда `Имя (ЗАДАЧА)` по совпадению target_handle"),
+        ("upgrades_to", "Следующая ступень улучшения постройки из шаблона BUILDING (`upgrades to`)"),
+    ]
+    return Table(
+        "buildings.csv",
+        "location_key, zone, parent_instance_id, instance_id",
+        "Все постройки, интерьерные станки, турели, генераторы, контейнеры и разрабатываемые рудные жилы игрока",
+        columns, rows,
+    )
+
+
+def _research_state_maps(current: dict[str, Any]) -> tuple[dict[str, int], dict[str, dict[str, Any]], dict[str, dict[str, Any]], set[str], int]:
+    res = current.get("research") or {}
+    completed_levels: dict[str, int] = {}
+    paid_sids: set[str] = set()
+    for e in res.get("completed") or []:
+        if e.get("item_blueprint"):
+            continue
+        base_sid = str(e.get("base_sid") or e.get("sid") or "")
+        if not base_sid:
+            continue
+        lvl = int(e.get("repeat_level") or 1)
+        completed_levels[base_sid] = max(completed_levels.get(base_sid, 0), lvl)
+        if e.get("paid"):
+            paid_sids.add(base_sid)
+    in_progress_map: dict[str, dict[str, Any]] = {}
+    for e in res.get("in_progress") or []:
+        base_sid = str(e.get("base_sid") or e.get("sid") or "")
+        if base_sid:
+            in_progress_map[base_sid] = e
+            if e.get("paid"):
+                paid_sids.add(base_sid)
+    queue_map: dict[str, dict[str, Any]] = {}
+    for e in res.get("queue") or []:
+        base_sid = str(e.get("base_sid") or e.get("sid") or "")
+        if base_sid:
+            queue_map[base_sid] = e
+            if e.get("paid"):
+                paid_sids.add(base_sid)
+    for e in res.get("paid") or []:
+        base_sid = str(e.get("base_sid") or e.get("sid") or "")
+        if base_sid:
+            paid_sids.add(base_sid)
+    tech_level = int(res.get("tech_level") or 1)
+    return completed_levels, in_progress_map, queue_map, paid_sids, tech_level
+
+
+def research_table(current: dict[str, Any], records: dict[str, Any] | None,
+                   index: dict[str, list[Any]] | None) -> Table:
+    completed_levels, in_progress_map, queue_map, paid_sids, tech_level = _research_state_maps(current)
+    catalog = _production(records).get("research") or []
+    rows: list[dict[str, Any]] = []
+
+    for rec in catalog:
+        sid = rec["sid"]
+        ints, floats, bools, strings = (rec.get("int") or {}), (rec.get("float") or {}), (rec.get("bool") or {}), (rec.get("string") or {})
+        refs = rec.get("refs") or {}
+        repeats = int(ints.get("repeats") or 0)
+        max_repeats = repeats if repeats > 1 else 1
+        done_lvl = completed_levels.get(sid, 0)
+        req_pairs = refs.get("requirements") or []
+        missing_reqs = [
+            _label(index, r_sid) or r_sid
+            for r_sid, r_v in req_pairs
+            if completed_levels.get(r_sid, 0) < max(1, int(r_v[0]) if r_v else 1)
+        ]
+        lvl_req = ints.get("level")
+        bp_only = bool(bools.get("blueprint only"))
+
+        if sid in in_progress_map:
+            status = "in_progress"
+            prog = in_progress_map[sid].get("progress_raw")
+        elif sid in queue_map:
+            status = "queued"
+            prog = queue_map[sid].get("progress_raw")
+        elif done_lvl >= max_repeats:
+            status = "completed"
+            prog = None
+        elif missing_reqs:
+            status = "locked_prereq"
+            prog = None
+        elif isinstance(lvl_req, int) and lvl_req > tech_level:
+            status = "locked_tech_level"
+            prog = None
+        elif bp_only and sid not in paid_sids and done_lvl == 0:
+            status = "locked_blueprint"
+            prog = None
+        else:
+            status = "available"
+            prog = None
+
+        cost_parts = [
+            f"{_label(index, c_sid) or c_sid}: {c_v[0] if c_v else 1}"
+            for c_sid, c_v in (refs.get("cost") or [])
+        ]
+        req_parts = [
+            f"{_label(index, r_sid) or r_sid}" + (f" (ур. {r_v[0]})" if r_v and r_v[0] > 1 else "")
+            for r_sid, r_v in req_pairs
+        ]
+        enable_bld = [_label(index, b_sid) or b_sid for b_sid, _v in (refs.get("enable buildings") or [])]
+        improve_bld = [_label(index, b_sid) or b_sid for b_sid, _v in (refs.get("improve buildings") or [])]
+        imp_effects: list[str] = []
+        if ints.get("power increase"):
+            imp_effects.append(f"power+{ints['power increase']}")
+        if ints.get("power capacity increase"):
+            imp_effects.append(f"capacity+{ints['power capacity increase']}")
+        if floats.get("production mult") not in (None, 1.0, 0.0):
+            imp_effects.append(f"prod_mult={cell(floats['production mult'])}")
+
+        crafts_cnt = sum(len(refs.get(cat) or []) for cat in RESEARCH_CRAFT_REFS)
+        en, ru = _names(index, sid)
+        rows.append({
+            "sid": sid,
+            "name_en": rec.get("name") or en or None,
+            "name_ru": ru or rec.get("name") or None,
+            "category": strings.get("category") or None,
+            "status": status,
+            "level": lvl_req,
+            "tech_level_upgrade": True if bools.get("is level upgrade") else None,
+            "blueprint_only": True if bp_only else None,
+            "paid": True if sid in paid_sids else None,
+            "progress_raw": prog,
+            "completed_level": done_lvl,
+            "max_repeats": max_repeats,
+            "time_hours": ints.get("time"),
+            "money_cost": ints.get("money") if ints.get("money") else None,
+            "cost_items": _join(cost_parts),
+            "requirements": _join(req_parts),
+            "missing_requirements": _join(missing_reqs),
+            "enable_buildings": _join(enable_bld),
+            "improve_buildings": _join(improve_bld),
+            "building_improvements": _join(imp_effects),
+            "enable_crafts_count": crafts_cnt if crafts_cnt > 0 else None,
+        })
+
+    rows.sort(key=lambda r: (str(r["category"] or "~"), int(r["level"] or 0), str(r["sid"])))
+    columns = [
+        ("sid", "sid записи RESEARCH (тип 21)"),
+        ("name_en", "Название технологии (en)"),
+        ("name_ru", "Название технологии (ru)"),
+        ("category", "Технологическая ветка (`category`: Core, Farming, Mining, Power, Defence, Smithing, Robotics...)"),
+        ("status", "Статус у игрока: completed (изучена), in_progress (изучается сейчас), queued (в очереди стенда), "
+                   "available (доступна к изучению), locked_prereq (не выполнены requirements), locked_tech_level "
+                   "(нужен стенд выше текущего tech_level), locked_blueprint (нужен чертёж)"),
+        ("level", "Требуемый уровень научного стенда (`level`)"),
+        ("tech_level_upgrade", "true - повышает технологический уровень (`is level upgrade`)"),
+        ("blueprint_only", "true - открывается только применением чертежа (`blueprint only`)"),
+        ("paid", "true - ресурсы за исследование уже вложены в стенд (`paid#`)"),
+        ("progress_raw", "Сырой прогресс изучения из сохранения (`current_progress`)"),
+        ("completed_level", "Изученный уровень (0 - не изучена; 1..max_repeats для многократных исследований)"),
+        ("max_repeats", "Максимальное число уровней изучения (`repeats`; 1 для однократных)"),
+        ("time_hours", "Базовое время изучения, ч (`time`)"),
+        ("money_cost", "Денежная стоимость, кат. (`money`)"),
+        ("cost_items", "Предметы, расходуемые на изучение (`refs:cost`: `предмет: количество`), через `; `"),
+        ("requirements", "Предшествующие технологии (`refs:requirements`), через `; `"),
+        ("missing_requirements", "Неизученные предшествующие технологии из `requirements`, блокирующие запуск"),
+        ("enable_buildings", "Открываемые постройки и станки (`refs:enable buildings`), через `; `"),
+        ("improve_buildings", "Улучшаемые постройки (`refs:improve buildings`), через `; `"),
+        ("building_improvements", "Бонусы улучшения построек (`power increase`, `power capacity increase`, `production mult`)"),
+        ("enable_crafts_count", "Число открываемых рецептов крафта предметов, оружия, брони, арбалетов, рюкзаков и протезов"),
+    ]
+    return Table(
+        "research.csv",
+        "category, level, sid",
+        "Полное дерево технологий игры (RESEARCH) со статусом изучения в кампании, стоимостью, предпосылками и открываемыми объектами",
+        columns, rows,
+    )
+
+
+def build_catalog_table(current: dict[str, Any], records: dict[str, Any] | None,
+                        index: dict[str, list[Any]] | None) -> Table:
+    completed_levels, in_progress_map, queue_map, _paid_sids, _tech_level = _research_state_maps(current)
+    prod = _production(records)
+    res_catalog = prod.get("research") or []
+    bld_catalog = {r["sid"]: r for r in prod.get("buildings") or []}
+    func_map = {r["sid"]: r for r in prod.get("functionalities") or []}
+    farm_map = {r["sid"]: r for r in prod.get("farms") or []}
+
+    # Какие технологии открывают каждую постройку
+    unlockers: dict[str, list[str]] = defaultdict(list)
+    for r in res_catalog:
+        r_sid = r["sid"]
+        for b_sid, _v in ((r.get("refs") or {}).get("enable buildings") or []):
+            if r_sid not in unlockers[b_sid]:
+                unlockers[b_sid].append(r_sid)
+
+    # Подсчёт уже построенных игроком экземпляров по template_sid
+    built_complete: dict[str, int] = defaultdict(int)
+    built_incomplete: dict[str, int] = defaultdict(int)
+
+    def count_player_buildings(items: list[dict[str, Any]]) -> None:
+        for b in items:
+            tsid = b.get("template_sid")
+            if tsid:
+                if b.get("complete") is False:
+                    built_incomplete[tsid] += 1
+                else:
+                    built_complete[tsid] += 1
+            count_player_buildings(b.get("interior") or [])
+
+    count_player_buildings((current.get("property") or {}).get("buildings") or [])
+
+    target_sids = sorted(set(unlockers.keys()) | (set(built_complete.keys()) | set(built_incomplete.keys())) & set(bld_catalog.keys()))
+    rows: list[dict[str, Any]] = []
+
+    for sid in target_sids:
+        rec = bld_catalog.get(sid)
+        if not rec:
+            continue
+        ints, floats, bools, strings = (rec.get("int") or {}), (rec.get("float") or {}), (rec.get("bool") or {}), (rec.get("string") or {})
+        refs = rec.get("refs") or {}
+        req_res = unlockers.get(sid, [])
+        if req_res:
+            if any(completed_levels.get(r_sid, 0) >= 1 or r_sid == "5359-gamedata.base" for r_sid in req_res):
+                unlock_status = "unlocked"
+            elif any(r_sid in in_progress_map or r_sid in queue_map for r_sid in req_res):
+                unlock_status = "in_queue"
+            else:
+                unlock_status = "locked"
+        else:
+            unlock_status = "world_or_town"
+
+        unlocked_by_labels = [
+            "_Default Start (базовая)" if r_sid == "5359-gamedata.base" else f"{_label(index, r_sid) or r_sid} ({r_sid})"
+            for r_sid in req_res
+        ]
+
+        slots = _building_cost_slots(sid, rec, index)
+        cost_str = _join(f"{s_name}: {req}" for _s_sid, s_name, req in slots)
+        bm_total = ints.get("build materials")
+        bs_mult = floats.get("build speed mult")
+        build_hours = round(bm_total * bs_mult, 2) if isinstance(bm_total, int) and bm_total > 0 and isinstance(bs_mult, (int, float)) else None
+
+        # Функциональность (тип 62) и данные фермы (тип 97)
+        func_sids = [f_sid for f_sid, _v in (refs.get("functionality") or []) if f_sid in func_map]
+        func_rec = func_map[func_sids[0]] if func_sids else {}
+        f_ints, f_floats, f_refs = (func_rec.get("int") or {}), (func_rec.get("float") or {}), (func_rec.get("refs") or {})
+
+        farm_sids = [fm_sid for fm_sid, _v in (refs.get("farm data") or []) if fm_sid in farm_map]
+        farm_rec = farm_map[farm_sids[0]] if farm_sids else {}
+        fm_ints, fm_floats = (farm_rec.get("int") or {}), (farm_rec.get("float") or {})
+
+        max_ops = ints.get("max operators")
+        if max_ops is None or max_ops < 0:
+            max_ops = f_ints.get("max operators")
+
+        consumes_parts = [
+            f"{_label(index, c_sid) or c_sid} (rate={c_v[1] if len(c_v) > 1 else 100}%)"
+            for c_sid, c_v in (f_refs.get("consumes") or [])
+        ]
+        if fm_floats.get("consumption rate"):
+            consumes_parts.append(f"Вода (consumption rate={cell(fm_floats['consumption rate'])}/сут)")
+
+        produces_parts = [_label(index, p_sid) or p_sid for p_sid, _v in (f_refs.get("produces") or [])]
+        crafts_cnt = sum(len(f_refs.get(cat) or []) for cat in BUILDING_CRAFT_REFS)
+
+        farm_info: list[str] = []
+        if farm_rec:
+            climates = [f"{k}={cell(fm_floats[k])}" for k in ("arid", "green", "swamp") if fm_floats.get(k)]
+            if climates:
+                farm_info.append("/".join(climates))
+            if fm_floats.get("minimum fertility") is not None:
+                farm_info.append(f"min_fert={cell(fm_floats['minimum fertility'])}")
+            if fm_floats.get("growth time") is not None:
+                farm_info.append(f"growth={cell(fm_floats['growth time'])}h")
+            if fm_ints.get("amount") is not None:
+                farm_info.append(f"plants={fm_ints['amount']}")
+
+        en, ru = _names(index, sid)
+        rows.append({
+            "sid": sid,
+            "name_en": rec.get("name") or en or None,
+            "name_ru": ru or rec.get("name") or None,
+            "building_category": strings.get("building category") or None,
+            "is_interior": bools.get("is interior furniture"),
+            "is_node": True if bools.get("is node") else None,
+            "unlock_status": unlock_status,
+            "unlocked_by": _join(unlocked_by_labels),
+            "built_complete_count": built_complete.get(sid, 0),
+            "built_incomplete_count": built_incomplete.get(sid, 0),
+            "construction_materials": cost_str,
+            "build_materials_total": bm_total,
+            "build_speed_mult": bs_mult,
+            "build_hours": build_hours,
+            "power_output": ints.get("power output"),
+            "power_capacity": ints.get("power capacity"),
+            "max_operators": max_ops,
+            "output_rate": floats.get("output rate"),
+            "production_mult": f_floats.get("production mult"),
+            "function_code": f_ints.get("function"),
+            "stat_used_code": f_ints.get("stat used"),
+            "world_resource_mining": f_ints.get("world resource mining"),
+            "consumes": _join(consumes_parts),
+            "produces": _join(produces_parts),
+            "crafts_count": crafts_cnt if crafts_cnt > 0 else None,
+            "farm_profile": _join(farm_info),
+            "upgrades_to": _join(_label(index, u_sid) or u_sid for u_sid, _v in (refs.get("upgrades to") or [])),
+        })
+
+    rows.sort(key=lambda r: (str(r["building_category"] or "~"), str(r["sid"])))
+    columns = [
+        ("sid", "sid записи BUILDING (тип 0)"),
+        ("name_en", "Название постройки (en)"),
+        ("name_ru", "Название постройки (ru)"),
+        ("building_category", "Категория в меню строительства (`building category`)"),
+        ("is_interior", "true - устанавливается только внутри зданий (`is interior furniture`); false - наружная постройка"),
+        ("is_node", "true - природный ресурсный узел (`is node`)"),
+        ("unlock_status", "Статус доступности игроку: unlocked (открыта и доступна к постройке), in_queue (технология в очереди), "
+                          "locked (технология не изучена), world_or_town (городское здание или природная жила)"),
+        ("unlocked_by", "Открывающие технологии из RESEARCH (`enable buildings`)"),
+        ("built_complete_count", "Количество уже достроенных экземпляров у игрока в текущем сохранении"),
+        ("built_incomplete_count", "Количество заложенных (недостроенных) экземпляров у игрока"),
+        ("construction_materials", "Точная смета постройки 1 единицы (`refs:construction` либо стандартные Стройматериалы по `build materials`), через `; `"),
+        ("build_materials_total", "Поле `build materials` шаблона"),
+        ("build_speed_mult", "Множитель времени строительства (`build speed mult`)"),
+        ("build_hours", "Базовое время строительства, ч (`build materials * build speed mult`)"),
+        ("power_output", "Выработка (>0) или потребление (<0) энергии (`power output`)"),
+        ("power_capacity", "Ёмкость хранения энергии в секундах (`power capacity`)"),
+        ("max_operators", "Максимальное число операторов (`max operators`)"),
+        ("output_rate", "Базовая скорость/выход (`output rate`)"),
+        ("production_mult", "Множитель скорости производства или расхода топлива (`production mult` из BUILDING_FUNCTIONALITY)"),
+        ("function_code", "Код функции `function` из BUILDING_FUNCTIONALITY (BuildingFunction)"),
+        ("stat_used_code", "Код используемого навыка `stat used` из BUILDING_FUNCTIONALITY (StatsEnumerated)"),
+        ("world_resource_mining", "Код подземного ресурса `world resource mining` (0 - нет, 1+ - вода/плодородие/руда/камень/топливо)"),
+        ("consumes", "Потребляемое сырьё (`refs:consumes` или расход воды фермы)"),
+        ("produces", "Производимый ресурс для автоматических/добывающих построек (`refs:produces`)"),
+        ("crafts_count", "Число доступных рецептов крафта на станке (`* crafts`)"),
+        ("farm_profile", "Параметры ферм из FARM_DATA: климат (`arid/green/swamp`), `min_fert`, `growth`, `plants`"),
+        ("upgrades_to", "Следующая ступень улучшения (`refs:upgrades to`)"),
+    ]
+    return Table(
+        "build_catalog.csv",
+        "building_category, sid",
+        "Каталог и смета всех строящихся объектов игры (BUILDING): статус открытия, стройматериалы, энергобаланс, входы/выходы и апгрейды",
+        columns, rows,
+    )
+
+
+def biome_resources_table(current: dict[str, Any], locations: dict[str, Any] | None,
+                          world_ref: dict[str, Any] | None, records: dict[str, Any] | None,
+                          index: dict[str, list[Any]] | None) -> Table:
+    biomes = _production(records).get("biome_resources") or []
+    discovered_ids = {
+        str(d.get("instance_id"))
+        for d in ((current.get("world_state") or {}).get("town_discovery") or [])
+        if d.get("discovered") and d.get("instance_id")
+    }
+    locs_by_region_en: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for loc in (world_ref or {}).get("locations") or []:
+        reg_en = loc.get("region")
+        if reg_en:
+            locs_by_region_en[str(reg_en)].append(loc)
+
+    # Постройки игрока по регионам (через locations.buildings) и разрабатываемые рудные жилы (MINING)
+    bldg_region_en: dict[str, str] = {}
+    for lb in (locations or {}).get("buildings") or []:
+        bkey = lb.get("building_key")
+        reg_en = (lb.get("region") or {}).get("name_en")
+        if bkey and reg_en:
+            bldg_region_en[str(bkey)] = str(reg_en)
+
+    player_bld_counts: dict[str, int] = defaultdict(int)
+    player_mining_by_reg: dict[str, list[str]] = defaultdict(list)
+    for b in (current.get("property") or {}).get("buildings") or []:
+        bkey = f"{b.get('zone')}:{b.get('id')}"
+        reg_en = bldg_region_en.get(bkey)
+        if not reg_en:
+            continue
+        player_bld_counts[reg_en] += 1
+        cat = b.get("category") or _stats(index, b.get("template_sid")).get("building category")
+        if cat == "MINING" or (b.get("resource_mult") is not None and not b.get("interior")):
+            b_name = b.get("name") or b.get("template_name") or b.get("template") or "Жила"
+            mult = cell(b.get("resource_mult"))
+            player_mining_by_reg[reg_en].append(f"{b_name} [{b.get('zone')}, mult={mult}]")
+
+    rows: list[dict[str, Any]] = []
+    for rec in biomes:
+        sid = rec["sid"]
+        name_en = rec.get("name") or _names(index, sid)[0] or ""
+        name_ru = _names(index, sid)[1] or name_en or None
+        b_ints, b_floats = (rec.get("int") or {}), (rec.get("float") or {})
+        env = rec.get("env_resources") or {}
+        e_ints, e_floats = (env.get("int") or {}), (env.get("float") or {})
+
+        # Ветровой режим и погодные угрозы по сезонам (SEASON -> WEATHER -> WEATHER_EFFECT)
+        wind_mins: list[float] = []
+        wind_maxs: list[float] = []
+        weighted_wind_sum = 0.0
+        weighted_wind_total = 0.0
+        affect_codes: set[int] = set()
+
+        for s in rec.get("seasons_detail") or []:
+            s_weight = float(s.get("duration_weight") or 1.0)
+            if s_weight <= 0:
+                s_weight = 1.0
+            weathers = s.get("weathers") or []
+            prob_total = sum(max(float(w.get("prob") or 1.0), 0.0) for w in weathers) or 1.0
+            for w in weathers:
+                w_prob = max(float(w.get("prob") or 1.0), 0.0) / prob_total
+                w_min = w.get("wind_speed_min")
+                w_max = w.get("wind_speed_max")
+                if isinstance(w_min, (int, float)):
+                    wind_mins.append(float(w_min))
+                if isinstance(w_max, (int, float)):
+                    wind_maxs.append(float(w_max))
+                if isinstance(w_min, (int, float)) and isinstance(w_max, (int, float)):
+                    weighted_wind_sum += s_weight * w_prob * ((float(w_min) + float(w_max)) / 2.0)
+                    weighted_wind_total += s_weight * w_prob
+                aff = w.get("affect_type")
+                if isinstance(aff, int) and aff > 0:
+                    affect_codes.add(aff)
+                for ef_aff in w.get("effect_affect_types") or []:
+                    if isinstance(ef_aff, int) and ef_aff > 0:
+                        affect_codes.add(ef_aff)
+
+        sorted_codes = sorted(affect_codes)
+        decoded_hazards = [WEATHER_RU.get(c, f"код {c} (не установлен)") for c in sorted_codes]
+        reg_locs = locs_by_region_en.get(name_en, [])
+        disc_count = sum(1 for loc in reg_locs if str(loc.get("instance_id")) in discovered_ids)
+
+        rows.append({
+            "biome_sid": sid,
+            "name_en": name_en or None,
+            "name_ru": name_ru,
+            "color_index": b_ints.get("index"),
+            "locations_total": len(reg_locs),
+            "locations_discovered": disc_count,
+            "player_buildings_count": player_bld_counts.get(name_en, 0),
+            "player_mining_nodes": _join(sorted(player_mining_by_reg.get(name_en, []))),
+            "climate_arid": e_floats.get("arid"),
+            "climate_green": e_floats.get("green"),
+            "climate_swamp": e_floats.get("swamp"),
+            "farming_min": e_floats.get("farming min"),
+            "farming_mult": e_floats.get("farming mult"),
+            "farming_altitude_min": e_ints.get("farming altitude min"),
+            "farming_altitude_max": e_ints.get("farming altitude max"),
+            "water_min": e_floats.get("water min"),
+            "water_mult": e_floats.get("water mult"),
+            "water_altitude_min": e_ints.get("water altitude min"),
+            "water_altitude_max": e_ints.get("water altitude max"),
+            "farm_water_usage": b_floats.get("farm water usage"),
+            "iron_mult": e_floats.get("iron mult"),
+            "copper_mult": e_floats.get("copper mult"),
+            "stone_mult": e_floats.get("stone mult"),
+            "stone_noise_cutoff": e_floats.get("stone noise cutoff"),
+            "carbon_mult": e_floats.get("carbon mult"),
+            "wind_speed_min": min(wind_mins) if wind_mins else None,
+            "wind_speed_max": max(wind_maxs) if wind_maxs else None,
+            "wind_speed_weighted_avg": round(weighted_wind_sum / weighted_wind_total, 2) if weighted_wind_total > 0 else None,
+            "acidic_ground": b_floats.get("acidic ground"),
+            "acidic_water": b_floats.get("acidic water"),
+            "weather_affect_codes": _join(sorted_codes),
+            "weather_hazards": _join(decoded_hazards),
+        })
+
+    rows.sort(key=lambda r: str(r["biome_sid"]))
+    columns = [
+        ("biome_sid", "sid записи BIOME_GROUP (тип 95)"),
+        ("name_en", "Название региона (en)"),
+        ("name_ru", "Название региона (ru)"),
+        ("color_index", "Цветовой код региона на карте (`index`)"),
+        ("locations_total", "Всего стационарных локаций в регионе по справочнику мира (`world_reference.json`)"),
+        ("locations_discovered", "Открыто локаций игроком (`discovered = true` в `quick.save`)"),
+        ("player_buildings_count", "Число верхнеуровневых построек и рудных точек игрока в регионе"),
+        ("player_mining_nodes", "Уже разрабатываемые игроком рудные точки (`MINING`) в регионе с их `resource_mult`"),
+        ("climate_arid", "Доля засушливого климата (`arid` из ENVIRONMENT_RESOURCES)"),
+        ("climate_green", "Доля зелёного климата (`green` из ENVIRONMENT_RESOURCES)"),
+        ("climate_swamp", "Доля болотного климата (`swamp` из ENVIRONMENT_RESOURCES)"),
+        ("farming_min", "Минимальное плодородие почвы в регионе (`farming min`)"),
+        ("farming_mult", "Максимальный множитель плодородия почвы (`farming mult`)"),
+        ("farming_altitude_min", "Нижняя граница высоты плодородия (`farming altitude min`)"),
+        ("farming_altitude_max", "Верхняя граница высоты плодородия (`farming altitude max`)"),
+        ("water_min", "Минимальный уровень грунтовых вод (`water min`)"),
+        ("water_mult", "Максимальный множитель грунтовых вод (`water mult`)"),
+        ("water_altitude_min", "Нижняя граница высоты грунтовых вод (`water altitude min`)"),
+        ("water_altitude_max", "Верхняя граница высоты грунтовых вод (`water altitude max`)"),
+        ("farm_water_usage", "Множитель расхода воды фермами в регионе (`farm water usage`)"),
+        ("iron_mult", "Множитель железной руды в регионе (`iron mult`)"),
+        ("copper_mult", "Множитель медной руды в регионе (`copper mult`)"),
+        ("stone_mult", "Множитель камня в регионе (`stone mult`)"),
+        ("stone_noise_cutoff", "Порог Perlin-шума пятен камня (`stone noise cutoff`; меньше — крупнее пятна)"),
+        ("carbon_mult", "Множитель углерода/топлива (`carbon mult`)"),
+        ("wind_speed_min", "Минимальная скорость ветра по сезонам региона (`wind speed min` из WEATHER)"),
+        ("wind_speed_max", "Максимальная скорость ветра по сезонам региона (`wind speed max` из WEATHER)"),
+        ("wind_speed_weighted_avg", "Средневзвешенная скорость ветра по длительности сезонов и вероятностям погоды"),
+        ("acidic_ground", "Кислотность почвы (`acidic ground`, 0..1: обжигает ноги без обуви)"),
+        ("acidic_water", "Кислотность воды (`acidic water`, 0..1)"),
+        ("weather_affect_codes", "Коды погодных угроз в сезонах региона (`affect type` из WEATHER и WEATHER_EFFECT)"),
+        ("weather_hazards", "Расшифровка погодных угроз (1 песчаная буря, 2 кислотный дождь, 3 жара/лучи, 4 газ; сопоставимо с `races.csv`)"),
+    ]
+    return Table(
+        "biome_resources.csv",
+        "biome_sid",
+        "Ресурсный, климатический и ветровой профиль регионов (BIOME_GROUP + ENVIRONMENT_RESOURCES + SEASON/WEATHER) для оценки площадок под форпост",
+        columns, rows,
+    )
+
+
 # --------------------------------------------------------------------------- сборка и index.md
 
 def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table], game_mods: list[str] | None,
@@ -1330,7 +2016,10 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         "- Предметы персонажей поэкземплярно - `inventory.csv` (контейнеры body, belt, backpack, inventory; ключ сравнения снимков "
         "(character_id, base_sid, level, slot, dup_no), `item_sid` действует внутри снимка). Оружие, броня и протезы "
         "независимо от места - `equipment.csv` (`location_kind`). Вес экземпляров и параметры рюкзаков, здоровье по частям "
-        "тела, сведения о построенных зданиях и исследованиях в таблицы не входят.",
+        "тела в таблицы не входят. Построенные здания, интерьерные станки, очереди крафта и разрабатываемые жилы - `buildings.csv`; "
+        "полное дерево технологий со статусом изучения - `research.csv`; смета стройматериалов и ТТХ всех построек меню "
+        "строительства - `build_catalog.csv`; ресурсно-климатический профиль регионов (плодородие, вода, руды, ветер, кислотность) - "
+        "`biome_resources.csv` (локальные пятна кнопки «Разведка» в рантайме вычисляются процедурным шумом и в сохранение не записываются).",
         "- `races.csv`: поля записей RACE после слияния файлов в порядке загрузки; пустая ячейка - поле не хранится "
         "(действует значение по умолчанию fcs.def). Расшифровка кодов погоды 1-4 сверена с карточками брони, прочие не расшифрованы.",
         "- Смысл `v[1]`, `v[2]` у ссылок `world state`/`NPC is` в документах игры не описан; значения публикуются без трактовки.",
@@ -1369,6 +2058,10 @@ def build_tables(
         equipment_table(current, game_index, locations, zone_places),
         inventory_table(current, game_index),
         storage_table(current, locations, game_index, zone_places),
+        buildings_table(current, locations, game_index, game_records, zone_places),
+        research_table(current, game_records, game_index),
+        build_catalog_table(current, game_records, game_index),
+        biome_resources_table(current, locations, world_ref, game_records, game_index),
         item_prices_table(game_index),
         trade_modifiers_table(game_records, game_index),
         unique_npcs_table(current),
@@ -1391,8 +2084,9 @@ def build_tables(
         notes.append("Справочник игры недоступен: колонки `tpl_*`, множители, цены (`base_price`, `item_prices.csv`) "
                      "и названия по sid не заполнены.")
     if game_records is None:
-        notes.append("Записи реакций и торговли недоступны: `trade_modifiers.csv`, `world_reactions.csv`, "
-                     "`world_reaction_links.csv`, `races.csv`, `unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
+        notes.append("Записи реакций, торговли и производства недоступны: `trade_modifiers.csv`, `world_reactions.csv`, "
+                     "`world_reaction_links.csv`, `races.csv`, `research.csv`, `build_catalog.csv`, `biome_resources.csv`, "
+                     "`unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
                      "`faction_*.csv` пусты.")
     files = {t.name: csv_bytes(t) for t in tables}
     files[INDEX_NAME] = render_index(current, snapshot_id, tables, mods, notes).encode("utf-8")

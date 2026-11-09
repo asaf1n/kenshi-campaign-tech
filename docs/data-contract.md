@@ -20,7 +20,7 @@ v11 сохраняет структуры характеристик, здоро
 | `characters[].combat_modes` | `taunt`, `passive`, `ranged`, `defensive`, `chase`, `stealth`, `non_combat`: `true`, `false` либо `null`, если флаг не получен. |
 | `characters[].items` | Поштучный учёт предметов персонажа без агрегации (Тип 42 сохранения Kenshi): `instance_id` (порядковый ID экземпляра из контейнера), `item_sid`, `base_data_sid`, `container`, `quality`, `level`, `quantity`, `charges`, `wear`, `dam`, `stun`, `material_sid`, `color_sid`, `company_sid`, `inventory_xy`, `item_function`, `unique`, `owned_by`. Сохраняет индивидуальные параметры каждого экземпляра (включая запасные протезы, Мейто и износ). |
 | `research` | Исследования игрока (запись 21). Включает `completed`, `in_progress`, `queue`, `paid`, `level_upgrades_completed`, вычисленный эффективный технологический уровень `tech_level` (P1 #8, базовый 1, максимум по завершенным апгрейдам) и список изученных чертежей `blueprints_completed`. |
-| `property.buildings[]` и вложенный `interior[]` | Производственные поля: `power_on`, `gets_battery`, `battery_charge`, `is_paused`, `is_repeat`, `production_progress`, `consumption`, `resource_mult`, `mining_resource_level`, `usage_nodes`; также сведения о замках, боезапасе и исходных предметах `storage_items`. Сохраняются прежние `storage`, имена, шаблоны и иерархия. Сопоставление выполняется рекурсивно по паре `(zone, id)` с наследованием зоны родительского здания для интерьера; складской diff (`_diff_base_storage`) учитывает как агрегированные `storage`, так и поштучные `storage_items` во всех интерьерных контейнерах. Сводный складской баланс по базам и поселениям агрегируется в `property.storage_by_location` (P1 #11). |
+| `property.buildings[]` и вложенный `interior[]` | Производственные поля: `power_on`, `gets_battery`, `battery_charge`, `is_paused`, `is_repeat`, `production_progress`, `consumption`, `craft_queue`, `craft_partial_items`, `construction_deposited`, `broken`, `resource_mult`, `mining_resource_level`, `usage_nodes`; также сведения о замках, боезапасе и исходных предметах `storage_items`. Сохраняются прежние `storage`, имена, шаблоны и иерархия. Сопоставление выполняется рекурсивно по паре `(zone, id)` с наследованием зоны родительского здания для интерьера; складской diff (`_diff_base_storage`) учитывает как агрегированные `storage`, так и поштучные `storage_items` во всех интерьерных контейнерах. Сводный складской баланс по базам и поселениям агрегируется в `property.storage_by_location` (P1 #11). |
 
 Оценочные поля прежних версий конвертера (класс отношения фракции, строковые интерпретации состояния NPC, расчётные показатели физики и боя) не формируются. В ранее извлечённых снимках они могут присутствовать: схема их допускает, чтение и diff их не используют.
 
@@ -82,8 +82,9 @@ published/
   location_registry.json
   timeline.jsonl
   tables/               # CSV и index.md, раздел «Табличные выгрузки»
-    index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, races.csv, item_prices.csv, trade_modifiers.csv, unique_npcs.csv,
-    town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
+    index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, buildings.csv, research.csv,
+    build_catalog.csv, biome_resources.csv, races.csv, item_prices.csv, trade_modifiers.csv,
+    unique_npcs.csv, town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
     unit_templates.csv, unit_template_gear.csv, squad_templates.csv, squad_members.csv,
     squad_spawns.csv, faction_relations.csv, faction_hostility.csv
   screenshots/
@@ -353,13 +354,17 @@ Publisher читает журнал целиком, проверяет его, �
     - `is_repeat`: флаг бесконечного повторения очереди крафта (`repeat`, `bool | null`).
     - `production_progress`: накопленный прогресс крафта текущего изделия (`production amount`, `float | null`).
     - `consumption`: словарь затраченного сырья станка (`consumption amount-*`, `float`).
+    - `craft_queue`: упорядоченная очередь крафта станка (`current0..N`, `current prog0..N`, `crit0..N`) со списками объектов `{"item_sid", "item_name", "progress", "crit"}`.
+    - `craft_partial_items`: задел незавершённых предметов крафта (`craft partial item sid/val 0..N`) со списками `{"item_sid", "item_name", "amount"}`.
     - `resource_mult`: множитель эффективности добычи ресурсов (`float | null`).
     - `mining_resource_level`: уровень истощения жил (`float | null`).
     - `usage_nodes`: имена узлов 3D-модели Kenshi для взаимодействия персонажей с постройкой (`usagenode_*`, например `usenode004`).
   - Состояние и оборона:
     - `complete`: подтверждённая готовность постройки (`is complete`, `bool | null`).
     - `destroyed`: признак разрушения (`bool | null`).
+    - `broken`: признак поломки здания/двери (`broken`, `bool | null`).
     - `construction_progress_raw`: сырой показатель вложенных стройматериалов (`float | null`; у завершённых объектов больше 1.0, равный сумме материалов; статус готовности определяется строго флагом `complete: true`).
+    - `construction_deposited`: массив по-слотно внесённых стройматериалов (`0construction mats`, `1construction mats`, `2construction mats`, `list[float]` в порядке слотов `refs["construction"]` шаблона постройки).
     - `current_shots`: остаток зарядов станковых турелей и гарпунов (`int | null`).
     - `is_locked`: статус замка дверей и контейнеров (`locked`, `bool | null`).
     - `lock_level`: уровень сложности взлома замка (`int | null`).
@@ -407,6 +412,10 @@ Publisher читает журнал целиком, проверяет его, �
 | `equipment.csv` | `location_kind`, `character_id` (у склада — здание), `kind`, `slot`, `sid`, `level`, `quality` | все экземпляры оружия, брони и протезов: `location_kind` (worn — надето, строки прежнего вида; inventory, backpack, belt — запасные у персонажа; storage — склад; other_slot — второй предмет в слоте надетого), `level`, `quality`, `grade`, `manufacturer` (раздельно), значения шаблона `tpl_*`, множители производителя и поправки грейда, итоговые `calc_*` (при неизвестном уровне экземпляра — `unknown_level`), ограничения брони по расе `tpl_races`, `tpl_races_exclude` |
 | `inventory.csv` | `character_id`, `container`, `slot`, `base_sid`, `level`, `dup_no` | все предметы персонажей поэкземплярно: контейнер (body — надето, belt, backpack — внутри рюкзака, inventory — основной инвентарь), слот, название из игры, `base_sid` (стабилен), `item_sid` (только внутри снимка; между сейвами меняется), `level`, `quality`, `grade`, `quantity`, `stolen`, `charges`. Ключ сравнения снимков — (`character_id`, `base_sid`, `level`, `slot`, `dup_no`); уникальность проверяет `validate_tables` |
 | `storage.csv` | `location_key`, `zone`, `building_id`, `container`, `item`, `item_sid` | предметы в хранилищах зданий игрока: поселение, здание, контейнер, предмет (имя из игры), количество, базовая цена, `level`, `quality`, `grade`, `charges`, `stolen`, `unique`; экземпляры разного уровня — отдельными строками, суммы количеств по зонам и поселениям от разбиения не зависят |
+| `buildings.csv` | `location_key`, `zone`, `parent_instance_id`, `instance_id` | реестр всех построек, интерьерных станков, генераторов, аккумуляторов, турелей, грядок и рудных точек игрока с энергетикой, назначенной функцией шаблона, очередью крафта (`active_craft`), сданными/требуемыми стройматериалами (`construction_materials`) и привязанными работниками (`assigned_workers`) |
+| `research.csv` | `category`, `level`, `sid` | все 181 технологии игры/модов со статусом в текущем сохранении (`completed`, `in_progress`, `queued`, `available`, `locked_prereq`, `locked_tech_level`, `locked_blueprint`), прогрессом, стоимостью, условиями и открываемыми постройками и рецептами крафта |
+| `build_catalog.csv` | `building_category`, `sid` | каталог всех строительных шаблонов игры/модов (`BUILDING`) с признаком доступности к постройке в текущем сейве (`unlock_status`, `unlocked_by`), числом построенных/заложенных экземпляров, сметой стройматериалов, энергопотреблением/выработкой и входом/выходом |
+| `biome_resources.csv` | `biome_sid` | ресурсный, сельскохозяйственный и ветровой профиль всех 74 регионов (`BIOME_GROUP` + `ENVIRONMENT_RESOURCES` + `SEASON` + `WEATHER`), с количеством открытых локаций, построек и рудных точек игрока в регионе |
 | `races.csv` | `sid` | расы (запись RACE, тип 7) после слияния файлов в порядке загрузки модов (rebirth после базы): коды иммунитета к погоде (`weather immunity`) и расшифровка 1 песчаная буря, 2 кислотный дождь, 3 жара, 4 газ (перечисление в fcs.def не задано, коды сверены с карточками брони, прочие помечены «не установлен»), естественная броня, скорости, множители атрибутов, кровь, `combat anatomy`, флаги слотов (`no_hats`, `no_shirts`, `no_shoes`), броня с ограничением по расе, файл-источник перекрытий |
 | `item_prices.csv` | `sid` | базовые цены записей игры (`value`, `value 1`) с источником и историей переопределений по порядку загрузки модов |
 | `trade_modifiers.csv` | `group`, `record_sid`, `field`, `ref_sid` | сырые торговые записи без вычисленных цен |
@@ -446,7 +455,11 @@ Publisher читает журнал целиком, проверяет его, �
 | 27 | константы | глобальные константы (например, `bow damage`) для `calc_*` |
 | 13 | TOWN | города, переопределения, патрули (`roaming squads`) |
 | 10 | FACTION | отношения и настройки фракций |
-| 95 | BIOME_GROUP | бездомные отряды (`homeless spawns`) |
+| 95 | BIOME_GROUP | бездомные отряды (`homeless spawns`), ресурсный и ветровой профиль региона |
+| 99 | ENVIRONMENT_RESOURCES | потолки воды, плодородия, железа, меди и камня региона |
+| 80, 81, 82 | WEATHER, SEASON, WEATHER_EFFECT | сезоны, погода, сила ветра (`wind speed`) и погодные угрозы региона |
+| 0, 62, 97 | BUILDING, BUILDING_FUNCTIONALITY, FARM_DATA | шаблоны построек, функции станков и параметры ферм |
+| 21 | RESEARCH | дерево исследований, стоимость, условия и открываемые чертежи/здания |
 | 25 | STATS | навыки и атрибуты шаблонов персонажей |
 | 1, 76 | CHARACTER, ANIMAL_CHARACTER | шаблоны персонажей и животных |
 

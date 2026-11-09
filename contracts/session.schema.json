@@ -327,11 +327,40 @@
                     "template_name": {"type": ["string", "null"]},
                     "zone": {"type": ["string", "null"]},
                     "complete": {"type": ["boolean", "null"]},
+                    "destroyed": {"type": ["boolean", "null"]},
+                    "broken": {"type": ["boolean", "null"]},
+                    "construction_deposited": {
+                      "type": ["array", "null"],
+                      "items": {"type": ["number", "null"]}
+                    },
                     "is_paused": {"type": ["boolean", "null"]},
                     "is_repeat": {"type": ["boolean", "null"]},
                     "power_on": {"type": ["boolean", "null"]},
                     "gets_battery": {"type": ["boolean", "null"]},
                     "battery_charge": {"type": ["number", "null"]},
+                    "craft_queue": {
+                      "type": ["array", "null"],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_sid": {"type": "string"},
+                          "item_name": {"type": ["string", "null"]},
+                          "progress": {"type": ["number", "null"]},
+                          "crit": {"type": ["integer", "null"]}
+                        }
+                      }
+                    },
+                    "craft_partial_items": {
+                      "type": ["array", "null"],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_sid": {"type": "string"},
+                          "item_name": {"type": ["string", "null"]},
+                          "amount": {"type": ["number", "null"]}
+                        }
+                      }
+                    },
                     "storage": {"type": "array"}
                   }
                 }

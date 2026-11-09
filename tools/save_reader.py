@@ -1053,14 +1053,17 @@ def read_player_property(
                 r_name = r.get("name")
                 raw_name = r_name if r_name and r_name != "0" else None
 
-            template_name = None
-            if template_sid and gamedb_inst:
-                entry = gamedb_inst.get(template_sid) if isinstance(gamedb_inst, dict) else None
+            def _resolve_label(target_sid: str | None) -> str | None:
+                if not target_sid or not isinstance(gamedb_inst, dict):
+                    return None
+                entry = gamedb_inst.get(target_sid)
                 if entry and isinstance(entry, (list, tuple)):
-                    template_name = entry[1] or entry[0]
-                elif entry and isinstance(entry, dict):
-                    template_name = entry.get("name_ru") or entry.get("name")
+                    return entry[1] or entry[0]
+                if entry and isinstance(entry, dict):
+                    return entry.get("name_ru") or entry.get("name")
+                return None
 
+            template_name = _resolve_label(template_sid)
             resolved_name = raw_name or template_name
 
             power_on = b_bool.get("power on")
@@ -1081,7 +1084,44 @@ def read_player_property(
 
             is_complete = b_bool.get("is complete")
             destroyed = b_bool.get("destroyed")
+            broken = b_bool.get("broken")
             construction_progress_raw = _r(b_float.get("construction progress"))
+
+            c_mats_keys = sorted(
+                (int(k[:-len("construction mats")]), k)
+                for k in b_float
+                if k.endswith("construction mats") and k[:-len("construction mats")].isdigit()
+            )
+            construction_deposited = [_r(b_float[k], 4) for _, k in c_mats_keys] if c_mats_keys else None
+
+            craft_indices = sorted(
+                int(k[len("current"):])
+                for k in b_str
+                if k.startswith("current") and k[len("current"):].isdigit() and b_str[k]
+            )
+            craft_queue = [
+                {
+                    "item_sid": b_str[f"current{i}"],
+                    "item_name": _resolve_label(b_str[f"current{i}"]),
+                    "progress": _r(b_float.get(f"current prog{i}"), 4),
+                    "crit": b_int.get(f"crit{i}"),
+                }
+                for i in craft_indices
+            ] or None
+
+            partial_indices = sorted(
+                int(k[len("craft partial item sid "):])
+                for k in b_str
+                if k.startswith("craft partial item sid ") and k[len("craft partial item sid "):].isdigit() and b_str[k]
+            )
+            craft_partial_items = [
+                {
+                    "item_sid": b_str[f"craft partial item sid {i}"],
+                    "item_name": _resolve_label(b_str[f"craft partial item sid {i}"]),
+                    "amount": _r(b_float.get(f"craft partial item val {i}"), 4),
+                }
+                for i in partial_indices
+            ] or None
 
             current_shots = b_int.get("current shots")
             is_locked = b_bool.get("locked")
@@ -1103,13 +1143,17 @@ def read_player_property(
                 "position": pos,
                 "complete": is_complete,
                 "destroyed": destroyed,
+                "broken": broken,
                 "construction_progress_raw": construction_progress_raw,
+                "construction_deposited": construction_deposited,
                 "power_on": power_on,
                 "gets_battery": gets_battery,
                 "battery_charge": battery_charge,
                 "is_paused": is_paused,
                 "is_repeat": is_repeat,
                 "production_progress": production_progress,
+                "craft_queue": craft_queue,
+                "craft_partial_items": craft_partial_items,
                 "consumption": consumption,
                 "resource_mult": resource_mult,
                 "mining_resource_level": mining_resource_level,

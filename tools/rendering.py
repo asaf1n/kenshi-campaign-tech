@@ -258,6 +258,65 @@ def render_brief(
                 top_str = "склады пусты"
             lines.append(f"- **{loc_name}** ({b_cnt} зданий, {it_cnt} ед. хранения): {top_str}")
 
+    res_data = current.get("research")
+    raw_buildings = prop_data.get("buildings") if isinstance(prop_data, dict) else None
+    if (isinstance(res_data, dict) and res_data.get("completed") is not None) or raw_buildings:
+        lines.extend(["", "## Исследования и производственная инфраструктура"])
+        if publication:
+            lines.append(
+                "Полные реестры: постройки и станки - [tables/buildings.csv](tables/buildings.csv), "
+                "дерево всех тех. веток - [tables/research.csv](tables/research.csv), "
+                "смета объектов строительства - [tables/build_catalog.csv](tables/build_catalog.csv), "
+                "ресурсы и ветер регионов под форпост - [tables/biome_resources.csv](tables/biome_resources.csv) "
+                "(локальный Prospecting в рантайме процедурный и в сохранение не пишется)."
+            )
+        if isinstance(res_data, dict) and res_data.get("completed") is not None:
+            completed_techs = [
+                e for e in (res_data.get("completed") or [])
+                if not e.get("item_blueprint") and e.get("sid") != "5359-gamedata.base"
+            ]
+            bp_cnt = len(res_data.get("blueprints_completed") or [])
+            t_lvl = res_data.get("tech_level")
+            lines.append(
+                f"- **Технологический уровень:** {t_lvl if t_lvl is not None else 'н/д'} "
+                f"(изучено технологий: {len(completed_techs)}, чертежей: {bp_cnt})"
+            )
+            in_prog = res_data.get("in_progress") or []
+            if in_prog:
+                ip = in_prog[0]
+                ip_name = ip.get("name") or ip.get("sid")
+                ip_prog = f", прогресс {cell(ip.get('progress_raw'))}" if ip.get("progress_raw") is not None else ""
+                lines.append(f"- **Текущее исследование:** {ip_name}{ip_prog}")
+            queue_list = res_data.get("queue") or []
+            if queue_list:
+                q_names = ", ".join(str(q.get("name") or q.get("sid")) for q in queue_list[:6])
+                if len(queue_list) > 6:
+                    q_names += f" (ещё {len(queue_list) - 6})"
+                lines.append(f"- **Очередь исследований ({len(queue_list)}):** {q_names}")
+        if isinstance(raw_buildings, list) and raw_buildings:
+            stations_by_base: dict[str, Counter[str]] = defaultdict(Counter)
+            mining_nodes: list[str] = []
+            for b in raw_buildings:
+                base_label = b.get("town") or f"зона {b.get('zone')}"
+                b_cat = b.get("category")
+                b_name = b.get("name") or b.get("template_name") or b.get("template") or "Объект"
+                if b_cat == "MINING" or (b.get("resource_mult") is not None and not b.get("interior")):
+                    mult_s = f", mult={cell(b.get('resource_mult'))}" if b.get("resource_mult") is not None else ""
+                    mining_nodes.append(f"{b_name} ({base_label}{mult_s})")
+                for sub in b.get("interior") or []:
+                    s_cat = sub.get("category")
+                    if s_cat == "STORAGE":
+                        continue
+                    s_name = sub.get("name") or sub.get("template_name") or sub.get("template") or "Станок"
+                    if sub.get("complete") is False:
+                        s_name += " [недострой]"
+                    stations_by_base[base_label][s_name] += 1
+            for base_label, cnt in sorted(stations_by_base.items()):
+                parts = [f"{name} x{n}" if n > 1 else name for name, n in sorted(cnt.items())]
+                lines.append(f"- **Станки и оборудование ({base_label}):** {', '.join(parts)}")
+            if mining_nodes:
+                lines.append(f"- **Разрабатываемые рудные точки ({len(mining_nodes)}):** {', '.join(sorted(mining_nodes))}")
+
     lines.extend([
         "",
         "## Доступные местоположения",
