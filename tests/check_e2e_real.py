@@ -364,8 +364,6 @@ def main(argv: list[str] | None = None) -> int:
         output_diffs=diffs_dir,
         published_dir=pub_dir,
         campaign_id="e2e-real",
-        branch_id="main",
-        parent_snapshot_id=None,
         index_path=idx_path,
     )
     snap0_id = res0["snapshot_id"]
@@ -392,8 +390,6 @@ def main(argv: list[str] | None = None) -> int:
         output_diffs=diffs_dir,
         published_dir=pub_dir,
         campaign_id="e2e-real",
-        branch_id="main",
-        parent_snapshot_id=snap0_id,
         index_path=idx_path,
     )
     snap1_id = res1["snapshot_id"]

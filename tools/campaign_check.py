@@ -48,6 +48,6 @@ def require_same_campaign(parent: dict[str, Any], candidate: dict[str, Any], cam
             f"{result['shared']} из {result['parent_size']} в родителе (минимум {MIN_SHARED_IDS}), "
             f"доля от родителя {result['share']:.0%} (порог {MIN_SHARED_SHARE:.0%}); "
             "публикация, доставка и синхронизация Диска не выполнялись. "
-            "Для осознанного нового старта или смены ветки используйте --allow-new-campaign."
+            "Для осознанного нового старта или смены кампании используйте --allow-new-campaign."
         )
     return result

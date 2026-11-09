@@ -91,13 +91,11 @@ def _create_sample_snapshot(
 
     current_bytes = canonical(current_data)
     prov_data = {
-        "format": "kenshi-snapshot/1",
+        "format": "kenshi-snapshot/2",
         "snapshot_id": snapshot_id,
         "source_kind": "save",
         "source_format": "kenshi-session/10",
         "source_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "parent_snapshot_id": None,
-        "branch_id": "main",
         "game_time": {"day": day, "time": "14:30"},
         "current_sha256": digest(current_bytes),
     }

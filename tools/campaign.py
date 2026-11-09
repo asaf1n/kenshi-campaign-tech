@@ -38,9 +38,6 @@ def main(argv: list[str] | None = None) -> int:
     extract_parser.add_argument("--source", type=Path, required=True)
     extract_parser.add_argument("--output", type=Path)
     extract_parser.add_argument("--faction-sid")
-    extract_parser.add_argument("--campaign-id")
-    extract_parser.add_argument("--branch-id")
-    extract_parser.add_argument("--parent-snapshot-id")
 
     # 2. check-schemas
     commands.add_parser("check-schemas", help="Проверка контрактных схем и примеров")
@@ -51,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     diff_parser.add_argument("--to", dest="to_snap", help="Текущий снимок (ID или путь к каталогу)")
     diff_parser.add_argument("--from-day", type=int, help="Начальный игровой день периода")
     diff_parser.add_argument("--to-day", type=int, help="Конечный игровой день периода")
-    diff_parser.add_argument("--branch-id", help="Ветка для разрешения снимков по дням")
+    diff_parser.add_argument("--campaign-id", help="Кампания для разрешения снимков по дням (если в индексе их несколько)")
     diff_parser.add_argument("--index-file", type=Path, help="Путь к index.json")
     diff_parser.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots")
     diff_parser.add_argument("--output", type=Path, help="Файл для сохранения diff (по умолчанию data/diffs/<diff_id>.json)")
@@ -81,8 +78,6 @@ def main(argv: list[str] | None = None) -> int:
     pub_parser.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots")
     pub_parser.add_argument("--diffs-dir", type=Path, default=ROOT / "data/diffs")
     pub_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
-    pub_parser.add_argument("--parent-snapshot-id")
-    pub_parser.add_argument("--branch-id")
     pub_parser.add_argument("--campaign-id")
     pub_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
     pub_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
@@ -99,14 +94,12 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--published-dir", type=Path, help="Каталог публикации (published)")
     pipe_parser.add_argument("--faction-sid")
     pipe_parser.add_argument("--campaign-id")
-    pipe_parser.add_argument("--branch-id")
-    pipe_parser.add_argument("--parent-snapshot-id")
     pipe_parser.add_argument("--world-ref", help="Путь к файлу или ID справочника мира")
     pipe_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     pipe_parser.add_argument("--dry-run", action="store_true")
     pipe_parser.add_argument("--deliver-to", type=Path, help="Каталог игрового репозитория Kenshi-Compain для односторонней доставки")
     pipe_parser.add_argument("--deliver-push", action="store_true", help="Выполнить git push в игровом репозитории Kenshi-Compain")
-    pipe_parser.add_argument("--allow-new-campaign", action="store_true", help="Пропустить проверку принадлежности сейва кампании (новый старт, смена ветки)")
+    pipe_parser.add_argument("--allow-new-campaign", action="store_true", help="Пропустить проверку принадлежности сейва кампании (осознанный новый старт кампании)")
     pipe_parser.add_argument("--sync-drive", action="store_true", help="Синхронизировать выгрузку и канон с Google Диском")
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
@@ -118,7 +111,6 @@ def main(argv: list[str] | None = None) -> int:
     check_parser.add_argument("--source", type=Path, required=True, help="Папка сохранения")
     check_parser.add_argument("--faction-sid")
     check_parser.add_argument("--campaign-id")
-    check_parser.add_argument("--branch-id")
     check_parser.add_argument("--index-file", type=Path, help="Путь к data/index.json")
     check_parser.add_argument("--snapshots-dir", type=Path, help="Каталог снимков родителя (data/snapshots)")
 
@@ -190,24 +182,12 @@ def main(argv: list[str] | None = None) -> int:
     index_rebuild.add_argument("--snapshots-dir", type=Path, default=ROOT / "data/snapshots", help="Каталог снимков")
     index_rebuild.add_argument("--index-file", "--output", dest="index_file", type=Path, help="Файл индекса (data/index.json)")
 
+    index_migrate = index_subs.add_parser("migrate", help="Миграция kenshi-index/1 -> kenshi-index/2 (без --apply — план)")
+    index_migrate.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
+    index_migrate.add_argument("--apply", action="store_true", help="Выполнить миграцию с резервной копией")
+
     index_validate = index_subs.add_parser("validate", help="Проверка схемы и связей реестра")
     index_validate.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
-
-    # 11. branch
-    branch_parser = commands.add_parser("branch", help="Управление ветками кампании")
-    branch_subs = branch_parser.add_subparsers(dest="subcommand", required=True)
-
-    branch_list = branch_subs.add_parser("list", help="Список доступных веток")
-    branch_list.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
-
-    branch_switch = branch_subs.add_parser("switch", help="Переключение активной ветки")
-    branch_switch.add_argument("branch_id", help="Идентификатор ветки")
-    branch_switch.add_argument("--create", action="store_true", help="Создать ветку, если отсутствует")
-    branch_switch.add_argument("--name", help="Отображаемое имя ветки")
-    branch_switch.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
-
-    branch_tree = branch_subs.add_parser("tree", help="Дерево снимков и веток")
-    branch_tree.add_argument("--index-file", type=Path, help="Путь к файлу индекса")
 
     timeline_parser = commands.add_parser("timeline", aliases=["event"], help="Журнал игровых событий")
     timeline_subs = timeline_parser.add_subparsers(dest="subcommand", required=True)
@@ -217,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         if action in ("append", "import"):
             sub.add_argument("source", type=Path, help="JSON события или JSONL пакет")
         elif action == "list":
-            sub.add_argument("--branch-id")
+            sub.add_argument("--snapshot-id", help="События цепочки снимка (без отменённых перезагрузкой)")
             sub.add_argument("--resolved", action="store_true")
         elif action == "session":
             sub.add_argument("--session-id", required=True)
@@ -246,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
 
         elif args.command in {"timeline", "event"}:
             from tools.index import load_index
-            from tools.timeline import append_event, create_session, filter_events_by_branch, import_events, load_sessions, read_event_batch, read_timeline, resolve_timeline
+            from tools.timeline import append_event, create_session, filter_events_by_chain, import_events, load_sessions, read_event_batch, read_timeline, resolve_timeline
             from tools.validation import validate_timeline
             root = args.root.resolve()
             idx = load_index(root / "data/index.json")
@@ -280,8 +260,8 @@ def main(argv: list[str] | None = None) -> int:
                 events = read_timeline(ledger)
                 result = validate_timeline(events, idx)
                 if args.subcommand == "list":
-                    if args.branch_id:
-                        events = filter_events_by_branch(events, args.branch_id, idx, load_sessions(root, idx))
+                    if args.snapshot_id:
+                        events = filter_events_by_chain(events, args.snapshot_id, idx, load_sessions(root, idx))
                     result = resolve_timeline(events) if args.resolved else events
 
         elif args.command == "extract":
@@ -290,9 +270,6 @@ def main(argv: list[str] | None = None) -> int:
                 source_kind=args.source_kind,
                 config=Config.from_env(args.faction_sid),
                 output=args.output,
-                campaign_id=args.campaign_id,
-                branch_id=args.branch_id,
-                parent_snapshot_id=args.parent_snapshot_id,
             )
 
         elif args.command in {"diff", "period-diff"}:
@@ -310,12 +287,12 @@ def main(argv: list[str] | None = None) -> int:
             to_snap = args.to_snap
 
             if args.from_day is not None and idx_data:
-                resolved_from = find_snapshot_by_day(idx_data, args.from_day, args.branch_id)
+                resolved_from = find_snapshot_by_day(idx_data, args.from_day, args.campaign_id)
                 if resolved_from:
                     from_snap = resolved_from
 
             if args.to_day is not None and idx_data:
-                resolved_to = find_snapshot_by_day(idx_data, args.to_day, args.branch_id)
+                resolved_to = find_snapshot_by_day(idx_data, args.to_day, args.campaign_id)
                 if resolved_to:
                     to_snap = resolved_to
 
@@ -385,8 +362,6 @@ def main(argv: list[str] | None = None) -> int:
                 snapshots_dir=args.snapshots_dir,
                 diffs_dir=args.diffs_dir,
                 published_dir=args.published_dir,
-                parent_snapshot_id=args.parent_snapshot_id,
-                branch_id=args.branch_id,
                 campaign_id=args.campaign_id,
                 world_ref_id=args.world_ref,
                 index_path=args.index_file,
@@ -462,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
 
         elif args.command == "check-save":
             from tools.pipeline import check_save
-            result = check_save(args.source, Config.from_env(args.faction_sid), args.campaign_id, args.branch_id,
+            result = check_save(args.source, Config.from_env(args.faction_sid), args.campaign_id,
                                 args.index_file, args.snapshots_dir)
 
         elif args.command == "pipeline":
@@ -475,8 +450,6 @@ def main(argv: list[str] | None = None) -> int:
                 output_diffs=args.diffs_dir,
                 published_dir=args.published_dir,
                 campaign_id=args.campaign_id,
-                branch_id=args.branch_id,
-                parent_snapshot_id=args.parent_snapshot_id,
                 world_ref_id=args.world_ref,
                 index_path=args.index_file,
                 dry_run=args.dry_run,
@@ -562,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
             result = validate_world_reference(w_ref)
 
         elif args.command == "index":
-            from tools.index import load_index, rebuild_index
+            from tools.index import load_index, migrate_index, rebuild_index
             from tools.validation import validate_index
             idx_file = getattr(args, "index_file", None) or (ROOT / "data/index.json")
 
@@ -570,30 +543,12 @@ def main(argv: list[str] | None = None) -> int:
                 result = load_index(idx_file)
             elif args.subcommand == "rebuild":
                 result = rebuild_index(snapshots_dir=args.snapshots_dir, index_path=idx_file)
+            elif args.subcommand == "migrate":
+                result = migrate_index(idx_file, apply=args.apply)
             elif args.subcommand == "validate":
                 data = load_index(idx_file)
                 result = validate_index(data)
 
-        elif args.command == "branch":
-            from tools.index import get_branch_tree, load_index, switch_branch
-            idx_file = args.index_file or (ROOT / "data/index.json")
-
-            if args.subcommand == "list":
-                data = load_index(idx_file)
-                result = {
-                    "active_branch_id": data.get("active_branch_id"),
-                    "branches": data.get("branches", {}),
-                }
-            elif args.subcommand == "switch":
-                result = switch_branch(
-                    branch_id=args.branch_id,
-                    create=args.create,
-                    name=args.name,
-                    index_path=idx_file,
-                )
-            elif args.subcommand == "tree":
-                data = load_index(idx_file)
-                result = get_branch_tree(data)
 
         sys.stdout.buffer.write(canonical(result))
         if args.command == "sync-drive" and result.get("status") != "synced":

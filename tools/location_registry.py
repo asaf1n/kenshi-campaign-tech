@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tools import gamedb
-from tools.chain_timeline import chain_ids
+from tools.index import CampaignIndexError, campaign_chain
 from tools.io_utils import ExtractionError, canonical, digest, file_hash, tree_hashes
 from tools.kenshi_gd import read_file
 from tools.normalization import scrub
@@ -22,7 +22,10 @@ STATUS_RANK = {"no_evidence": 0, "visited": 1, "explored": 2}
 DISCOVERY_SOURCE = "quick.save:Town state.discovered"
 STATIC_FIELDS = ("instance_id", "name_ru", "name_en", "kind", "region", "x", "z",
                  "is_secret", "is_public", "unexplored_name")
-RELEASE_FIELDS = ("campaign_id", "branch_id", "snapshot_id", "world_ref_id", "game_time")
+RELEASE_FIELDS = ("campaign_id", "snapshot_id", "world_ref_id", "game_time")
+REGISTRY_FORMAT = "kenshi-location-registry/2"
+PROGRESS_FORMAT = "kenshi-location-progress/2"
+LEGACY_PROGRESS_FORMAT = "kenshi-location-progress/1"
 GAME_TIME = re.compile(r"Day ([0-9]+) ([0-9]|[01][0-9]|2[0-3]):([0-5][0-9])")
 
 
@@ -103,33 +106,25 @@ def resolve_template_factions(world_ref: dict[str, Any]) -> dict[str, dict[str, 
 def _history(
     manifest: dict[str, Any], index_data: dict[str, Any] | None,
 ) -> tuple[list[tuple[str, str | None]], bool]:
-    """Цепочка по родителям с исключением снимков, отменённых регрессией времени."""
+    """Цепочка кампании от корня до снимка выпуска без снимков, отменённых перезагрузкой."""
     index = index_data or {}
     snapshots = index.get("snapshots", {})
     snapshot_id = manifest["snapshot_id"]
-    campaign_id = manifest.get("campaign_id")
-    chain = chain_ids(index, snapshot_id, window=len(snapshots))
-    if snapshots.get(chain[0], {}).get("parent_snapshot_id") is not None:
-        raise ValueError("Цепочка снимков в индексе оборвана или содержит цикл")
+    try:
+        chain = campaign_chain(index, snapshot_id, strict=True)
+    except CampaignIndexError as error:
+        raise ValueError(str(error)) from error
     incomplete = snapshot_id not in snapshots and manifest.get("parent_snapshot_id") is not None
     selected = []
-    cutoff = None
-    for sid in reversed(chain):
-        entry = snapshots.get(sid, {})
-        if sid != snapshot_id and entry.get("campaign_id") not in (None, campaign_id):
-            break
-        game_time = entry.get("game_time") or {}
+    for sid in chain:
+        game_time = snapshots.get(sid, {}).get("game_time") or {}
         minutes = _game_minutes(f"Day {game_time.get('day')} {game_time.get('time')}")
         if sid == snapshot_id:
             release_minutes = _game_minutes(manifest.get("game_time"))
             if release_minutes is not None:
                 minutes = release_minutes
-        if minutes is not None:
-            if cutoff is not None and minutes > cutoff:
-                continue
-            cutoff = minutes
         selected.append((sid, _format_game_time(minutes) if minutes is not None else None))
-    return list(reversed(selected)), incomplete
+    return selected, incomplete
 
 
 def _counts(locations: dict[str, Any], group: str, world_ids: set[str]) -> Counter[str]:
@@ -189,19 +184,43 @@ def build_registry(
     if chain_incomplete:
         coverage["chain_incomplete"] = True
     return {
-        "format": "kenshi-location-registry/1",
+        "format": REGISTRY_FORMAT,
         **{field: manifest.get(field) for field in RELEASE_FIELDS},
         "coverage": coverage,
         "locations": [rows[sid] for sid in sorted(rows)],
     }
 
 
-def _progress_rows(progress: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+def upgrade_progress(progress: dict[str, Any]) -> dict[str, Any]:
+    """kenshi-location-progress/1 -> /2: ключ записи — instance_id, branch_id удаляется.
+
+    При повторе instance_id остаётся запись с высшим статусом, при равенстве — первая по порядку файла.
+    Иные форматы возвращаются без изменений и проверяются схемой /2.
+    """
+    if not isinstance(progress, dict) or progress.get("format") != LEGACY_PROGRESS_FORMAT:
+        return progress
+    rows: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for row in progress.get("locations") or []:
+        if not isinstance(row, dict) or not isinstance(row.get("branch_id"), str) or not row["branch_id"]:
+            raise ValueError("Запись ручных отметок kenshi-location-progress/1 без branch_id")
+        entry = {key: value for key, value in row.items() if key != "branch_id"}
+        instance = entry.get("instance_id")
+        prior = rows.get(instance)
+        if prior is None:
+            order.append(instance)
+            rows[instance] = entry
+        elif STATUS_RANK.get(entry.get("status"), -1) > STATUS_RANK.get(prior.get("status"), -1):
+            rows[instance] = entry
+    return {**progress, "format": PROGRESS_FORMAT, "locations": [rows[key] for key in order]}
+
+
+def _progress_rows(progress: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result = {}
     for row in progress["locations"]:
-        key = (row["branch_id"], row["instance_id"])
+        key = row["instance_id"]
         if key in result:
-            raise ValueError(f"Повтор отметки локации {key[1]} для ветки {key[0]}")
+            raise ValueError(f"Повтор отметки локации {key}")
         result[key] = row
     return result
 
@@ -215,6 +234,7 @@ def validate_progress(
     """Проверяет ручной файл, возвращает ID сохранённых несопоставленных отметок."""
     from tools.validation import validate
 
+    progress = upgrade_progress(progress)
     validate(progress, "location-progress")
     if progress["campaign_id"] != campaign_id:
         raise ValueError("Ручные отметки относятся к другой кампании")
@@ -223,19 +243,20 @@ def validate_progress(
     entries = _progress_rows(progress)
     baseline = {}
     if previous is not None:
+        previous = upgrade_progress(previous)
         validate(previous, "location-progress")
         if previous["campaign_id"] != campaign_id:
             raise ValueError("Предыдущие ручные отметки относятся к другой кампании")
         baseline = _progress_rows(previous)
         for key, prior in baseline.items():
             if key not in entries or STATUS_RANK[entries[key]["status"]] < STATUS_RANK[prior["status"]]:
-                raise ValueError(f"Отметка локации {key[1]} для ветки {key[0]} удалена или понижена")
+                raise ValueError(f"Отметка локации {key} удалена или понижена")
 
     world_ids = {row["instance_id"] for row in world_ref["locations"]}
     mismatched_world = progress["world_ref_id"] != world_ref["world_ref_id"]
     unmatched = set()
-    for key, entry in entries.items():
-        instance = key[1]
+    for instance, entry in entries.items():
+        key = instance
         if instance not in world_ids:
             if not mismatched_world or baseline.get(key) != entry:
                 raise ValueError(f"Неизвестный instance_id ручной отметки: {instance}")
@@ -246,9 +267,7 @@ def validate_progress(
 def _applies(manual: dict[str, Any], release: dict[str, Any]) -> bool:
     mark_time = _game_minutes(manual.get("game_time"))
     release_time = _game_minutes(release.get("game_time"))
-    return manual["branch_id"] == release["branch_id"] and (
-        mark_time is None or release_time is None or mark_time <= release_time
-    )
+    return mark_time is None or release_time is None or mark_time <= release_time
 
 
 def _status(auto: str, manual: dict[str, Any] | None) -> tuple[str, str]:
@@ -258,8 +277,9 @@ def _status(auto: str, manual: dict[str, Any] | None) -> tuple[str, str]:
 
 
 def merge_progress(registry: dict[str, Any], progress: dict[str, Any] | None) -> dict[str, Any]:
-    """Пересчитывает итог от автостатуса и проверенных отметок текущей ветки."""
+    """Пересчитывает итог от автостатуса и проверенных отметок кампании."""
     applicable = {}
+    progress = upgrade_progress(progress) if progress else progress
     if progress and progress["campaign_id"] == registry["campaign_id"]:
         applicable = {row["instance_id"]: row for row in progress["locations"] if _applies(row, registry)}
     rows = []
@@ -345,7 +365,7 @@ def validate_registry(
         auto = "visited" if "presence" in row or "property" in row else "no_evidence"
         manual = row.get("manual")
         if manual is not None and not _applies(manual, registry):
-            raise ValueError(f"Ручная отметка не относится к ветке или времени выпуска: {sid}")
+            raise ValueError(f"Ручная отметка позже времени выпуска: {sid}")
         if row["auto_status"] != auto or (row["status"], row["status_source"]) != _status(auto, manual):
             raise ValueError(f"Статус реестра расходится со свидетельствами: {sid}")
     if seen != set(world):

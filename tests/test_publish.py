@@ -80,20 +80,42 @@ def _create_sample_snapshot(
 
     current_bytes = canonical(current_data)
     prov_data = {
-        "format": "kenshi-snapshot/1",
+        "format": "kenshi-snapshot/2",
         "snapshot_id": snapshot_id,
         "source_kind": "save",
         "source_format": "kenshi-session/10",
-        "source_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "parent_snapshot_id": parent_snapshot_id,
-        "branch_id": "main",
+        "source_sha256": SAMPLE_SHA,
         "game_time": {"day": day, "time": "14:30"},
         "current_sha256": digest(current_bytes),
     }
 
     (snap_dir / "current.json").write_bytes(current_bytes)
     (snap_dir / "provenance.json").write_bytes(canonical(prov_data))
+    if parent_snapshot_id is not None:
+        # Родитель — атрибут индекса: связь записывается в <snapshots>/../index.json, который читает publisher.
+        index_entry(root.parent / "index.json", parent_snapshot_id, None, day=day - 1)
+        index_entry(root.parent / "index.json", snapshot_id, parent_snapshot_id, day=day)
     return snap_dir
+
+
+SAMPLE_SHA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+
+def index_entry(index_path: Path, snapshot_id: str, parent_snapshot_id: str | None, *, day: int,
+                time: str = "14:30", campaign_id: str = "test") -> dict:
+    """Запись индекса kenshi-index/2; голова кампании — последний добавленный снимок. Существующая запись не меняется."""
+    index = (read_json(index_path.read_bytes()) if index_path.is_file()
+             else {"format": "kenshi-index/2", "updated_at": "2026-11-01T00:00:00Z", "campaigns": {}, "snapshots": {}})
+    if snapshot_id not in index["snapshots"]:
+        index["snapshots"][snapshot_id] = {
+            "snapshot_id": snapshot_id, "parent_snapshot_id": parent_snapshot_id, "campaign_id": campaign_id,
+            "game_time": {"day": day, "time": time}, "world_ref_id": None, "source_kind": "save",
+            "source_sha256": SAMPLE_SHA, "registered_at": f"2026-11-01T00:{len(index['snapshots']):02d}:00Z",
+        }
+        index["campaigns"][campaign_id] = {"head_snapshot_id": snapshot_id}
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_bytes(canonical(index))
+    return index
 
 
 class PublishTests(unittest.TestCase):
@@ -411,15 +433,13 @@ class PublishTests(unittest.TestCase):
 
         # 3. Валидация отвергает пакет при расхождении с index.json
         mismatched_index = {
-            "format": "kenshi-index/1",
+            "format": "kenshi-index/2",
             "updated_at": "2026-11-01T00:00:00Z",
-            "active_branch_id": "main",
-            "branches": {},
+            "campaigns": {"expected-index-campaign": {"head_snapshot_id": snap_id}},
             "snapshots": {
                 snap_id: {
                     "snapshot_id": snap_id,
                     "parent_snapshot_id": None,
-                    "branch_id": "main",
                     "campaign_id": "expected-index-campaign",
                     "game_time": {"day": 10, "time": "14:30"},
                     "world_ref_id": None,

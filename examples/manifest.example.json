@@ -1,9 +1,8 @@
 {
-  "format": "kenshi-publication/1",
+  "format": "kenshi-publication/2",
   "generated_at": "2026-11-01T00:00:00Z",
   "snapshot_id": "example-snapshot-a",
   "parent_snapshot_id": null,
-  "branch_id": "example-branch",
   "campaign_id": "example-campaign",
   "game_time": null,
   "world_ref_id": null,

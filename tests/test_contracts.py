@@ -12,7 +12,7 @@ class ContractTests(unittest.TestCase):
         self.assertGreaterEqual(check_examples(), 9)
         for name, schema in (("manifest", "manifest"), ("event", "timeline-event")):
             value = read_json((ROOT / "examples" / f"{name}.example.json").read_bytes())
-            for key in ("snapshot_id", "parent_snapshot_id", "branch_id", "game_time", "world_ref_id"):
+            for key in ("snapshot_id", "parent_snapshot_id", "game_time", "world_ref_id"):
                 if key != "snapshot_id" or name == "event":
                     value.pop(key, None)
             validate(value, schema)

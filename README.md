@@ -6,7 +6,7 @@
 
 ## Быстрый старт в PowerShell
 
-Запуск одной командой: [Initialize-Pipeline.ps1](Initialize-Pipeline.ps1) находит каталог игры, берёт сохранение кампании (папка сохранений общая для всех прохождений: явно `-SaveFolder <имя или шаблон>`, `KENSHI_SAVE_PATTERN` или `KENSHI_SAVE_NAME`, при нескольких совпадениях свежайшее из совпавших; без явного выбора перебираются до `-MaxCandidates` (6) свежих папок командой `python -m tools.campaign check-save`, берётся первая, относящаяся к кампании, иначе ошибка со списком проверенных папок и долей), выполняет `pipeline` (разбор сохранения и скриншотов в `published/`) и доставляет результат в Kenshi Compain. `campaign_id` и `branch_id` берутся из последнего `published/manifest.json`. Перед публикацией сейв сверяется с родительским снимком; чужой сейв отклоняется (код 1), `-AllowNewCampaign` / `--allow-new-campaign` пропускает проверку. `-CheckOnly` только проверяет все кандидаты (до `-MaxCandidates`, без остановки на первой подходящей), печатает вердикты `check-save` и итог «выбран бы: <первая подходящая>» (код 0 - подходящая найдена, 1 - нет), не запуская pipeline, доставку и Диск и ничего не записывая.
+Запуск одной командой: [Initialize-Pipeline.ps1](Initialize-Pipeline.ps1) находит каталог игры, берёт сохранение кампании (папка сохранений общая для всех прохождений: явно `-SaveFolder <имя или шаблон>`, `KENSHI_SAVE_PATTERN` или `KENSHI_SAVE_NAME`, при нескольких совпадениях свежайшее из совпавших; без явного выбора перебираются до `-MaxCandidates` (6) свежих папок командой `python -m tools.campaign check-save`, берётся первая, относящаяся к кампании, иначе ошибка со списком проверенных папок и долей), выполняет `pipeline` (разбор сохранения и скриншотов в `published/`) и доставляет результат в Kenshi Compain. `campaign_id` берётся из последнего `published/manifest.json`; кампания ведётся одной линией, родитель нового снимка — голова кампании в `data/index.json`. Перед публикацией сейв сверяется с родительским снимком; чужой сейв отклоняется (код 1), `-AllowNewCampaign` / `--allow-new-campaign` пропускает проверку. `-CheckOnly` только проверяет все кандидаты (до `-MaxCandidates`, без остановки на первой подходящей), печатает вердикты `check-save` и итог «выбран бы: <первая подходящая>» (код 0 - подходящая найдена, 1 - нет), не запуская pipeline, доставку и Диск и ничего не записывая.
 
 ```powershell
 .\Initialize-Pipeline.ps1
@@ -23,25 +23,23 @@ $env:KENSHI_SAVE_DIRS = (Join-Path $env:LOCALAPPDATA 'kenshi\save') + ';' + (Joi
 $env:KENSHI_FACTION_SID = '204-gamedata.base'
 
 # Единый конвейер одной командой: extract -> diff -> locate -> validate -> render -> publish -> deliver
-python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main --deliver-to "C:\Users\artem\Kenshi Compain"
+python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --deliver-to "C:\Users\artem\Kenshi Compain"
 
 # Либо по отдельным шагам:
 python -m tools.campaign build-world
 python -m tools.campaign check-world --world-ref <world_ref_id_or_path>
-python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0" --campaign-id example-campaign --branch-id main
+python -m tools.campaign extract --source-kind save --source "$env:LOCALAPPDATA/kenshi/save/autosave0"
 python -m tools.campaign diff --to <snapshot_id> [--from <parent_snapshot_id>]
 # Дифференциальный анализ за произвольный интервал дней (P0 #4):
-python -m tools.campaign period-diff --from-day 107 --to-day 127 --branch-id main [--campaign-id hot-lon]
+python -m tools.campaign period-diff --from-day 107 --to-day 127 [--campaign-id hot-lon]
 python -m tools.campaign locate --current data/snapshots/<id>/current.json --world-ref <world_ref_id_or_path> [--changes data/diffs/<diff_id>.json] [--output data/locations/<id>.json]
 python -m tools.campaign render --current data/snapshots/<id>/current.json --changes data/diffs/<diff_id>.json [--locations data/locations/<id>.json] --output-dir published
-python -m tools.campaign publish [--snapshot-id <snapshot_id>] [--parent-snapshot-id <parent_id>] [--branch-id <branch_id>] [--world-ref <world_ref_id_or_path>] [--screens-dir <screens_dir>]
+python -m tools.campaign publish [--snapshot-id <snapshot_id>] [--world-ref <world_ref_id_or_path>] [--screens-dir <screens_dir>]
 python -m tools.campaign deliver-companion [--companion-dir "C:\Users\artem\Kenshi Compain"] [--push]
 python -m tools.campaign index show
 python -m tools.campaign index rebuild [--snapshots-dir data/snapshots]
 python -m tools.campaign index validate
-python -m tools.campaign branch list
-python -m tools.campaign branch switch <branch_id> [--create] [--name <name>]
-python -m tools.campaign branch tree
+python -m tools.campaign index migrate [--apply]
 
 # Работа с таймлайном и подтверждёнными событиями; авторские заметки не затираются:
 # Быстрая фиксация подтверждённого события (P0 #5):
@@ -49,21 +47,21 @@ python -m tools.campaign timeline record --summary "Штурм лаборато�
 python -m tools.campaign timeline session --session-id session-001 --snapshot-id <id1> --snapshot-id <id2>
 python -m tools.campaign timeline append <event.json>
 python -m tools.campaign timeline import <events.jsonl>
-python -m tools.campaign timeline list --branch-id main --resolved
+python -m tools.campaign timeline list [--snapshot-id <snapshot_id>] --resolved
 python -m tools.campaign timeline validate
 ```
 
-Каждая подкоманда детерминированна: повторный запуск с теми же входами даёт побайтово идентичный результат. Режим кампании/ветки обязателен. Родитель снимка входит в его идентичность и задаётся явно (`--parent-snapshot-id`); `Initialize-Pipeline.ps1` берёт голову ветки из `data/index.json`.
+Каждая подкоманда детерминированна: повторный запуск с теми же входами даёт побайтово идентичный результат. Идентичность снимка — содержимое сейва и параметры разбора; кампания и родитель в неё не входят. Родитель назначается при регистрации: голова кампании в `data/index.json`. Перезагрузка определяется по откату игрового времени относительно родителя ([ADR](docs/adr/campaign-line.md)).
 
 Параметры окружения имеют предсказуемые значения по умолчанию: автопоиск в реестре и AppData, стандартные каталоги Steam Kenshi и Workshop `233860`. `KENSHI_SAVE_DIRS` поддерживает разделение через `;` для нескольких путей сохранений. `--faction-sid` переопределяет переменную окружения `KENSHI_FACTION_SID`, по умолчанию `204-gamedata.base`. Выходные каталоги не могут перекрываться с защищёнными источниками данных игры.
 
 Артефакты: `data/snapshots/<snapshot_id>/` (снимки), `data/diffs/<diff_id>.json` (разницы), `data/world_references/<world_ref_id>.json` (справочники мира), `data/locations/<loc_id>.json` (разрешения локаций) и `published/` (готовый release bundle: `manifest.json`, `current.json`, `changes.json`, `locations.json`, `world_reference.json`, `timeline.jsonl`, `brief.md`, `squad.md`, `changes.md`, `screenshots/` с `index.json`, `index.md` и ключевыми кадрами за последние 7 суток; `annotations.jsonl` и `feed.md` только при содержательном OCR; `screenshots_latest.pdf` вне git). При ошибках конвейер возвращает ненулевой exit code `1`, изменения откатываются; сообщения об ошибках выводятся в stderr. Снимки сохранений и справочники мира неизменяемы.
 
-Таймлайн `timeline` (или `event`) ведётся append-only в `timeline/events.jsonl`; `--root` позволяет направить события в отдельную ветку или сессию. `append` добавляет одно JSON-событие, `import` импортирует JSONL с проверкой схемы каждого события. Формат задаётся схемой `contracts/timeline-event.schema.json`; валидный пример в `examples/timeline-event.example.json`; схема требует устойчивый ID и источник с уровнем подтверждения. `observed` фиксирует данные сейва/diff, `confirmed` — проверенные человеком действия/решения, `inferred` — гипотезы модели. Факты не перезаписываются, события ветвятся. `timeline session --notes <notes.md>` регистрирует границы игровой сессии; текст заметок сохраняется. Игровые события получают источник; вывод модели не считается фактом без подтверждения человеком.
+Таймлайн `timeline` (или `event`) ведётся append-only в `timeline/events.jsonl`; `--root` задаёт корень кампании с `data/`, `timeline/` и `sessions/`. `append` добавляет одно JSON-событие, `import` импортирует JSONL с проверкой схемы каждого события. Формат задаётся схемой `contracts/timeline-event.schema.json`; валидный пример в `examples/timeline-event.example.json`; схема требует устойчивый ID и источник с уровнем подтверждения. `observed` фиксирует данные сейва/diff, `confirmed` — проверенные человеком действия/решения, `inferred` — гипотезы модели. Факты не перезаписываются. `timeline session --notes <notes.md>` регистрирует границы игровой сессии; текст заметок сохраняется. Игровые события получают источник; вывод модели не считается фактом без подтверждения человеком.
 
 Коррекции событий регистрируются с `kind="correction"`, `corrects_event_id=<целевой_ID>`. Они не мутируют исторические строки append-only журнала; целевой ID, тип коррекции и обоснование явно валидируются и отображаются в истории. Команда `timeline list --resolved` выполняет свёртку цепочек коррекций. Конвейеры `publish` и `pipeline` поддерживают прямую интеграцию: проверенные события таймлайна автоматически попадают в публикуемый бандл. Пустые строки и некорректные ID блокируются валидатором. Порядок оформления описан в [контракте данных](docs/data-contract.md#таймлайн-и-события).
 
-Интеграция таймлайна в `publish`/`pipeline` выполняется через `--timeline <events.jsonl>` и `--sessions-root <каталог_сессий>`. Экспорт подтверждённых событий для текущей ветки выполняется в `published/timeline.jsonl` с валидацией схемы, а `render --timeline published/timeline.jsonl` встраивает события в `brief.md` наряду с `current`, `changes` и `locations`. Публикация детерминированна и строго привязана к `snapshot_id`: при отсутствии изменений `generated_at` и SHA-256 сохраняются в `artifacts.timeline`. Попытка публикации некорректного таймлайна прерывает конвейер.
+Интеграция таймлайна в `publish`/`pipeline` выполняется через `--timeline <events.jsonl>` и `--sessions-root <каталог_сессий>`. Экспорт подтверждённых событий цепочки публикуемого снимка выполняется в `published/timeline.jsonl` с валидацией схемы, а `render --timeline published/timeline.jsonl` встраивает события в `brief.md` наряду с `current`, `changes` и `locations`. Публикация детерминированна и строго привязана к `snapshot_id`: при отсутствии изменений `generated_at` и SHA-256 сохраняются в `artifacts.timeline`. Попытка публикации некорректного таймлайна прерывает конвейер.
 
 ## Визуальная лента скриншотов (`published/screenshots/`)
 
@@ -100,12 +98,12 @@ python -m tools.campaign deliver-companion [--push]
 ### Состав release bundle
 
 Каталог `published/` содержит 11 взаимосвязанных артефактов (файлы и каталоги: `extended/`, `tables/` — по 1 пункту) и служебный `.gitkeep`. Каталог `published/` генерируется конвейером, в `kenshi-campaign-tech` не коммитится (`.gitignore`), доставляется в `Kenshi-Compain` через `deliver-companion`:
-1. `manifest.json` — машинный манифест публикации: `format`, `snapshot_id`, `parent_snapshot_id`, `branch_id`, `generated_at`, `source_sha256`, `world_ref_id`, статус валидации `validation.status == "passed"` и реестр артефактов `artifacts`.
+1. `manifest.json` — машинный манифест публикации: `format`, `snapshot_id`, `parent_snapshot_id`, `campaign_id`, `reload` (у снимка перезагрузки), `generated_at`, `source_sha256`, `world_ref_id`, статус валидации `validation.status == "passed"` и реестр артефактов `artifacts`.
 2. `extended/current.json` (очищенный полный срез, читать выборочно) — данные опубликованного снимка: участники, характеристики, здоровье, экипировка, инвентари, исследования, собственность и доступные сведения о мире.
 3. `changes.json` — структурный diff выбранных совместимых снимков, включая статус сравнения, устойчивые ID и ограничения сравниваемых категорий; `changes.md` — его читаемое зеркало. Отношения фракций в diff — сырые значения `relation`.
 4. `locations.json` — пространственная привязка участников и зданий, группы местоположений и изменения координат.
 5. `world_reference.json` — справочник географии мира (локации, регионы), соответствующий `world_ref_id` манифеста; растр `regions_map` и `source_hashes` в публикацию не входят (полный файл в `data/world/`).
-6. `timeline.jsonl` — опубликованная проекция подтверждённых событий выбранной ветки кампании.
+6. `timeline.jsonl` — опубликованная проекция подтверждённых событий цепочки снимка.
 7. `brief.md` — компактная текстовая сводка для быстрого контекста чат-ИИ модели.
 8. `squad.md` — подробная текстовая роспись отряда, снаряжения и характеристик.
 9. `tables/` — 18 файлов (17 CSV и `index.md`): отряд, экипировка с итоговыми колонками `calc_*`, склады, базовые цены, сырые торговые записи, уникальные NPC, Town Overrides, дипломатия (сырой `relation`), условия реакций мира и справочник юнитов (7 таблиц). Формат, колонки и правила — [контракт данных](docs/data-contract.md), словарь колонок — `tables/index.md`. Оценок и классов конвертера в публикации нет: таблицы читаются и оцениваются потребителем самостоятельно. Таблицы цен, торговли, реакций и справочника юнитов строятся по установленной игре и модам снимка (кэш `data/cache`); без них они пусты, предупреждение — в `manifest.validation.warnings` и `tables/index.md`.
@@ -156,8 +154,7 @@ python -m tools.campaign build-world
 python -m tools.campaign pipeline `
   --source-kind save `
   --source "$env:LOCALAPPDATA/kenshi/save/autosave0" `
-  --campaign-id default `
-  --branch-id main
+  --campaign-id default
 ```
 
 Шаги конвейера выполняются автоматически:
@@ -170,21 +167,12 @@ python -m tools.campaign pipeline `
 - Атомарная публикация release bundle в каталог `published/` (`publish`).
 - Односторонняя доставка в `Kenshi-Compain` при наличии флага `--deliver-to`.
 
-### 4. Управление ветками прохождения
+### 4. Линия кампании и миграция индекса
 
-Просмотр существующих веток:
+Кампания ведётся одной линией: каждый новый снимок становится потомком головы кампании. Перезагрузка старого сохранения распознаётся по откату игрового времени; более поздние снимки исключаются из цепочки. Индекс прежнего формата `kenshi-index/1` переводится одной командой:
 ```powershell
-python -m tools.campaign branch list
-```
-
-Создание ветки (например, для альтернативного пути или исследования):
-```powershell
-python -m tools.campaign branch switch expedition-south --create --name "Экспедиция на юг"
-```
-
-Отображение дерева ветвления:
-```powershell
-python -m tools.campaign branch tree
+python -m tools.campaign index migrate          # план
+python -m tools.campaign index migrate --apply  # резервная копия, запись, проверка
 ```
 
 ### 5. Регистрация событий таймлайна

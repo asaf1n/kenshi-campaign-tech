@@ -36,9 +36,12 @@ class CampaignCheckTests(unittest.TestCase):
         published.mkdir()
         (tmp / "companion").mkdir()
         (published / "marker.txt").write_text("prev", encoding="utf-8")
+        # Родитель — голова кампании в индексе рядом с каталогом снимков.
+        index = empty_index()
+        index["campaigns"]["hot-lon"] = {"head_snapshot_id": PARENT}
+        (tmp / "index.json").write_text(json.dumps(index), encoding="utf-8")
         argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--output", str(snapshots),
-                "--published-dir", str(published), "--campaign-id", "hot-lon", "--branch-id", "main",
-                "--parent-snapshot-id", PARENT, "--deliver-to", str(tmp / "companion"), "--sync-drive", *extra]
+                "--published-dir", str(published), "--campaign-id", "hot-lon", "--deliver-to", str(tmp / "companion"), "--sync-drive", *extra]
         with mock.patch("tools.pipeline.extract", return_value={"snapshot_id": CHILD}), \
                 mock.patch("tools.pipeline.register_snapshot", return_value={}), \
                 mock.patch("tools.pipeline.publish", return_value={"manifest": {"validation": {"status": "passed"}}}) as publish, \
@@ -87,7 +90,7 @@ class CheckSaveTests(unittest.TestCase):
         snapshots = tmp / "snapshots"
         write_snapshot(snapshots, PARENT, [f"ps:{n}" for n in range(10)])
         index = empty_index()
-        index["branches"]["main"] = {"head_snapshot_id": PARENT}
+        index["campaigns"]["hot-lon"] = {"head_snapshot_id": PARENT}
         (tmp / "index.json").write_text(json.dumps(index), encoding="utf-8")
 
         def fake_extract(source: Path, source_kind: str, config: object, output: Path, **_: object) -> dict:

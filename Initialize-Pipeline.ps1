@@ -6,14 +6,15 @@
     Задаёт переменные окружения Kenshi, берёт сохранение кампании, выполняет pipeline
     (разбор сохранения и скриншотов -> published/) и доставляет результат в репозиторий
     Kenshi Compain (KENSHI_COMPANION_DIR или соседний каталог "Kenshi Compain"): commit и push в GitHub.
-    campaign_id и branch_id берутся из последнего published/manifest.json.
+    campaign_id берётся из последнего published/manifest.json. Кампания ведётся одной линией: родитель нового
+    снимка - голова кампании в data/index.json, перезагрузка определяется по регрессии игрового времени.
     Сохранения и скриншоты игры открываются только на чтение; git вызывает только доставка в Kenshi Compain.
 
     Папка сохранений общая для всех прохождений, поэтому выбор по папке кампанию не определяет.
     Явный выбор: параметр -SaveFolder, иначе KENSHI_SAVE_PATTERN (шаблон имени, например 'Hot*'), иначе
     KENSHI_SAVE_NAME (точное имя); при нескольких совпадениях берётся свежайшая из совпавших.
     Без явного выбора папки перебираются от свежих к старым (до -MaxCandidates), для каждой выполняется
-    "python -m tools.campaign check-save" (состав персонажей против головы ветки); берётся первая папка,
+    "python -m tools.campaign check-save" (состав персонажей против головы кампании); берётся первая папка,
     относящаяся к кампании. Если ни одна не подходит, ошибка со списком проверенных папок, код 1.
     Перед публикацией pipeline в любом случае повторно сверяет состав персонажей с родительским снимком;
     при несовпадении публикации, доставки и синхронизации Диска нет, код возврата 1.
@@ -24,14 +25,11 @@
     Имя или шаблон (wildcard) папки сохранения кампании.
 
 .PARAMETER AllowNewCampaign
-    Осознанный новый старт или смена кампании/ветки: пропускает проверку принадлежности сейва
+    Осознанный новый старт или смена кампании: пропускает проверку принадлежности сейва
     (перебор по составу невозможен, папку нужно указать явно).
 
 .PARAMETER CampaignId
     campaign_id вместо значения из published/manifest.json (новая кампания; обычно вместе с -AllowNewCampaign).
-
-.PARAMETER BranchId
-    branch_id вместо значения из published/manifest.json.
 
 .PARAMETER CheckOnly
     Только проверка: выбор/перебор папок и "check-save" для каждой (имя, время, общих id, доля, вердикт),
@@ -46,7 +44,6 @@ param(
     [string]$SaveFolder,
     [switch]$AllowNewCampaign,
     [string]$CampaignId,
-    [string]$BranchId,
     [int]$MaxCandidates = 6,
     [switch]$CheckOnly
 )
@@ -78,9 +75,9 @@ function Find-KenshiDir {
     $candidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'kenshi_x64.exe')) } | Select-Object -First 1
 }
 
-function Test-SaveFolder([System.IO.DirectoryInfo]$Folder, [string]$Campaign, [string]$Branch) {
+function Test-SaveFolder([System.IO.DirectoryInfo]$Folder, [string]$Campaign) {
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    $run = Invoke-Python @('-m', 'tools.campaign', 'check-save', '--source', $Folder.FullName, '--campaign-id', $Campaign, '--branch-id', $Branch)
+    $run = Invoke-Python @('-m', 'tools.campaign', 'check-save', '--source', $Folder.FullName, '--campaign-id', $Campaign)
     $raw = $run.Out
     $code = $run.Code
     $when = $Folder.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
@@ -127,15 +124,6 @@ try {
     $previous = $null
     if (Test-Path -LiteralPath $manifestPath) { $previous = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json }
     $campaignId = if ($CampaignId) { $CampaignId } elseif ($previous.campaign_id) { $previous.campaign_id } else { 'default' }
-    $branchId = if ($BranchId) { $BranchId } elseif ($previous.branch_id) { $previous.branch_id } else { 'main' }
-
-    # Родитель снимка задаётся явно (он входит в идентичность снимка): берём голову ветки из индекса.
-    $parentArgs = @()
-    $indexPath = Join-Path $Root 'data\index.json'
-    if (Test-Path -LiteralPath $indexPath) {
-        $head = (Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json).branches.$branchId.head_snapshot_id
-        if ($head) { $parentArgs = @('--parent-snapshot-id', $head) }
-    }
 
     $pattern = $SaveFolder
     if (-not $pattern) { $pattern = $env:KENSHI_SAVE_PATTERN }
@@ -147,7 +135,7 @@ try {
         $save = $matched | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($matched.Count -gt 1) { Write-Host "Шаблон совпал с $($matched.Count) папками; берётся свежайшая." }
         if ($CheckOnly) {
-            $res = Test-SaveFolder $save $campaignId $branchId
+            $res = Test-SaveFolder $save $campaignId
             Write-Host $res.Line
             if ($res.Belongs) { Write-Host "выбран бы: $($save.Name)"; exit 0 }
             Write-Host 'ни одна не подходит'; exit 1
@@ -159,7 +147,7 @@ try {
         $save = $null
         $report = @()
         foreach ($folder in ($folders | Sort-Object LastWriteTime -Descending | Select-Object -First $MaxCandidates)) {
-            $res = Test-SaveFolder $folder $campaignId $branchId
+            $res = Test-SaveFolder $folder $campaignId
             $report += $res.Line
             Write-Host $res.Line
             # -CheckOnly показывает все кандидаты; выбор - первая подходящая.
@@ -170,7 +158,7 @@ try {
         }
         if (-not $save -and $CheckOnly) { Write-Host 'ни одна не подходит'; exit 1 }
         if (-not $save) {
-            throw ("Ни одна из последних $MaxCandidates папок сохранений не относится к кампании $campaignId (ветка $branchId); " +
+            throw ("Ни одна из последних $MaxCandidates папок сохранений не относится к кампании $campaignId; " +
                 "публикация, доставка и синхронизация Диска не выполнялись. Проверено (свежие сверху):`n" + ($report -join "`n") +
                 "`nУкажите папку явно (-SaveFolder), увеличьте -MaxCandidates либо используйте -AllowNewCampaign для нового старта.")
         }
@@ -182,10 +170,10 @@ try {
     if (-not (Test-Path -LiteralPath $companion)) { throw "Каталог Kenshi Compain не найден: $companion (задайте KENSHI_COMPANION_DIR)." }
 
     Write-Host "Сохранение: $($save.FullName) ($($save.LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
-    Write-Host "campaign_id=$campaignId, branch_id=$branchId; доставка: $companion"
+    Write-Host "campaign_id=$campaignId; доставка: $companion"
     $allowArgs = if ($AllowNewCampaign) { @('--allow-new-campaign') } else { @() }
-    $pyArgs = @('-m', 'tools.campaign', 'pipeline', '--source-kind', 'save', '--source', $save.FullName, '--campaign-id', $campaignId, '--branch-id', $branchId) +
-        $parentArgs + $allowArgs + @('--deliver-to', $companion, '--deliver-push', '--sync-drive')
+    $pyArgs = @('-m', 'tools.campaign', 'pipeline', '--source-kind', 'save', '--source', $save.FullName, '--campaign-id', $campaignId) +
+        $allowArgs + @('--deliver-to', $companion, '--deliver-push', '--sync-drive')
     $run = Invoke-Python $pyArgs
     $pipelineOut = $run.Out
     $pipelineCode = $run.Code

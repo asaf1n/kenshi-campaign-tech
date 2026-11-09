@@ -22,18 +22,26 @@ import tempfile
 from typing import Any
 
 from tools.diff import diff_snapshots, make_diff_id
-from tools.index import DEFAULT_INDEX_PATH, check_branch_compatibility, load_index, save_index
+from tools.index import DEFAULT_INDEX_PATH, load_index, reload_of
 from tools.io_utils import canonical, digest, linked, outside, read_json
 from tools.location_registry import REGISTRY_FILENAME, build_registry, read_discovery_save, registry_bytes, resolve_template_factions
 from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.tables import INDEX_ARTIFACT, TABLES_DIR, build_tables, load_game_data
-from tools.timeline import filter_events_by_branch, load_sessions, project_timeline, read_timeline
+from tools.timeline import filter_events_by_chain, load_sessions, project_timeline, read_timeline
 from tools.validation import TIMELINE_EMPTY_WARNING, validate_publication
 from tools.world_context import aggregate_storage_by_location, zone_settlements
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
+PUBLICATION_FORMAT = "kenshi-publication/2"
+
+
+def reload_label(game_time: dict[str, Any] | None) -> str | None:
+    """`Day N HH:MM` из записи индекса; неполное время даёт None."""
+    from tools.chain_timeline import _game_clock
+
+    return _game_clock(game_time)[1]
 DEFAULT_SCREENS_DIR: Path | None = None
 # Шапка brief.md содержит generated_at, а сам generated_at зависит от сравнения файлов выпуска: сравниваем с подстановкой.
 GENERATED_AT_TOKEN = "@@generated_at@@"
@@ -145,8 +153,6 @@ def publish(
     snapshots_dir: Path,
     diffs_dir: Path,
     published_dir: Path,
-    parent_snapshot_id: str | None = None,
-    branch_id: str | None = None,
     campaign_id: str | None = None,
     world_ref_id: str | None = None,
     world_dir: Path | None = None,
@@ -171,9 +177,9 @@ def publish(
     cur = read_json((cur_dir / "current.json").read_bytes())
     prov = read_json((cur_dir / "provenance.json").read_bytes())
 
-    effective_parent = parent_snapshot_id or prov.get("parent_snapshot_id")
-    effective_branch = branch_id or prov.get("branch_id")
-    effective_campaign = campaign_id or prov.get("campaign_id")
+    # Родитель и кампания — атрибуты индекса; provenance kenshi-snapshot/2 их не содержит.
+    effective_parent: str | None = None
+    effective_campaign = campaign_id or prov.get("campaign_id")  # provenance kenshi-snapshot/1
     source_kind = prov.get("source_kind", "save")
     source_format = prov.get("source_format", "kenshi-session/10")
     source_sha256 = prov.get("source_sha256")
@@ -199,38 +205,24 @@ def publish(
         else None
     )
 
-    # Проверка индекса снимков и веток (data/index.json)
+    # Индекс снимков (data/index.json)
     if idx_target.exists() and not idx_target.is_file():
         raise PublisherError("Путь индекса снимков занят каталогом")
     idx_data = load_index(idx_target) if idx_target.is_file() else None
 
+    reload: dict[str, Any] | None = None
     if idx_data is not None:
-        idx_snaps = idx_data.get("snapshots", {})
-        if snapshot_id in idx_snaps:
-            snap_entry = idx_snaps[snapshot_id]
-            if not branch_id:
-                effective_branch = snap_entry.get("branch_id") or effective_branch
-            if not parent_snapshot_id:
-                effective_parent = snap_entry.get("parent_snapshot_id") or effective_parent
-            if not campaign_id:
-                effective_campaign = snap_entry.get("campaign_id") or effective_campaign
+        snap_entry = idx_data.get("snapshots", {}).get(snapshot_id)
+        if snap_entry is not None:
+            effective_parent = snap_entry.get("parent_snapshot_id")
+            if effective_campaign is not None and snap_entry.get("campaign_id") != effective_campaign:
+                raise PublisherError(
+                    f"Снимок {snapshot_id} зарегистрирован в кампании '{snap_entry.get('campaign_id')}', "
+                    f"а публикуется для '{effective_campaign}'")
+            effective_campaign = snap_entry.get("campaign_id")
             if not world_ref_id:
                 world_ref_id = snap_entry.get("world_ref_id")
-
-        active_branch = idx_data.get("active_branch_id")
-        if effective_branch and active_branch and effective_branch != active_branch and branch_id is None:
-            raise PublisherError(
-                f"Снимок {snapshot_id} принадлежит ветке '{effective_branch}', "
-                f"но активной в индексе является '{active_branch}'. "
-                f"Для публикации требуется явное указание или переключение ветки."
-            )
-
-        if effective_parent is not None:
-            compat, branch_reason = check_branch_compatibility(idx_data, effective_parent, snapshot_id)
-            if not compat:
-                raise PublisherError(
-                    f"Несовместимый родитель {effective_parent} для снимка {snapshot_id}: {branch_reason}"
-                )
+            reload = reload_of(idx_data, snapshot_id)
 
     # Защита канонического каталога published/
     canonical_pub_dir = (ROOT / "published").resolve()
@@ -246,8 +238,6 @@ def publish(
     if pub_manifest_file.is_file():
         try:
             pub_manifest = read_json(pub_manifest_file.read_bytes())
-            pub_snap = pub_manifest.get("snapshot_id")
-            pub_branch = pub_manifest.get("branch_id")
             pub_campaign = pub_manifest.get("campaign_id")
             if pub_campaign and effective_campaign and pub_campaign != effective_campaign and campaign_id is None:
                 raise PublisherError(
@@ -255,19 +245,6 @@ def publish(
                     f"а текущая публикация — кампании '{pub_campaign}'. "
                     f"Для смены кампании публикации укажите явный campaign_id."
                 )
-            if pub_branch and effective_branch and pub_branch != effective_branch and branch_id is None:
-                raise PublisherError(
-                    f"Снимок {snapshot_id} принадлежит ветке '{effective_branch}', "
-                    f"а текущая публикация — ветке '{pub_branch}'. "
-                    f"Для смены ветки публикации укажите явный branch_id."
-                )
-            if effective_parent is not None and pub_snap is not None and effective_parent == pub_snap:
-                if idx_data is not None:
-                    compat, branch_reason = check_branch_compatibility(idx_data, pub_snap, snapshot_id)
-                    if not compat:
-                        raise PublisherError(
-                            f"Попытка сравнения между несовместимыми ветками reload ({pub_snap} -> {snapshot_id}): {branch_reason}"
-                        )
         except Exception as e:
             if isinstance(e, PublisherError):
                 raise
@@ -292,8 +269,9 @@ def publish(
             index_data=idx_data,
         )
 
-    # Если родитель был задан, но сравнение невалидно
-    if effective_parent is not None and diff_data.get("valid") is False:
+    # Невалидное сравнение с родителем прерывает публикацию; перезагрузка — штатный случай без дельты.
+    if effective_parent is not None and diff_data.get("valid") is False and not (
+            reload is not None and diff_data.get("reason") == "game_time_regression"):
         diff_reason = diff_data.get("reason") or "; ".join(diff_data.get("problems", []))
         raise PublisherError(
             f"Невалидное сравнение снимков ({effective_parent} -> {snapshot_id}): {diff_reason}"
@@ -352,25 +330,22 @@ def publish(
         path = loc_dir / f"{target_id}.json"
         return read_json(path.read_bytes()) if path.is_file() else None
 
-    # Авторский журнал читается целиком: повреждение не скрывается фильтром ветки.
+    # Авторский журнал читается целиком: повреждение не скрывается фильтром цепочки.
     ledger = timeline_path or snapshots_dir.parent.parent / "timeline/events.jsonl"
     events = read_timeline(ledger)
     selected: list[dict[str, Any]] = []
     if events:
-        if idx_data is None or not effective_branch:
-            raise PublisherError("Для публикации событий нужен валидный индекс и выбранная ветка")
+        if idx_data is None or snapshot_id not in idx_data.get("snapshots", {}):
+            raise PublisherError("Для публикации событий нужен валидный индекс с записью снимка")
         sessions = load_sessions(sessions_root or ledger.parent.parent, idx_data)
-        selected = filter_events_by_branch(events, effective_branch, idx_data, sessions, snapshot_id=snapshot_id)
+        selected = filter_events_by_chain(events, snapshot_id, idx_data, sessions)
 
-    # Накопительный таймлайн: события окна цепочки снимков и фиксация смены ветки (детерминированно по индексу).
+    # Накопительный таймлайн: события окна цепочки снимков и фиксация перезагрузки (детерминированно по индексу).
     chain: list[dict[str, Any]] = []
     chain_steps: list[dict[str, Any]] = []
-    branch_switch: dict[str, str] | None = None
     load_chain_diff = None
-    if idx_data is not None and effective_branch:
-        from tools.chain_timeline import (
-            branch_switch_event, chain_events, chain_ids, detect_branch_switch, significant_changes,
-        )
+    if idx_data is not None and snapshot_id in idx_data.get("snapshots", {}):
+        from tools.chain_timeline import chain_edges, chain_events, reload_event, significant_changes
         from tools.screenshot_delta import game_label
 
         def load_chain_diff(parent: str, child: str) -> dict[str, Any] | None:
@@ -385,9 +360,10 @@ def publish(
             except Exception:
                 return None
 
-        chain = chain_events(idx_data, snapshot_id, effective_branch, load_chain_diff, make_diff_id)
-        window_ids = chain_ids(idx_data, snapshot_id)
-        for parent_id, child_id in list(zip(window_ids, window_ids[1:]))[:-1]:
+        chain = chain_events(idx_data, snapshot_id, load_chain_diff, make_diff_id)
+        for parent_id, child_id in chain_edges(idx_data, snapshot_id):
+            if child_id == snapshot_id:
+                continue
             step_diff = load_chain_diff(parent_id, child_id)
             summaries = [summary for _, summary in significant_changes(step_diff or {})]
             if summaries and step_diff.get("valid") is not False:
@@ -396,10 +372,8 @@ def publish(
                     "label": f"{game_label(idx_data['snapshots'][child_id])} ({child_id[:15]})",
                     "summaries": summaries,
                 })
-        branch_switch = detect_branch_switch(idx_data, effective_parent, snapshot_id, effective_branch)
-        if branch_switch:
-            recorded_at = idx_data["snapshots"][snapshot_id].get("registered_at", "")
-            chain.append(branch_switch_event(branch_switch, recorded_at, diff_id))
+        if reload is not None:
+            chain.append(reload_event(idx_data, snapshot_id, reload, diff_id))
     combined = [*selected, *chain]
     timeline_data = project_timeline(combined, snapshot_id, diff_id) if combined else []
     timeline_bytes = b"".join(canonical(e) for e in timeline_data)
@@ -412,11 +386,10 @@ def publish(
     changes_md = render_changes_md(diff_data, chain_steps)
 
     manifest_data = {
-        "format": "kenshi-publication/1",
+        "format": PUBLICATION_FORMAT,
         "generated_at": generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "snapshot_id": snapshot_id,
         "parent_snapshot_id": effective_parent,
-        "branch_id": effective_branch,
         "campaign_id": effective_campaign,
         "game_time": game_time,
         "world_ref_id": effective_wref_id,
@@ -455,8 +428,9 @@ def publish(
         load_snapshot_locations, discovery=discovery, factions=resolve_template_factions(w_ref),
     ))
 
-    if branch_switch:
-        manifest_data["branch_switch"] = branch_switch
+    if reload is not None:
+        manifest_data["reload"] = {"from_snapshot": reload["from_snapshot"],
+                                   "from_game_time": reload_label(reload["from_game_time"])}
 
     target_screens_dir = screens_dir
     if target_screens_dir is None:
@@ -796,18 +770,6 @@ def publish(
             # Очистка backup после подтверждения успеха
             if backup_dir.exists():
                 shutil.rmtree(backup_dir, ignore_errors=True)
-
-            # Обновление индекса после успешной публикации
-            if idx_data is not None and effective_branch:
-                if effective_branch in idx_data.get("branches", {}):
-                    idx_data["branches"][effective_branch]["head_snapshot_id"] = snapshot_id
-                if branch_id is not None:
-                    idx_data["active_branch_id"] = effective_branch
-                idx_data["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                try:
-                    save_index(idx_data, idx_target, with_lock=False)
-                except Exception:
-                    pass
 
             # История реестра читает только разрешения успешно опубликованных снимков.
             try:

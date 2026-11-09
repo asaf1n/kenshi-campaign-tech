@@ -8,7 +8,7 @@ from typing import Any
 from tools.campaign_check import MIN_SHARED_IDS, MIN_SHARED_SHARE, compare_with_parent, require_same_campaign, roster
 from tools.config import Config
 from tools.extraction import ROOT, extract
-from tools.index import load_index, register_snapshot
+from tools.index import campaign_head, load_index, register_snapshot
 from tools.io_utils import read_json
 from tools.publisher import publish
 
@@ -21,8 +21,6 @@ def run_pipeline(
     output_diffs: Path | None = None,
     published_dir: Path | None = None,
     campaign_id: str | None = None,
-    branch_id: str | None = None,
-    parent_snapshot_id: str | None = None,
     world_ref_id: str | None = None,
     world_dir: Path | None = None,
     index_path: Path | None = None,
@@ -38,17 +36,14 @@ def run_pipeline(
     idx_path = index_path or (snapshots_dir.parent / "index.json")
     effective_campaign = campaign_id or "hot-lon"
 
-    extract_res = extract(
-        source=source,
-        source_kind=source_kind,
-        config=config,
-        output=snapshots_dir,
-        campaign_id=effective_campaign,
-        branch_id=branch_id,
-        parent_snapshot_id=parent_snapshot_id,
-    )
-
+    extract_res = extract(source=source, source_kind=source_kind, config=config, output=snapshots_dir)
     snapshot_id = extract_res["snapshot_id"]
+
+    # Родитель — голова кампании в индексе; оператор его не выбирает.
+    index_before = load_index(idx_path)
+    head = campaign_head(index_before, effective_campaign)
+    parent_snapshot_id = head if head != snapshot_id else (
+        index_before["snapshots"][snapshot_id].get("parent_snapshot_id"))
 
     # До регистрации в индексе и публикации: чужой сейв не должен попасть в published/.
     campaign_check = _check_campaign(
@@ -57,11 +52,9 @@ def run_pipeline(
     prov = read_json((snapshots_dir / snapshot_id / "provenance.json").read_bytes())
     index_res = register_snapshot(
         snapshot_id=snapshot_id,
-        parent_snapshot_id=parent_snapshot_id or prov.get("parent_snapshot_id"),
-        branch_id=branch_id or prov.get("branch_id"),
-        campaign_id=effective_campaign or prov.get("campaign_id"),
+        campaign_id=effective_campaign,
         game_time=prov.get("game_time"),
-        world_ref_id=world_ref_id or prov.get("world_ref_id"),
+        world_ref_id=world_ref_id,
         source_kind=source_kind,
         source_sha256=prov.get("source_sha256", ""),
         index_path=idx_path,
@@ -72,8 +65,6 @@ def run_pipeline(
         snapshots_dir=snapshots_dir,
         diffs_dir=diffs_dir,
         published_dir=pub_dir,
-        parent_snapshot_id=parent_snapshot_id,
-        branch_id=branch_id,
         campaign_id=effective_campaign,
         world_ref_id=world_ref_id,
         world_dir=world_dir,
@@ -95,26 +86,22 @@ def run_pipeline(
 
 
 def check_save(
-    source: Path, config: Config, campaign_id: str | None = None, branch_id: str | None = None,
+    source: Path, config: Config, campaign_id: str | None = None,
     index_path: Path | None = None, snapshots_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Неизменяющая проверка принадлежности сейва: извлечение во временный каталог, сравнение с головой
-    ветки из индекса. data/, индекс и published/ не затрагиваются (индекс только читается)."""
+    кампании из индекса. data/, индекс и published/ не затрагиваются (индекс только читается)."""
     effective_campaign = campaign_id or "hot-lon"
-    effective_branch = branch_id or "main"
     parents_dir = snapshots_dir or ROOT / "data/snapshots"
-    index = load_index(index_path)
-    parent_id = ((index.get("branches") or {}).get(effective_branch) or {}).get("head_snapshot_id")
+    parent_id = campaign_head(load_index(index_path), effective_campaign)
     with tempfile.TemporaryDirectory(prefix="check-save-") as tmp:
-        extract_res = extract(source=source, source_kind="save", config=config, output=Path(tmp),
-                              campaign_id=effective_campaign, branch_id=effective_branch,
-                              parent_snapshot_id=parent_id)
+        extract_res = extract(source=source, source_kind="save", config=config, output=Path(tmp))
         candidate = read_json((Path(tmp) / extract_res["snapshot_id"] / "current.json").read_bytes())
-    base = {"campaign_id": effective_campaign, "branch_id": effective_branch, "parent_snapshot_id": parent_id,
+    base = {"campaign_id": effective_campaign, "parent_snapshot_id": parent_id,
             "min_shared_share": MIN_SHARED_SHARE, "min_shared_ids": MIN_SHARED_IDS}
     parent_file = parents_dir / parent_id / "current.json" if parent_id else None
     if parent_file is None or not parent_file.is_file():
-        reason = ("нет родительского снимка: первая публикация ветки" if parent_id is None
+        reason = ("нет родительского снимка: первая публикация кампании" if parent_id is None
                   else "родительский снимок отсутствует в каталоге снимков")
         return {**base, "status": "skipped", "belongs": True, "reason": reason}
     parent = read_json(parent_file.read_bytes())
@@ -131,7 +118,7 @@ def _check_campaign(
     if allow_new_campaign:
         return {"status": "skipped", "reason": "задан --allow-new-campaign"}
     if not parent_snapshot_id:
-        return {"status": "skipped", "reason": "нет родительского снимка: первая публикация ветки"}
+        return {"status": "skipped", "reason": "нет родительского снимка: первая публикация кампании"}
     parent_file = snapshots_dir / parent_snapshot_id / "current.json"
     if not parent_file.is_file():
         return {"status": "skipped", "reason": "родительский снимок отсутствует в каталоге снимков"}

@@ -447,8 +447,6 @@ class LocationsTests(unittest.TestCase):
             snap_id = self.sample_snapshot_dir.name
             diffs_dir = tmp / "diffs"
             test_idx = tmp / "index.json"
-            prov = read_json((self.sample_snapshot_dir / "provenance.json").read_bytes())
-            snap_branch = prov.get("branch_id") or "main"
 
             # 1. Первая успешная публикация
             res1 = publish(
@@ -458,7 +456,6 @@ class LocationsTests(unittest.TestCase):
                 published_dir=pub_dir,
                 world_ref_id=self.world_ref["world_ref_id"],
                 index_path=test_idx,
-                branch_id=snap_branch,
             )
             self.assertEqual(res1["status"], "published")
             first_manifest = (pub_dir / "manifest.json").read_bytes()
@@ -474,8 +471,7 @@ class LocationsTests(unittest.TestCase):
                     published_dir=pub_dir,
                     world_ref_id=self.world_ref["world_ref_id"],
                     index_path=test_idx,
-                    branch_id=snap_branch,
-                    fault_inject="geo_error",
+                        fault_inject="geo_error",
                 )
 
             # Проверка байтовой сохранности предыдущего релиза

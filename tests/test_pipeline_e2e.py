@@ -10,7 +10,8 @@ import tempfile
 import unittest
 
 from tools.config import Config
-from tools.io_utils import file_hash, read_json
+from tools.index import register_snapshot
+from tools.io_utils import canonical, file_hash, read_json
 from tools.pipeline import run_pipeline
 from tools.validation import validate_publication
 
@@ -42,7 +43,6 @@ class PipelineE2ETests(unittest.TestCase):
                 output_diffs=diffs_dir,
                 published_dir=published_dir,
                 campaign_id="e2e-test",
-                branch_id="main",
             )
 
             self.assertEqual(res1["pipeline_status"], "success")
@@ -58,31 +58,41 @@ class PipelineE2ETests(unittest.TestCase):
             val1 = validate_publication(published_dir)
             self.assertEqual(val1["status"], "passed")
 
-            # Второй запуск (с указанием parent_snapshot_id = snap1_id)
-            # В данном тесте тот же источник выступает дочерним снимком с нулевыми дельтами
-            res2 = run_pipeline(
-                source=REAL_EXPORT,
-                source_kind="export",
-                config=config,
-                output_snapshots=snapshots_dir,
-                output_diffs=diffs_dir,
-                published_dir=published_dir,
-                campaign_id="e2e-test",
-                branch_id="main",
-                parent_snapshot_id=snap1_id,
-            )
+            # Повтор того же источника идемпотентен: тот же снимок, индекс и выпуск не меняются.
+            index_bytes = (tmp / "index.json").read_bytes()
+            bundle = {p.relative_to(published_dir).as_posix(): file_hash(p)
+                      for p in published_dir.rglob("*") if p.is_file() and p.name != "manifest.json"}
+            res_repeat = run_pipeline(source=REAL_EXPORT, source_kind="export", config=config,
+                                      output_snapshots=snapshots_dir, output_diffs=diffs_dir,
+                                      published_dir=published_dir, campaign_id="e2e-test")
+            self.assertEqual(res_repeat["snapshot_id"], snap1_id)
+            self.assertEqual((tmp / "index.json").read_bytes(), index_bytes)
+            self.assertEqual(bundle, {p.relative_to(published_dir).as_posix(): file_hash(p)
+                                      for p in published_dir.rglob("*") if p.is_file() and p.name != "manifest.json"})
+
+            # Тот же источник в другой кампании с другим родителем даёт тот же snapshot_id; родитель — голова кампании.
+            other_index = tmp / "other/index.json"
+            parent_id = "sha256-" + "e" * 64
+            parent_dir = snapshots_dir / parent_id
+            parent_dir.mkdir()
+            (parent_dir / "current.json").write_bytes((snapshots_dir / snap1_id / "current.json").read_bytes())
+            provenance = read_json((snapshots_dir / snap1_id / "provenance.json").read_bytes())
+            (parent_dir / "provenance.json").write_bytes(canonical({**provenance, "snapshot_id": parent_id}))
+            register_snapshot(parent_id, "e2e-other", game_time=provenance["game_time"],
+                              source_kind="export", source_sha256="f" * 64, index_path=other_index)
+            other_published = tmp / "other/published"
+            other_published.mkdir()
+            res2 = run_pipeline(source=REAL_EXPORT, source_kind="export", config=config,
+                                output_snapshots=snapshots_dir, output_diffs=diffs_dir,
+                                published_dir=other_published, campaign_id="e2e-other", index_path=other_index)
             self.assertEqual(res2["pipeline_status"], "success")
-            val2 = validate_publication(published_dir)
-            self.assertEqual(val2["status"], "passed")
-
-            manifest2 = read_json((published_dir / "manifest.json").read_bytes())
-            self.assertEqual(manifest2["parent_snapshot_id"], snap1_id)
-
-            changes2 = read_json((published_dir / "changes.json").read_bytes())
+            self.assertEqual(res2["snapshot_id"], snap1_id)
+            self.assertEqual(validate_publication(other_published)["status"], "passed")
+            manifest2 = read_json((other_published / "manifest.json").read_bytes())
+            self.assertEqual(manifest2["parent_snapshot_id"], parent_id)
+            changes2 = read_json((other_published / "changes.json").read_bytes())
             self.assertTrue(changes2["valid"])
-            self.assertEqual(changes2["from"]["snapshot_id"], snap1_id)
-            self.assertEqual(changes2["to"]["snapshot_id"], res2["snapshot_id"])
-            # Число сравненных сущностей ненулевое
+            self.assertEqual(changes2["to"]["snapshot_id"], snap1_id)
             self.assertTrue(sum(changes2["compared"].values()) > 0)
 
     def test_cli_pipeline_subcommand(self) -> None:
@@ -114,8 +124,6 @@ class PipelineE2ETests(unittest.TestCase):
                 str(published_dir),
                 "--campaign-id",
                 "cli-test",
-                "--branch-id",
-                "main",
             ]
             completed = subprocess.run(cmd, cwd=ROOT, capture_output=True)
             self.assertEqual(completed.returncode, 0, completed.stderr.decode("utf-8", errors="replace"))
@@ -140,7 +148,7 @@ class PipelineE2ETests(unittest.TestCase):
                 "--source-kind", "export", "--source", str(REAL_EXPORT),
                 "--output", str(tmp / "snapshots"), "--diffs-dir", str(tmp / "diffs"),
                 "--published-dir", str(published_dir),
-                "--campaign-id", "cli-test", "--branch-id", "main",
+                "--campaign-id", "cli-test",
                 "--deliver-to", str(companion),
             ]
             dry = subprocess.run([*base, "--dry-run"], cwd=ROOT, capture_output=True)

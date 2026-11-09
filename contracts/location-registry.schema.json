@@ -4,11 +4,10 @@
   "title": "Реестр локаций кампании",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "campaign_id", "branch_id", "snapshot_id", "world_ref_id", "game_time", "coverage", "locations"],
+  "required": ["format", "campaign_id", "snapshot_id", "world_ref_id", "game_time", "coverage", "locations"],
   "properties": {
-    "format": {"const": "kenshi-location-registry/1"},
+    "format": {"const": "kenshi-location-registry/2"},
     "campaign_id": {"type": ["string", "null"], "minLength": 1},
-    "branch_id": {"type": ["string", "null"], "minLength": 1},
     "snapshot_id": {"$ref": "#/$defs/id"},
     "world_ref_id": {"$ref": "#/$defs/id"},
     "game_time": {"type": ["string", "number", "null"]},
@@ -86,9 +85,8 @@
         "manual": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["branch_id", "status", "evidence"],
+          "required": ["status", "evidence"],
           "properties": {
-            "branch_id": {"$ref": "#/$defs/id"},
             "status": {"enum": ["visited", "explored"]},
             "evidence": {"type": "string", "pattern": "\\S"},
             "game_time": {"$ref": "#/$defs/game_time"}

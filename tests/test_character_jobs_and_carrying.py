@@ -67,7 +67,7 @@ class TestCharacterJobsAndCarryingSynthetic(unittest.TestCase):
             published = root / "published"
             pipeline_args = dict(source=save, source_kind="save", config=config, output_snapshots=output,
                                  output_diffs=root / "diffs", published_dir=published, world_dir=root / "world",
-                                 index_path=root / "index.json", campaign_id="fixture", branch_id="main",
+                                 index_path=root / "index.json", campaign_id="fixture",
                                  sessions_root=root / "sessions")
             result = run_pipeline(**pipeline_args)
             self.assertEqual(result["pipeline_status"], "success")
