@@ -236,7 +236,9 @@ def register_snapshot(
 ) -> dict[str, Any]:
     """Регистрация снимка: родитель — голова кампании, снимок становится новой головой.
 
-    Повторная регистрация существующего снимка той же кампании запись не меняет и переводит голову на него.
+    Повторная регистрация существующего снимка той же кампании ничего не меняет: ни запись, ни голову.
+    Иначе повторный запуск на старом слоте молча исключил бы из цепочки все более поздние снимки.
+    Возвращаемая запись содержит ключ `registration`: `new` или `existing`.
     """
     if not snapshot_id or not str(snapshot_id).strip():
         raise CampaignIndexError("snapshot_id обязан быть непустой строкой")
@@ -257,11 +259,7 @@ def register_snapshot(
                 raise CampaignIndexError(
                     f"Конфликт регистрационных данных для существующего снимка {snapshot_id}: "
                     f"кампания {existing.get('campaign_id')} -> {campaign_id}, sha {existing.get('source_sha256')} -> {source_sha256}")
-            if head != snapshot_id:
-                campaigns[campaign_id] = {"head_snapshot_id": snapshot_id}
-                index_data["updated_at"] = _now()
-                save_index(index_data, target, with_lock=False)
-            return existing
+            return {**existing, "registration": "existing", "is_head": head == snapshot_id}
 
         if head is not None and head not in snapshots:
             raise CampaignIndexError(f"Голова кампании {campaign_id} отсутствует в индексе: {head}")
@@ -279,7 +277,7 @@ def register_snapshot(
         campaigns[campaign_id] = {"head_snapshot_id": snapshot_id}
         index_data["updated_at"] = _now()
         save_index(index_data, target, with_lock=False)
-        return entry
+        return {**entry, "registration": "new", "is_head": True}
 
 
 def _validated(index_data: dict[str, Any]) -> dict[str, Any]:

@@ -423,6 +423,16 @@ def _ref(s: dict[str, Any], file: str | None, snapshot_id: str | None = None) ->
     }
 
 
+REGRESSION_NOTE = "перезагрузка"
+
+
+def only_time_regression(diff_data: dict[str, Any]) -> bool:
+    """Невалидность diff объясняется только регрессией игрового времени (перезагрузкой), без иных проблем."""
+    problems = diff_data.get("problems") or []
+    return ("game_time_regression" in problems
+            and all(p == "game_time_regression" or p.startswith(REGRESSION_NOTE + ":") for p in problems))
+
+
 def diff(
     prev: dict[str, Any] | None,
     cur: dict[str, Any],
@@ -471,7 +481,8 @@ def diff(
     problems: list[str] = []
 
     # Сравнимы только предок и потомок цепочки индекса
-    if prev_id and cur_id and index_data is not None and isinstance(index_data, dict)             and cur_id in index_data.get("snapshots", {}):
+    if (prev_id and cur_id and isinstance(index_data, dict)
+            and cur_id in index_data.get("snapshots", {})):
         compat, chain_reason = check_chain_compatibility(index_data, prev_id, cur_id)
         if not compat:
             problems.append(chain_reason or "not_in_chain")
@@ -495,11 +506,11 @@ def diff(
     if prev_day is not None and cur_day is not None:
         if cur_day < prev_day:
             problems.append("game_time_regression")
-            problems.append(f"игровой день уменьшился: был {prev_day}, стал {cur_day} (перезагрузка)")
+            problems.append(f"{REGRESSION_NOTE}: игровой день уменьшился: был {prev_day}, стал {cur_day}")
         elif cur_day == prev_day and prev_time is not None and cur_time is not None:
             if str(cur_time) < str(prev_time):
                 problems.append("game_time_regression")
-                problems.append(f"игровое время уменьшилось в пределах дня {cur_day}: было {prev_time}, стало {cur_time}")
+                problems.append(f"{REGRESSION_NOTE}: игровое время уменьшилось в пределах дня {cur_day}: было {prev_time}, стало {cur_time}")
 
     pa = {c["id"]: c for c in prev.get("characters", []) if "id" in c}
     ca = {c["id"]: c for c in cur.get("characters", []) if "id" in c}

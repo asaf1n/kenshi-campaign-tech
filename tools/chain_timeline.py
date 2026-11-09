@@ -36,7 +36,7 @@ def _names(entries: list[dict[str, Any]]) -> str:
     return ", ".join(names[:NAMES_IN_SUMMARY]) + tail
 
 
-def _game_clock(game_time: dict[str, Any] | None) -> tuple[int | None, str | None]:
+def game_clock(game_time: dict[str, Any] | None) -> tuple[int | None, str | None]:
     """День и `Day N HH:MM` из записи индекса снимка; неполное время даёт None (поле события опускается)."""
     if not game_time or not isinstance(game_time.get("day"), int):
         return None, None
@@ -85,7 +85,7 @@ def events_from_diff(
     game_time: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Значимые изменения дельты в событиях kenshi-event/1."""
-    day, clock = _game_clock(game_time)
+    day, clock = game_clock(game_time)
     found = significant_changes(diff)
 
     prefix = child_id.removeprefix("sha256-")[:16]
@@ -109,8 +109,8 @@ def reload_event(
 ) -> dict[str, Any]:
     """Перезагрузка: игровое время снимка меньше времени родителя (tools.index.reload_of)."""
     entry = index_data["snapshots"][snapshot_id]
-    day, clock = _game_clock(entry.get("game_time"))
-    _, before = _game_clock(reload["from_game_time"])
+    day, clock = game_clock(entry.get("game_time"))
+    _, before = game_clock(reload["from_game_time"])
     prefix = snapshot_id.removeprefix("sha256-")[:16]
     event = {
         "format": "kenshi-event/1", "event_id": f"auto-{prefix}-reload", "snapshot_id": snapshot_id,

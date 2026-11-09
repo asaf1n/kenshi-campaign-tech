@@ -41,9 +41,9 @@ def run_pipeline(
 
     # Родитель — голова кампании в индексе; оператор его не выбирает.
     index_before = load_index(idx_path)
-    head = campaign_head(index_before, effective_campaign)
-    parent_snapshot_id = head if head != snapshot_id else (
-        index_before["snapshots"][snapshot_id].get("parent_snapshot_id"))
+    known = index_before.get("snapshots", {}).get(snapshot_id)
+    parent_snapshot_id = (known.get("parent_snapshot_id") if known is not None
+                          else campaign_head(index_before, effective_campaign))
 
     # До регистрации в индексе и публикации: чужой сейв не должен попасть в published/.
     campaign_check = _check_campaign(

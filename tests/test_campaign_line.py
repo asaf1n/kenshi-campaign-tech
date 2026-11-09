@@ -22,7 +22,8 @@ from tools.index import (
 )
 from tools.io_utils import canonical, read_json
 from tools.locator import resolve_locations
-from tools.publisher import publish
+from tools.publisher import PublisherError, publish
+from tools.timeline import filter_events_by_chain
 from tools.validation import ROOT, validate_index
 from tools.world_reference import load_world_reference
 
@@ -116,12 +117,13 @@ class CampaignLineTests(unittest.TestCase):
         self.assertEqual(self.register(b, 10, "14:00")["parent_snapshot_id"], a)
         self.assertEqual(self.index_file.read_bytes(), before)  # повтор головы ничего не меняет
 
-        # Повтор известного снимка не меняет записи и делает его головой: следующий снимок продолжает от него.
-        self.register(a, 10, "10:00")
-        index = load_index(self.index_file)
-        self.assertEqual(index["campaigns"]["camp"]["head_snapshot_id"], a)
-        self.assertEqual(index["snapshots"][b]["parent_snapshot_id"], a)
-        self.assertEqual(self.register(c, 10, "12:00")["parent_snapshot_id"], a)
+        # Повтор старого снимка (A-B-...-A-C) не меняет ни запись, ни голову: C продолжает линию от B,
+        # поздние снимки не выпадают из цепочки.
+        again = self.register(a, 10, "10:00")
+        self.assertEqual((again["registration"], again["is_head"]), ("existing", False))
+        self.assertEqual(self.index_file.read_bytes(), before)
+        self.assertEqual(self.register(c, 10, "16:00")["parent_snapshot_id"], b)
+        self.assertEqual(campaign_chain(load_index(self.index_file), c), [a, b, c])
 
         # Другая кампания ведёт свою линию; снимок одной кампании в другую не регистрируется.
         self.assertIsNone(self.register(_sid("d"), 1, "00:00", campaign="other")["parent_snapshot_id"])
@@ -153,24 +155,38 @@ class CampaignLineTests(unittest.TestCase):
         events = [read_json(line.encode()) for line in
                   (self.published_dir / "timeline.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual([e["kind"] for e in events if e["kind"] == "reload"], ["reload"])
-        self.assertTrue(all(e["snapshot_id"] != b for e in events))  # события отменённого снимка исключены
+        self.assertTrue(all(e["snapshot_id"] != b for e in events))
+        # Авторские события отменённого снимка B не входят в цепочку R.
+        authored = [{"event_id": sid, "snapshot_id": sid, "session_id": "s", "kind": "user_action"} for sid in (a, b, r)]
+        self.assertEqual([e["event_id"] for e in filter_events_by_chain(authored, r, index)], [a, r])
         registry = read_json((self.published_dir / "location_registry.json").read_bytes())
         self.assertEqual(registry["coverage"]["chain_snapshots"], 2)
 
-        # A — предок R в цепочке: diff A->R валиден. Боковой лист вне цепочки с R не сравнивается.
+        # A — предок R в цепочке: diff A->R валиден. Обратное направление (R не предок A) не сравнивается.
         self.assertTrue(diff_snapshots(self.snapshots_dir / a, self.snapshots_dir / r,
                                        index_path=self.index_file)["valid"])
-        self.register(a, 10, "10:00")
-        side = _sid("f")
-        self.register(side, 10, "16:00")
-        diff_side = diff_snapshots(self.snapshots_dir / r, self.snapshots_dir / side, index_path=self.index_file)
+        diff_side = diff_snapshots(self.snapshots_dir / r, self.snapshots_dir / a, index_path=self.index_file)
         self.assertEqual((diff_side["valid"], diff_side["reason"]), (False, "not_in_chain"))
-        loc = resolve_locations(current=read_json((self.snapshots_dir / side / "current.json").read_bytes()),
-                                world_ref=SAMPLE_WREF, snapshot_id=side,
+        loc = resolve_locations(current=read_json((self.snapshots_dir / a / "current.json").read_bytes()),
+                                world_ref=SAMPLE_WREF, snapshot_id=a,
                                 previous_locations=read_json((self.published_dir / "locations.json").read_bytes()),
                                 changes=diff_side)
         self.assertFalse(loc["movement"]["valid"])
         self.assertEqual(loc["movement"]["characters"], [])
+
+    def test_reload_with_other_problems_still_blocks_publication(self) -> None:
+        """Перезагрузка не прикрывает чужой состав: публикация прерывается, published/ не меняется."""
+        a, r = _sid("a"), _sid("e")
+        self.register(a, 10, "10:00")
+        self.publish(a)
+        before = (self.published_dir / "manifest.json").read_bytes()
+        self.register(r, 10, "08:00")
+        current = read_json((self.snapshots_dir / r / "current.json").read_bytes())
+        current["characters"][0]["id"] = "ps:foreign"
+        (self.snapshots_dir / r / "current.json").write_bytes(canonical(current))
+        with self.assertRaisesRegex(PublisherError, "game_time_regression|общего id"):
+            self.publish(r)
+        self.assertEqual((self.published_dir / "manifest.json").read_bytes(), before)
 
     def test_migrate_legacy_index_with_backup(self) -> None:
         """kenshi-index/1 с двумя ветками: план, применение с резервной копией, повтор без изменений."""

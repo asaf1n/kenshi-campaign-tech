@@ -21,7 +21,8 @@ import shutil
 import tempfile
 from typing import Any
 
-from tools.diff import diff_snapshots, make_diff_id
+from tools.chain_timeline import game_clock
+from tools.diff import diff_snapshots, make_diff_id, only_time_regression
 from tools.index import DEFAULT_INDEX_PATH, load_index, reload_of
 from tools.io_utils import canonical, digest, linked, outside, read_json
 from tools.location_registry import REGISTRY_FILENAME, build_registry, read_discovery_save, registry_bytes, resolve_template_factions
@@ -35,13 +36,6 @@ from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLICATION_FORMAT = "kenshi-publication/2"
-
-
-def reload_label(game_time: dict[str, Any] | None) -> str | None:
-    """`Day N HH:MM` из записи индекса; неполное время даёт None."""
-    from tools.chain_timeline import _game_clock
-
-    return _game_clock(game_time)[1]
 DEFAULT_SCREENS_DIR: Path | None = None
 # Шапка brief.md содержит generated_at, а сам generated_at зависит от сравнения файлов выпуска: сравниваем с подстановкой.
 GENERATED_AT_TOKEN = "@@generated_at@@"
@@ -271,7 +265,7 @@ def publish(
 
     # Невалидное сравнение с родителем прерывает публикацию; перезагрузка — штатный случай без дельты.
     if effective_parent is not None and diff_data.get("valid") is False and not (
-            reload is not None and diff_data.get("reason") == "game_time_regression"):
+            reload is not None and only_time_regression(diff_data)):
         diff_reason = diff_data.get("reason") or "; ".join(diff_data.get("problems", []))
         raise PublisherError(
             f"Невалидное сравнение снимков ({effective_parent} -> {snapshot_id}): {diff_reason}"
@@ -430,7 +424,7 @@ def publish(
 
     if reload is not None:
         manifest_data["reload"] = {"from_snapshot": reload["from_snapshot"],
-                                   "from_game_time": reload_label(reload["from_game_time"])}
+                                   "from_game_time": game_clock(reload["from_game_time"])[1]}
 
     target_screens_dir = screens_dir
     if target_screens_dir is None:
