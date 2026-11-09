@@ -60,10 +60,10 @@ def main() -> int:
             (save / "quick.save").write_bytes(struct.pack("<iii", 15, 2, 2) + state + squad)
             (save / "platoon/a.platoon").write_bytes(struct.pack("<iii", 15, 0, 0))
             before = tree_hashes(save)
-            first = extract(save, "save", config, root / "snapshots", "synthetic", "main")
+            first = extract(save, "save", config, root / "snapshots")
             snapshot = root / "snapshots" / first["snapshot_id"]
             hashes = tree_hashes(snapshot)
-            second = extract(save, "save", config, root / "snapshots", "synthetic", "main")
+            second = extract(save, "save", config, root / "snapshots")
             assert first == second and hashes == tree_hashes(snapshot)
             assert before == tree_hashes(save)
             current = read_json((snapshot / "current.json").read_bytes())
