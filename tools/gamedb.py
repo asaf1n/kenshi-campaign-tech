@@ -24,7 +24,7 @@ PO_RU: str = f"{KENSHI}/locale/ru_RU/gamedata.po"
 BASE_FILES: dict[str, str] = {"base": "gamedata.base", "Newwworld": "Newwworld.mod", "Dialogue": "Dialogue.mod",
               "rebirth": "rebirth.mod"}
 # Повышать при изменении состава полей индекса — старый кэш будет пересобран.
-INDEX_VERSION: int = 13
+INDEX_VERSION: int = 14
 
 # Поля шаблонов, нужные для характеристик предметов (itemstats.py). Остальное в индекс не попадает.
 STAT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -282,7 +282,7 @@ def _stats(e: dict[str, Any], tname: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------- сырые записи реакций и торговли
 
 # Кэш записей отдельный от индекса: индекс остаётся компактным (sid -> имя и поля шаблонов).
-RECORDS_PREFIX: str = "gamedb_records_"
+RECORDS_PREFIX: str = "gamedb_records_v14_"
 # Для определений реакций сохраняются значения 'v' ссылок (например 'NPC is' -> [1, 0, 0]) без трактовки.
 OVERRIDE_TOWN_STUB_REFS: tuple[str, ...] = ("override town", "world state", "faction", "trade culture", "trade prices")
 CONDITION_STUB_TYPES: frozenset[int] = frozenset({18, 19, 93})
@@ -294,6 +294,7 @@ UNIT_REFS: tuple[str, ...] = ("faction", "race", "stats", "weapons", "crossbows"
 SQUAD_REFS: tuple[str, ...] = ("faction", "leader", "squad", "squad2", "animals", "animals2", "choosefrom list",
                                "prisoners", "slaves", "housemates", "race override", "world state")
 FACTION_REFS: tuple[str, ...] = ("relations", "coexistence", "legal system", "races")
+TOWN_REFS: tuple[str, ...] = ("residents", "bar squads", "spawns", "roaming squads", "faction")
 RACE_TYPE_ID: int = 7
 WEATHER_IMMUNITY: str = "weather immunity"
 RACE_REFS: tuple[str, ...] = ("combat anatomy", "natural armour")
@@ -411,7 +412,7 @@ def unit_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """Сырые записи справочника юнитов без вычисленных оценок; значения полей и ссылок как хранятся.
 
     characters - CHARACTER (1) и ANIMAL_CHARACTER (76); stats - только записи STATS (25), на которые они ссылаются;
-    squads - SQUAD_TEMPLATE (52); biomes - BIOME_GROUP (95) со ссылками homeless spawns; towns - TOWN (13) с roaming squads;
+    squads - SQUAD_TEMPLATE (52); biomes - BIOME_GROUP (95) со ссылками homeless spawns; towns - все TOWN (13);
     factions - FACTION (10). Удалённые записи (REMOVED) не включаются. Связи только по sid.
     """
     records = db["records"]
@@ -432,8 +433,8 @@ def unit_records(db: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
             row = _raw_record(sid, e, tmap, data=False, cats=("homeless spawns",))
             row["homeless spawn amount"] = e.get("data", {}).get("float", {}).get("homeless spawn amount")
             out["biomes"].append(row)
-        elif tid == TOWN_TYPE_ID and refs.get("roaming squads"):
-            out["towns"].append(_raw_record(sid, e, tmap, data=False, cats=("roaming squads", "faction")))
+        elif tid == TOWN_TYPE_ID:
+            out["towns"].append(_raw_record(sid, e, tmap, cats=TOWN_REFS))
         elif tid == FACTION_TYPE_ID:
             out["factions"].append(_raw_record(sid, e, tmap, cats=FACTION_REFS))
     out["stats"] = [_raw_record(s, records[s], tmap, cats=()) for s in sorted(stats_sids)

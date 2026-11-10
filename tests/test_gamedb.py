@@ -226,7 +226,7 @@ class GameDBTests(unittest.TestCase):
             self.assertEqual(gamedb.fingerprint([base]), gamedb.fingerprint([base], self.po))
 
     def test_unit_records_skip_removed_and_unreferenced_stats(self) -> None:
-        """Ловит попадание удалённых (REMOVED) записей в справочник юнитов, лишних записей STATS и потерю units в кэше."""
+        """Ловит удалённые записи, лишние STATS и потерю городов, их ссылок и скалярных полей в кэше."""
         base = self.write(self.root / "base.mod", _mod(
             _record("c-1", "Grunt", kind=1, data={"int": {"combat stats": 40}},
                     refs={"stats": {"st-1": [0, 0, 0]}, "race": {"r-1": [100, 0, 0]}, "dialogue": {"d-1": [0, 0, 0]}}),
@@ -237,6 +237,16 @@ class GameDBTests(unittest.TestCase):
             _record("b-1", "Desert", kind=95, data={"float": {"homeless spawn amount": 2.0}},
                     refs={"homeless spawns": {"sq-1": [15, 0, 0]}}),
             _record("b-empty", "Empty", kind=95),
+            _record("t-1", "Town", kind=13,
+                    data={"bool": {"is public": True}, "int": {"money": 1000, "population": 20},
+                          "float": {"population mult": 1.5}, "string": {"description": "Town description"}},
+                    refs={"residents": {"sq-boss": [1, 2, 3]}, "bar squads": {"sq-bar": [4, 5, 6]},
+                          "spawns": {"sq-spawn": [7, 8, 9]}, "roaming squads": {"sq-1": [10, 11, 12]},
+                          "faction": {"f-1": [13, 14, 15]}, "override town": {"t-override": [0, 0, 0]}}),
+            _record("t-empty", "Empty town", kind=13),
+            _record("t-gone", "Deleted town", kind=13, data={"bool": {"REMOVED": True}},
+                    refs={"roaming squads": {"sq-1": [1, 0, 0]}}),
+            _record("t-resident", "Resident town", kind=13, refs={"residents": {"sq-boss": [2, 0, 0]}}),
         ))
         units = gamedb.unit_records(gamedb.build([base], self.po))
         self.assertEqual([r["sid"] for r in units["characters"]], ["c-1"])
@@ -246,7 +256,48 @@ class GameDBTests(unittest.TestCase):
         self.assertEqual([(r["sid"], r["homeless spawn amount"]) for r in units["biomes"]], [("b-1", 2.0)])
         records, meta = gamedb.load_records(self.cache, [base], self.po)
         self.assertEqual(records["units"], json.loads(json.dumps(units)))
+        towns = records["units"]["towns"]
+        self.assertEqual([r["sid"] for r in towns], ["t-1", "t-empty", "t-resident"])
+        self.assertEqual(towns[0]["refs"], {
+            "residents": [["sq-boss", [1, 2, 3]]], "bar squads": [["sq-bar", [4, 5, 6]]],
+            "spawns": [["sq-spawn", [7, 8, 9]]], "roaming squads": [["sq-1", [10, 11, 12]]],
+            "faction": [["f-1", [13, 14, 15]]],
+        })
+        self.assertEqual(towns[0]["bool"], {"is public": True})
+        self.assertEqual(towns[0]["int"], {"money": 1000, "population": 20})
+        self.assertEqual(towns[0]["float"], {"population mult": 1.5})
+        self.assertEqual(towns[0]["string"], {"description": "Town description"})
+        self.assertEqual(towns[2]["refs"], {"residents": [["sq-boss", [2, 0, 0]]]})
         self.assertEqual(gamedb.load_records(self.cache, [base], self.po)[1]["cache"], "hit")
+
+    def test_load_records_invalidates_old_version_cache(self) -> None:
+        """Ловит переиспользование старого отпечатка или старого файла вместо пересборки кэша новой версии."""
+        self.assertEqual(gamedb.INDEX_VERSION, 14)
+        self.assertEqual(gamedb.RECORDS_PREFIX, "gamedb_records_v14_")
+        base = self.write(self.root / "base.mod", _mod(_record(
+            "t-1", "Town", kind=13, data={"int": {"money": 1000}},
+            refs={"residents": {"sq-1": [1, 0, 0]}},
+        )))
+        fp = gamedb.fingerprint([base], self.po)
+        for scenario in ("fingerprint_version_mismatch", "new_cache_file_missing"):
+            with self.subTest(scenario=scenario):
+                cache = self.cache / scenario
+                with patch.object(gamedb, "INDEX_VERSION", 13), patch.object(gamedb, "RECORDS_PREFIX", "gamedb_records_"):
+                    expected, old_meta = gamedb.load_records(cache, [base], self.po)
+                old_path = cache / old_meta["cache_file"]
+                old_bytes = old_path.read_bytes()
+                current_path = cache / f"{gamedb.RECORDS_PREFIX}{gamedb._cache_key(fp)}.json"
+                if scenario == "fingerprint_version_mismatch":
+                    current_path.write_bytes(old_bytes)
+                self.assertEqual(current_path.is_file(), scenario == "fingerprint_version_mismatch")
+                with patch.object(gamedb, "_rebuild", wraps=gamedb._rebuild) as rebuild:
+                    records, meta = gamedb.load_records(cache, [base], self.po)
+                rebuild.assert_called_once_with(cache, [base], self.po, fp)
+                self.assertEqual(meta["cache"], "rebuilt")
+                self.assertEqual(meta["cache_file"], current_path.name)
+                self.assertEqual(records, expected)
+                self.assertEqual(json.loads(current_path.read_text(encoding="utf-8"))["fingerprint"], fp)
+                self.assertEqual(old_path.read_bytes(), old_bytes)
 
     def test_race_records_follow_load_order(self) -> None:
         """Ловит иммунитет расы из базы вместо rebirth (порядок загрузки), потерю источника поля и записи в кэше."""
