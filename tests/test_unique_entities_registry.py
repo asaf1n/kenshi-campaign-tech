@@ -1,0 +1,216 @@
+"""Регрессии графа размещения, учёта экземпляров и подтверждённых отметок."""
+from __future__ import annotations
+
+from copy import deepcopy
+import unittest
+from typing import Any
+
+from tools.unique_entities_registry import GRADE_SID, MANUFACTURER_SID, build_unique_entities_registry
+from tools.validation import validate_unique_entities_registry
+
+
+# SID и названия сверены с локальным кэшем GameDB v14. Связи ниже — изолированный сценарий.
+WEAPONS = (
+    ("1020-gamedata.base", "Wakizashi"), ("474-gamedata.base", "Topper"),
+    ("475-gamedata.base", "Horse Chopper"), ("476-gamedata.base", "Katana"),
+    ("477-gamedata.base", "Fragment Axe"), ("52287-rebirth.mod", "Holed Sabre"),
+    ("52290-rebirth.mod", "Heavy Jitte"), ("52292-rebirth.mod", "Combat Cleaver"),
+    ("52299-rebirth.mod", "Paladin's Cross"), ("52300-rebirth.mod", "Moon Cleaver"),
+    ("52301-rebirth.mod", "Polearm"), ("52302-rebirth.mod", "Staff"),
+    ("52303-rebirth.mod", "Jitte"), ("52304-rebirth.mod", "Foreign Sabre"),
+    ("52305-rebirth.mod", "Desert Sabre"), ("52306-rebirth.mod", "Falling Sun"),
+    ("52307-rebirth.mod", "Heavy Polearm"), ("52308-rebirth.mod", "Naginata"),
+    ("52309-rebirth.mod", "Naginata Katana"), ("56728-Dialogue.mod", "Exile Plank"),
+    ("65260-rebirth.mod", "Short-Cleaver"), ("901-gamedata.base", "Longsword"),
+    ("903-gamedata.base", "Ringed Sabre"), ("922-gamedata.base", "Nodachi"),
+    ("923-gamedata.base", "Guardless Katana"), ("924-gamedata.base", "Ninja Blade"),
+)
+BURN, WIZARD, PONK, SCREAMER = "50570-rebirth.mod", "50519-rebirth.mod", "96407-rebirth.mod", "96409-rebirth.mod"
+
+
+def _ref(sid: str) -> list[list[Any]]:
+    return [[sid, [1, 0, 0]]]
+
+
+def _item(sid: str, base_sid: str, section: str = "main", container: str = "inventory") -> dict[str, Any]:
+    return {"item_sid": sid, "base_data_sid": base_sid, "section": section, "container": container,
+            "material_sid": GRADE_SID, "company_sid": MANUFACTURER_SID}
+
+
+class UniqueEntitiesRegistryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cur: dict[str, Any] = {
+            "snapshot_id": "snapshot", "campaign_id": "campaign", "generated_at": "2026-11-11T00:00:00Z",
+            "world": {"day": 136, "time": "20:21"}, "squads": [],
+            "world_state": {"unique_npcs": [
+                {"sid": BURN, "handle": [1, 2, 3, 4, 5], "state_code": 1, "player": False},
+                {"sid": WIZARD, "handle": [1, 2, 3, 4, 6], "state_code": 0, "player": True},
+                {"sid": "dynamic-only", "name": "Unknown", "handle": [1, None, 3, 4, 5]},
+            ]},
+            "characters": [{"id": "ps:burn", "name": "Ожог", "handle": [1, 2, 3, 4, 5],
+                            "squad_name": "Squad", "items": []}],
+        }
+        characters = [
+            {"sid": BURN, "name": "Burn", "bool": {"unique": True}, "int": {"NPC class": 9}},
+            {"sid": WIZARD, "name": "Cannibal Grand Wizard", "bool": {"unique": True},
+             "int": {"bounty amount": 40000}},
+            {"sid": PONK, "name": "Ponk", "bool": {"unique": True}, "int": {"bounty amount": 20000}},
+            {"sid": SCREAMER, "name": "Screamer the False", "bool": {"unique": True}},
+            {"sid": "captive", "name": "Captive", "bool": {"unique": True}},
+        ]
+        squads = [
+            {"sid": "50569-rebirth.mod", "refs": {"leader": _ref(BURN)}},
+            {"sid": "50521-rebirth.mod", "refs": {"squad": _ref(WIZARD)}},
+            {"sid": "96404-rebirth.mod", "refs": {"squad2": _ref(PONK), "leader": _ref(SCREAMER),
+                                                     "prisoners": _ref("prisoner-squad")}},
+            {"sid": "prisoner-squad", "refs": {"leader": _ref("captive"),
+                                                 "prisoners": _ref("96404-rebirth.mod")}},
+        ]
+        towns = []
+        locations = []
+        for template, name, squad, instance in (
+            ("48447-rebirth.mod", "Burn's Tower", "50569-rebirth.mod", "6-rebirth-INGAME"),
+            ("50522-rebirth.mod", "Cannibal Capital", "50521-rebirth.mod", "26-rebirth-INGAME"),
+            ("95726-rebirth.mod", "Tower of Abuse", "96404-rebirth.mod", "abuse-instance"),
+        ):
+            towns.append({"sid": template, "name": name, "refs": {"residents": _ref(squad)}})
+            locations.append({"instance_id": instance, "template_sid": template, "name_en": name,
+                              "name_ru": None, "region": "region"})
+        # Отдельные владельцы позволяют проверять полноту каталога без локальной установки игры.
+        for number, (sid, _) in enumerate(WEAPONS):
+            characters.append({"sid": f"holder-{number:02}", "name": f"Holder {number}",
+                               "refs": {"weapon level": _ref(MANUFACTURER_SID), "weapons": _ref(sid)}})
+        characters[-1]["refs"]["weapons"] += _ref(WEAPONS[0][0])
+        self.records = {"units": {"characters": characters, "squads": squads, "towns": towns},
+                        "reactions": {"world_states": [{"sid": "state", "name": "Screamer alive", "type_id": 110,
+                                                         "refs": {"NPC is": _ref(SCREAMER)}}]}}
+        self.index = {sid: [name, None, "WEAPON", "rebirth.mod", {"skill category": 1}]
+                      for sid, name in WEAPONS}
+        self.world = {"world_ref_id": "world", "created_at": "2026-11-10T00:00:00Z", "locations": locations}
+
+    def build(self, **kwargs: Any) -> dict[str, Any]:
+        return build_unique_entities_registry(self.cur, self.world, self.records, self.index, **kwargs)
+
+    def test_schema_graph_dynamic_and_determinism(self) -> None:
+        original = deepcopy((self.cur, self.world, self.records, self.index))
+        registry = self.build()
+        validate_unique_entities_registry(registry)
+        self.assertEqual(registry, self.build())
+        self.assertEqual(original, (self.cur, self.world, self.records, self.index))
+        npcs = {row["npc_sid"]: row for row in registry["unique_npcs"]}
+        self.assertEqual(npcs[BURN]["category"], "recruit")
+        self.assertEqual(npcs[BURN]["locations"][0]["source_chain"], [
+            f"CHARACTER:{BURN}", "SQUAD:50569-rebirth.mod", "TOWN:48447-rebirth.mod", "INSTANCE:6-rebirth-INGAME"])
+        self.assertEqual(npcs[BURN]["dynamic"]["squad_status"], "confirmed_in_squad")
+        self.assertEqual(npcs[BURN]["dynamic"]["character_id"], "ps:burn")
+        self.assertFalse(npcs[BURN]["dynamic"]["player_defeat_flag"])
+        self.assertEqual(npcs[WIZARD]["dynamic"]["squad_status"], "confirmed_not_in_squad")
+        self.assertTrue(npcs[WIZARD]["dynamic"]["player_defeat_flag"])
+        for sid in (PONK, SCREAMER, "captive"):
+            self.assertEqual(npcs[sid]["locations"][0]["instance_id"], "abuse-instance")
+        weapons = registry["meitou_weapons"]
+        self.assertEqual([row["base_sid"] for row in weapons], sorted(sid for sid, _ in WEAPONS))
+        self.assertEqual(len(weapons[0]["static_holders"]), 2)
+        for invalid in (None, [], [0] * 5, [1, None, 3, 4, 5], [True, 2, 3, 4, 5], [1] * 6):
+            with self.subTest(handle=invalid):
+                self.cur["world_state"]["unique_npcs"][0]["handle"] = invalid
+                row = next(row for row in self.build()["unique_npcs"] if row["npc_sid"] == BURN)
+                self.assertEqual(row["dynamic"]["squad_status"], "unresolved")
+                self.assertIsNone(row["dynamic"]["handle"])
+        self.cur = deepcopy(original[0])
+        for rows in self.records["units"].values():
+            rows.reverse()
+        self.world["locations"].reverse()
+        self.cur["world_state"]["unique_npcs"].reverse()
+        self.assertEqual(registry, self.build())
+        for field, kind in (("bar squads", "bar_squad"), ("roaming squads", "roaming")):
+            with self.subTest(town_link=field):
+                town = next(row for row in self.records["units"]["towns"] if row["sid"] == "48447-rebirth.mod")
+                town["refs"] = {field: _ref("50569-rebirth.mod")}
+                npc = next(row for row in self.build()["unique_npcs"] if row["npc_sid"] == BURN)
+                self.assertEqual(npc["locations"][0]["link_type"], kind)
+        town["refs"] = {"residents": _ref("50569-rebirth.mod")}
+        self.world["locations"].append({**self.world["locations"][-1], "instance_id": "burn-second"})
+        row = next(row for row in self.build()["unique_npcs"] if row["npc_sid"] == BURN)
+        self.assertEqual([link["resolution"] for link in row["locations"]], ["ambiguous"] * 2)
+        self.world["locations"] = []
+        row = next(row for row in self.build()["unique_npcs"] if row["npc_sid"] == BURN)
+        self.assertEqual(row["locations"][0]["resolution"], "unresolved")
+        empty = build_unique_entities_registry(self.cur, self.world, {}, {})
+        validate_unique_entities_registry(empty)
+        self.assertEqual(empty["meitou_weapons"], [])
+
+    def test_instances_and_trophy_protocol(self) -> None:
+        sid = WEAPONS[0][0]
+        self.cur["characters"][0]["items"] = [
+            _item("equipped", sid, "back"), _item("spare", sid),
+            _item("packed", sid, container="inventory>bag"),
+            {**_item("wrong-grade", sid), "material_sid": "other"},
+            {**_item("wrong-maker", sid), "company_sid": "other"},
+        ]
+        self.cur["property"] = {"buildings": [{"id": "house", "zone": "1.2", "town": "Home", "name": "House",
+                                              "interior": [{"id": "chest", "name": "Chest", "storage_items": [
+                                                  _item("stored", sid)]}]}]}
+        event = {"format": "kenshi-event/1", "event_id": "trophy", "session_id": "session",
+                 "recorded_at": "2026-11-11T00:00:00Z", "kind": "battle", "status": "confirmed",
+                 "game_day": 136, "game_time": "Day 136 20:20", "summary": f"Трофей [base_sid={sid}]",
+                 "evidence": [{"kind": "user_note", "ref": "sessions/session/notes.md"}]}
+        for changes, confirmed in (({}, True), ({"summary": "Трофей без маркера"}, False),
+                                   ({"summary": f"Трофей [base_sid={sid}x]"}, False),
+                                   ({"status": "inferred"}, False), ({"status": "observed", "evidence": [
+                                       {"kind": "snapshot", "ref": "snapshot"}]}, False),
+                                   ({"game_day": 137, "game_time": "Day 137 00:00"}, False)):
+            with self.subTest(changes=changes):
+                registry = self.build(timeline_data={"events": [{**event, **changes}]})
+                weapon = registry["meitou_weapons"][0]
+                self.assertEqual(weapon["provenance_status"],
+                                 "confirmed_trophy" if confirmed else "observed_in_inventory")
+                self.assertEqual(weapon["trophy_evidence"] is not None, confirmed)
+                self.assertEqual({row["location_kind"] for row in weapon["observed_instances"]},
+                                 {"equipped", "inventory", "backpack", "storage"})
+                self.assertEqual(len(weapon["observed_instances"]), 4)
+                stored = next(row for row in weapon["observed_instances"] if row["location_kind"] == "storage")
+                self.assertEqual(stored["item_sid"], "stored")
+                self.assertEqual(stored["storage_settlement"], "Home")
+                if confirmed:
+                    self.assertEqual(weapon["trophy_evidence"]["day"], 136)
+        correction = {**event, "event_id": "cancel", "kind": "correction", "corrects_event_id": "trophy",
+                      "summary": "Получение трофея отменено"}
+        weapon = self.build(timeline_data={"events": [event, correction]})["meitou_weapons"][0]
+        self.assertIsNone(weapon["trophy_evidence"])
+        correction.update(game_day=137, game_time="Day 137 00:00")
+        weapon = self.build(timeline_data={"events": [event, correction]})["meitou_weapons"][0]
+        self.assertEqual(weapon["trophy_evidence"]["event_id"], "trophy")
+        before = self.build()
+        self.cur["characters"][0]["items"].reverse()
+        self.assertEqual(before, self.build())
+
+    def test_clearance_requires_applicable_manual_mark(self) -> None:
+        registry = self.build()
+        bosses = {row["npc_sid"]: row for row in registry["bosses"]}
+        self.assertEqual(bosses[WIZARD]["observed_state"]["state_code"], 0)
+        self.assertTrue(all(row["cleared_evidence"] is None for row in bosses.values()))
+        self.assertEqual(bosses[WIZARD]["classification_origin"], "game_bounty")
+        self.assertEqual(bosses[SCREAMER]["classification_origin"], "world_state")
+        self.assertEqual(bosses["holder-00"]["classification_origin"], "meitou_holder")
+        self.records["units"]["characters"][2].pop("int")
+        bosses = {row["npc_sid"]: row for row in self.build()["bosses"]}
+        self.assertEqual(bosses[PONK]["classification_origin"], "custom_catalog")
+        progress = {"format": "kenshi-location-progress/3", "campaign_id": "campaign", "world_ref_id": "world",
+                    "locations": [{"instance_id": "26-rebirth-INGAME", "evidence": "session-note",
+                                   "game_time": "Day 136 20:20"}]}
+        for campaign, time, expected in (("campaign", "Day 136 20:20", True),
+                                         ("other", "Day 136 20:20", False),
+                                         ("campaign", "Day 137 00:00", False)):
+            with self.subTest(campaign=campaign, time=time):
+                progress["campaign_id"] = campaign
+                progress["locations"][0]["game_time"] = time
+                bosses = {row["npc_sid"]: row for row in self.build(progress_data=progress)["bosses"]}
+                self.assertEqual(bosses[WIZARD]["cleared_evidence"] is not None, expected)
+                if expected:
+                    self.assertEqual(bosses[WIZARD]["cleared_evidence"], {
+                        "location_instance_id": "26-rebirth-INGAME", "cleared_at": time, "source": "session-note"})
+
+
+if __name__ == "__main__":
+    unittest.main()

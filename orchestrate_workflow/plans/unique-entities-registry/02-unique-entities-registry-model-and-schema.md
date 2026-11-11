@@ -78,4 +78,4 @@
 ## Этапы задачи
 
 1. Разработка схемы `contracts/unique-entities-registry.schema.json`, эталонного примера `examples/unique-entities-registry.example.json` и обновление `check_examples()` в `tools/validation.py`. Готово: `python -m tools.campaign check-schemas` валидирует новую схему и пример с кодом возврата 0. Принят.
-2. Реализация сборщика `tools/unique_entities_registry.py` с поддержкой 1:N владельцев, `game_index`, трехзначной логики `squad_status`, контракта `trophy_evidence` через маркер `[base_sid=<sid>]` в `timeline_data` и детерминированной сортировки. Готово: модуль строит детерминированный реестр для снимка кампании со всеми 3 группами сущностей. Не начат.
+2. Реализация сборщика `tools/unique_entities_registry.py` с поддержкой 1:N владельцев, `game_index`, трехзначной логики `squad_status`, контракта `trophy_evidence` через маркер `[base_sid=<sid>]` в `timeline_data` и детерминированной сортировки. Готово: модуль строит детерминированный реестр для снимка кампании со всеми 3 группами сущностей. Принят.
