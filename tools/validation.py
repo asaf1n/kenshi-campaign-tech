@@ -637,6 +637,17 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
     if "tables" in artifacts:
         validate_tables(package_dir, manifest)
 
+    if "unique_entities_registry" in artifacts:
+        registry_name = artifacts["unique_entities_registry"]
+        try:
+            registry = read_json((package_dir / registry_name).read_bytes())
+            validate_unique_entities_registry(registry)
+        except (OSError, ValueError, ValidationError) as error:
+            raise PublicationValidationError(f"Ошибка валидации {registry_name}: {error}") from error
+        for field in ("campaign_id", "snapshot_id", "world_ref_id", "game_time"):
+            if registry.get(field) != manifest.get(field):
+                raise PublicationValidationError(f"Несовпадение {field} между manifest и {registry_name}")
+
     # 2. Семантические проверки current и changes
     current_path = package_dir / artifacts["current"]
     changes_path = package_dir / artifacts["changes"]
@@ -897,6 +908,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
             "semantics",
             "geography" if (has_locations and has_world_ref) else "no_geography",
             *(["location_registry"] if "location_registry" in artifacts else []),
+            *(["unique_entities_registry"] if "unique_entities_registry" in artifacts else []),
             "timeline" if "timeline" in artifacts else "no_timeline",
             "screenshots" if "screenshots" in artifacts else "no_screenshots",
             "screenshot_annotations" if "screenshot_annotations" in artifacts else "no_screenshot_annotations",

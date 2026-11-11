@@ -30,12 +30,14 @@ from tools.locator import resolve_locations
 from tools.rendering import render_brief, render_squad
 from tools.tables import INDEX_ARTIFACT, TABLES_DIR, build_tables, load_game_data
 from tools.timeline import filter_events_by_chain, load_sessions, project_timeline, read_timeline
+from tools.unique_entities_registry import build_unique_entities_registry
 from tools.validation import TIMELINE_EMPTY_WARNING, validate_publication
 from tools.world_context import aggregate_storage_by_location, zone_settlements
 from tools.world_reference import DEFAULT_WORLD_DIR, find_world_reference, load_world_reference
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLICATION_FORMAT = "kenshi-publication/2"
+UNIQUE_ENTITIES_FILENAME: str = "unique_entities_registry.json"
 DEFAULT_SCREENS_DIR: Path | None = None
 # Шапка brief.md содержит generated_at, а сам generated_at зависит от сравнения файлов выпуска: сравниваем с подстановкой.
 GENERATED_AT_TOKEN = "@@generated_at@@"
@@ -399,6 +401,7 @@ def publish(
             "locations": "locations.json",
             "world_reference": "world_reference.json",
             "location_registry": REGISTRY_FILENAME,
+            "unique_entities_registry": UNIQUE_ENTITIES_FILENAME,
             "timeline": "timeline.jsonl",
             "tables": INDEX_ARTIFACT,
         },
@@ -411,6 +414,7 @@ def publish(
                 "semantics",
                 "geography",
                 "location_registry",
+                "unique_entities_registry",
                 "timeline",
                 "privacy",
             ],
@@ -636,6 +640,18 @@ def publish(
 
             (staging_dir / "world_reference.json").write_bytes(canonical(public_world_reference(w_ref)))
             (staging_dir / REGISTRY_FILENAME).write_bytes(registry_data)
+            # Ручной слой кампании применяется при доставке в игровой репозиторий.
+            progress_data = None
+            unique_entities_payload = build_unique_entities_registry(
+                cur=dict(cur, snapshot_id=snapshot_id, campaign_id=effective_campaign,
+                         game_time=game_time, generated_at=manifest_data["generated_at"]),
+                world_ref=w_ref,
+                game_records=game_records or {},
+                game_index=game_index or {},
+                progress_data=progress_data,
+                timeline_data={"events": timeline_data},
+            )
+            (staging_dir / UNIQUE_ENTITIES_FILENAME).write_bytes(canonical(unique_entities_payload))
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
@@ -682,6 +698,8 @@ def publish(
 
                 def unchanged(name: str) -> bool:
                     before = (published_dir / name).read_bytes()
+                    if name == UNIQUE_ENTITIES_FILENAME:
+                        return before == canonical(dict(unique_entities_payload, generated_at=previous.get("generated_at")))
                     if name == "brief.md":
                         before = before.replace(previous_stamp, GENERATED_AT_TOKEN.encode("utf-8"))
                     return before == (staging_dir / name).read_bytes()
@@ -710,6 +728,8 @@ def publish(
                 elif manifest_data["generated_at"] == previous.get("generated_at"):
                     stamp = datetime.fromisoformat(previous["generated_at"].replace("Z", "+00:00"))
                     manifest_data["generated_at"] = (stamp + timedelta(microseconds=1)).isoformat().replace("+00:00", "Z")
+            unique_entities_payload["generated_at"] = manifest_data["generated_at"]
+            (staging_dir / UNIQUE_ENTITIES_FILENAME).write_bytes(canonical(unique_entities_payload))
             (staging_dir / "manifest.json").write_bytes(canonical(manifest_data))
             (staging_dir / "brief.md").write_text(
                 brief_md.replace(GENERATED_AT_TOKEN, manifest_data["generated_at"]), encoding="utf-8"

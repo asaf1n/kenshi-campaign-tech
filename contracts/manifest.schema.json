@@ -78,6 +78,9 @@
         "location_registry": {
           "const": "location_registry.json"
         },
+        "unique_entities_registry": {
+          "$ref": "#/$defs/relativePath"
+        },
         "screenshots": {
           "$ref": "#/$defs/relativePath"
         },

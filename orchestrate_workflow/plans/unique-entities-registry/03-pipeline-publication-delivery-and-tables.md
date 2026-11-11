@@ -30,6 +30,6 @@
 
 ## Этапы задачи
 
-1. Обновление `contracts/manifest.schema.json`, `tools/validation.py` и `tools/publisher.py`. Готово: локальный прогон `python -m tools.campaign publish` атомарно выпускает `published/unique_entities_registry.json`, `validation.status == "passed"`. Не начат.
+1. Обновление `contracts/manifest.schema.json`, `tools/validation.py` и `tools/publisher.py`. Готово: локальный прогон `python -m tools.campaign publish` атомарно выпускает `published/unique_entities_registry.json`, `validation.status == "passed"`. Принят.
 2. Доработка `tools/deliver_companion.py` и добавление `unique_entities.csv` в `tools/tables.py`. Готово: сухой прогон доставки во временный каталог проходит валидацию, таблица `tables/unique_entities.csv` зарегистрирована в `tables/index.md`. Не начат.
 3. Актуализация проектной документации `docs/data-contract.md`, `docs/architecture.md`. Готово: документация отражает структуру нового артефакта, `git diff --check` чист. Не начат.
