@@ -193,10 +193,10 @@ MARKUP_NOTE = ("Первичная разметка — автоматическ
 
 
 def render_brief_section(new_frames: list[dict[str, Any]], total: int) -> str:
-    """Секция `## Скриншоты снимка` для brief.md: только кадры дельты, обязательные к анализу на шаге `[ход]`."""
+    """Секция `## Скриншоты снимка` для brief.md: только кадры дельты, обязательные к анализу на шаге `[gamedata_export]`."""
     lines = ["## Скриншоты снимка", ""]
     if new_frames:
-        lines += [f"Новых кадров текущего снимка: {len(new_frames)}. Их визуальный анализ обязателен на шаге `[ход]`. {MARKUP_NOTE}", ""]
+        lines += [f"Новых кадров текущего снимка: {len(new_frames)}. Их визуальный анализ обязателен на шаге `[gamedata_export]`. {MARKUP_NOTE}", ""]
         lines += render_frames_table(new_frames)
     else:
         lines.append(NO_FRAMES_NOTE)
