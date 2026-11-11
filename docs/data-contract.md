@@ -2,7 +2,7 @@
 
 ## Обязательное исходное обследование
 
-Нативный конвейер `extract --source-kind save` формирует `kenshi-session/11`. Импорт готовых выгрузок `extract --source-kind export` сохраняет исходный формат: `kenshi-session/10` или `kenshi-session/11`. Внутренний `session_export.build_snapshot` предоставляет совместимое представление v10; `converter_worker` дополняет его полями `save_reader` до v11. Внешний конвертер не запускается. Формат diff остаётся `kenshi-session-diff/5`. Известные исходные поля см. `references/observed-export.md`. Контракт снимка сессии формализован в `contracts/session.schema.json` (JSON Schema Draft 2020-12).
+Нативный конвейер `extract --source-kind save` формирует `kenshi-session/11`. Импорт готовых выгрузок `extract --source-kind export` сохраняет исходный формат: `kenshi-session/10` или `kenshi-session/11`. Внутренний `session_export.build_snapshot` предоставляет совместимое представление v10; `converter_worker` дополняет его полями `save_reader` до v11. Внешний конвертер не запускается. Формат diff остаётся `kenshi-session-diff/5`. Контракт снимка сессии формализован в `contracts/session.schema.json` (JSON Schema Draft 2020-12).
 
 `current.json` сохраняет `format` (`kenshi-session/10` либо `kenshi-session/11`), игровые поля и доступную точность без дополнительного округления. Нормализатор проверяет обязательные объекты `save`, `world`, `meta`, списки `characters`, `squads`, `warnings`; неизвестные игровые поля сохраняет. Схема `contracts/session.schema.json` валидирует как сырые (до нормализации, с метаданными пути и файла), так и нормализованные снимки (где `save` очищен до `{}`).
 

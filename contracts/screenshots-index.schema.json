@@ -39,7 +39,7 @@
       "format": "date-time"
     },
     "new_frames": {
-      "description": "Файлы кадров дельты после родительского снимка; кадр вне screenshots есть только в архиве, PDF и на Google Диске.",
+      "description": "Файлы кадров дельты после родительского снимка; кадр вне screenshots сохраняется в локальном архиве.",
       "type": "array",
       "items": {
         "type": "string",

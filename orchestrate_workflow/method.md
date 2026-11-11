@@ -12,7 +12,6 @@
 | Данные и схемы | `docs/data-contract.md`, `contracts/` |
 | Критерии приёмки | `docs/acceptance.md` |
 | Роли/провайдеры | `docs/multiagent.md` |
-| Наблюдения об экспорте | `references/observed-export.md` |
 | Инструкции для чат-ИИ моделей | `docs/chatgpt-interface.md` |
 
 ## Пути оркестрации (только при использовании установленного workflow)

@@ -591,7 +591,7 @@ def publish(
             screenshots_annotations_bytes = None
             screenshots_feed_md = None
 
-        # Индекс кадров и шапки PDF: дельта снимка, архивный хвост и первичная разметка
+        # Индекс кадров: дельта снимка, архивный хвост и первичная разметка
         bundled = {item["published_name"] for item in collected_screenshots}
         annotations = {record.get("filename"): record for record in annotated_records}
 
