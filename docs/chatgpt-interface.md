@@ -20,13 +20,15 @@
 6. `locations.json` (`kenshi-locations/1`) — разрешённые пространственные координаты участников отряда и построек игрока, пространственные группы `spatial_groups` и прямолинейное смещение `movement`.
 7. `world_reference.json` (`kenshi-world-reference/1`) — статический справочник географии мира (261 локация и палитра регионов `BIOME_GROUP` без растра `regions_map` и `source_hashes`).
 8. `location_registry.json` (`kenshi-location-registry/3`) — реестр всех 261 локаций справочника мира с флагом `discovered` из `Town state.discovered` сохранения, шаблонным владельцем `template_faction` и отметками зачистки `cleared` (`evidence`, `game_time`), накладываемыми при доставке из `Campaign/<кампания>/locations_progress.json` формата `kenshi-location-progress/3`.
-9. `timeline.jsonl` (`kenshi-event/1`) — опубликованная проекция подтверждённых игровых событий и автоматических событий дельт окна цепочки.
-10. `tables/` — табличные выгрузки состояния (19 CSV в UTF-8 и `tables/index.md` со словарём колонок); перечень ниже.
-11. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` формата `kenshi-screenshots-index/1` и `index.md` всегда; `annotations.jsonl` формата `kenshi-screenshot-annotation/1` и `feed.md` только при распознанном тексте; `screenshots_latest.pdf` вне git для копии на Google Диске). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
+9. `unique_entities_registry.json` (`kenshi-unique-entities-registry/2`, поддерживается чтение `/1`) — уникальные NPC, боссы и значимые персонажи, статические привязки, возможные владельцы Meitou, наблюдаемые экземпляры и подтверждённое происхождение трофеев. Доставка накладывает ручные свидетельства зачистки только на связи с локациями и согласованно пересобирает `tables/unique_entities.csv`.
+10. `timeline.jsonl` (`kenshi-event/1`) — опубликованная проекция подтверждённых игровых событий и автоматических событий дельт окна цепочки.
+11. `tables/` — табличные выгрузки состояния (24 CSV в UTF-8 и `tables/index.md` со словарём колонок); перечень ниже.
+12. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` формата `kenshi-screenshots-index/1` и `index.md` всегда; `annotations.jsonl` формата `kenshi-screenshot-annotation/1` и `feed.md` только при распознанном тексте; `screenshots_latest.pdf` вне git для копии на Google Диске). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
 
 ## Разграничение ролей географических и справочных артефактов для ИИ-агента
 
 - `published/locations.json` (`kenshi-locations/1`) — **текущее положение отряда и построек игрока** в конкретном снимке (`in_location`, `near_location`, `in_region`, `unknown`), группировка участников `spatial_groups` и смещение `movement` между снимками. Не хранит историю посещений и статус зачистки объектов.
+- `published/unique_entities_registry.json` (`kenshi-unique-entities-registry/2`) — **потенциальные боссы, уникальные NPC и Meitou**: статус зачистки места не означает поражения NPC; для оружия отдельны наблюдаемый экземпляр и подтверждённое происхождение.
 - `published/location_registry.json` (`kenshi-location-registry/3`) — **реестр известности и зачистки всех 261 локаций мира**: флаг `discovered` (`true`/`false` из `Town state.discovered` сейва — открыто ли место на карте игры), `template_faction` (шаблонный владелец в данных мира) и поле `cleared` (`evidence`, `game_time`), накладываемое при доставке из ручного слоя `Campaign/<кампания>/locations_progress.json` (`kenshi-location-progress/3`) по подтверждённым при `[итог]` результатам зачистки.
 - `published/world_reference.json` (`kenshi-world-reference/1`) — **статический паспорт локаций и регионов** (координаты, зоны `col.row`, `confirmed_radius`, `radius_source`, `static_buildings`, палитра `regions`), неизменный для данного набора файлов игры и модов (`world_ref_id`).
 - Производные справочники в `docs/reference/` игрового репозитория (доставляются `deliver-companion` вне `published/`):
@@ -41,6 +43,8 @@
 |---|---|
 | `squad.csv` | персонаж отряда: раса, местоположение, кровь, сытость, статусы, работы, атрибуты и навыки |
 | `equipment.csv` | все экземпляры оружия, брони и протезов (`location_kind`: worn, inventory, backpack, belt, storage): `level`, `grade`, `manufacturer`, значения шаблона `tpl_*`, итоговые `calc_*` |
+| `buildings.csv`, `research.csv`, `build_catalog.csv`, `biome_resources.csv` | постройки и станки игрока, дерево технологий, каталог строительства и природные ресурсы регионов |
+| `unique_entities.csv` | табличная проекция окончательного реестра уникальных NPC, боссов и Meitou после доставки; учитывает формат `/2` |
 | `inventory.csv` | все предметы персонажей поэкземплярно (контейнер, слот, уровень, качество, количество); ключ сравнения снимков — (`character_id`, `base_sid`, `level`, `slot`, `dup_no`), `item_sid` действует только внутри снимка |
 | `races.csv` | расы: иммунитеты к погоде, естественная броня, скорости, множители, анатомия |
 | `storage.csv` | предметы в хранилищах зданий игрока по поселениям, с количеством, уровнем, качеством, грейдом и базовой ценой |
