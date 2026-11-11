@@ -13,7 +13,7 @@ from tools import screenshot_publish
 from tools.changes_render import render_changes_md
 from tools.io_utils import canonical, read_json
 from tools.publisher import publish
-from tools.screenshot_delta import bind_interval, delta_boundary, new_frame_names
+from tools.screenshot_delta import MARKUP_NOTE, bind_interval, delta_boundary, new_frame_names, render_frames_table
 from tools.timeline import project_timeline
 
 PARENT, CHILD = "snap_parent", "snap_child"
@@ -73,12 +73,18 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertIn(f"published/screenshots/{new_name})", delta_part)
         self.assertIn(f"`published/screenshots/{new_name}`", delta_part)
         self.assertIn("Казна: 100 -> 50 (-50)", delta_part)
+        self.assertIn("Путь в публикации", index_md)
+        self.assertNotIn("Google Диск", index_md)
 
         brief = (self.published / "brief.md").read_text(encoding="utf-8")
         self.assertIn(f"`{CHILD}`", brief[:400])
         self.assertIn(f"`{PARENT}`", brief[:400])
         self.assertIn(first["manifest"]["generated_at"], brief[:400])
         self.assertIn("## Скриншоты снимка", brief)
+        self.assertIn(f"Новых кадров текущего снимка: 1. {MARKUP_NOTE}", brief)
+        self.assertNotIn("[gamedata_export]", brief)
+        self.assertIn("Путь в публикации", brief)
+        self.assertNotIn("Google Диск", brief)
         self.assertIn(new_name, brief)
         self.assertNotIn("screenshot_1-", brief)
         self.assertTrue((self.published / "changes.md").is_file())
@@ -135,6 +141,30 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertIn("Казна: 1 -> 2 (+1)", text)
         self.assertIn("left_leg: None -> lost", text)
         self.assertNotIn("data/diffs/", text)
+
+    def test_render_frames_table_columns_and_unbundled_label(self) -> None:
+        """Ловит заголовок 'Путь в публикации', 8 колонок и заглушку 'только локальный архив' для кадров вне набора."""
+        frame = {
+            "frame_id": "frame_01",
+            "filename": "screenshot_01.jpg",
+            "sha256": "1234567890abcdef" * 4,
+            "modified_at": "2026-11-01T10:00:00Z",
+            "interval": "интервал",
+            "markup": "разметка",
+            "url_raw": None,
+            "drive_path": "published/screenshots/screenshot_01.jpg",
+        }
+        lines = render_frames_table([frame])
+        # 8 колонок таблицы (между крайними | ровно 8 ячеек)
+        header_cells = [cell.strip() for cell in lines[0].split("|")[1:-1]]
+        self.assertEqual(len(header_cells), 8)
+        self.assertEqual(header_cells[-1], "Путь в публикации")
+        self.assertNotIn("Google Диск", lines[0])
+
+        row_cells = [cell.strip() for cell in lines[2].split("|")[1:-1]]
+        self.assertEqual(len(row_cells), 8)
+        self.assertEqual(row_cells[6], "только локальный архив")
+        self.assertNotIn("только PDF и Google Диск", lines[2])
 
 
 if __name__ == "__main__":

@@ -16,10 +16,8 @@ from tools.chain_timeline import chain_ids, significant_changes
 from tools.screenshots import RAW_DEFAULT_URL
 
 TAIL_FRAMES = 12
-PDF_FALLBACK_FRAMES = 5
 MARKUP_EVENTS = 6
 MARKUP_GROUPS = 3
-PDF_NAME = "screenshots_latest.pdf"
 
 NO_FRAMES_NOTE = "Новых кадров после предыдущего снимка нет."
 
@@ -149,7 +147,7 @@ def frame_record(
     annotation: dict[str, Any] | None,
     in_bundle: bool,
 ) -> dict[str, Any]:
-    """Строка таблицы и шапка страницы PDF для кадра; `item` несёт поля `archive_screenshots`."""
+    """Строка таблицы для кадра; `item` несёт поля `archive_screenshots`."""
     name = item["published_name"]
     interval, markup, nearest = frame_markup(item["modified_at"], chain, load_diff, load_locations, annotation)
     stamp = item["modified_at"].replace("T", " ").removesuffix("Z")
@@ -174,11 +172,11 @@ def _cell(value: str) -> str:
 
 def render_frames_table(frames: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь (GitHub и Google Диск) |",
+        "| ID кадра | Файл | sha256 | modified_at (системное время файла, не игровое) | Снимок / интервал | Первичная разметка | Raw | Путь в публикации |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for frame in frames:
-        raw = f"[raw]({frame['url_raw']})" if frame["url_raw"] else "только PDF и Google Диск"
+        raw = f"[raw]({frame['url_raw']})" if frame["url_raw"] else "только локальный архив"
         lines.append(
             f"| `{frame['frame_id']}` | `{frame['filename']}` | `{frame['sha256'][:8]}` `{frame['sha256']}` "
             f"| `{frame['modified_at']}` | {_cell(frame['interval'])} | {_cell(frame['markup'])} "
@@ -192,10 +190,10 @@ MARKUP_NOTE = ("Первичная разметка — автоматическ
 
 
 def render_brief_section(new_frames: list[dict[str, Any]], total: int) -> str:
-    """Секция `## Скриншоты снимка` для brief.md: только кадры дельты, обязательные к анализу на шаге `[gamedata_export]`."""
+    """Секция `## Скриншоты снимка` для brief.md: только кадры дельты снимка."""
     lines = ["## Скриншоты снимка", ""]
     if new_frames:
-        lines += [f"Новых кадров текущего снимка: {len(new_frames)}. Их визуальный анализ обязателен на шаге `[gamedata_export]`. {MARKUP_NOTE}", ""]
+        lines += [f"Новых кадров текущего снимка: {len(new_frames)}. {MARKUP_NOTE}", ""]
         lines += render_frames_table(new_frames)
     else:
         lines.append(NO_FRAMES_NOTE)
