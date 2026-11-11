@@ -1,0 +1,127 @@
+{
+  "format": "kenshi-unique-entities-registry/1",
+  "campaign_id": "example-campaign",
+  "snapshot_id": "example-snapshot",
+  "world_ref_id": "example-world-reference",
+  "game_time": "Day 136 20:21",
+  "generated_at": "2026-11-11T00:00:00Z",
+  "unique_npcs": [
+    {
+      "npc_sid": "50570-rebirth.mod",
+      "name_en": "Burn",
+      "name_ru": "Ожог",
+      "category": "recruit",
+      "locations": [
+        {
+          "instance_id": "6-rebirth-INGAME",
+          "template_sid": "48447-rebirth.mod",
+          "location_name_ru": "Башня Ожога",
+          "location_name_en": "Burn's Tower",
+          "region": "Floodlands",
+          "link_type": "resident",
+          "resolution": "unique",
+          "source_chain": ["CHARACTER:50570-rebirth.mod", "SQUAD:50569-rebirth.mod", "TOWN:48447-rebirth.mod", "INSTANCE:6-rebirth-INGAME"]
+        }
+      ],
+      "dynamic": {
+        "state_code": 1,
+        "player_defeat_flag": false,
+        "squad_status": "confirmed_in_squad",
+        "character_id": "ps:1441040000",
+        "handle": [1, 1, -1273116672, 6, -769942784],
+        "captured_by": null,
+        "snapshot_id": "example-snapshot",
+        "game_time": "Day 136 20:21"
+      }
+    },
+    {
+      "npc_sid": "50519-rebirth.mod",
+      "name_en": "Grand Wizard",
+      "name_ru": "Великий шаман",
+      "category": "boss",
+      "locations": [
+        {
+          "instance_id": "26-rebirth-INGAME",
+          "template_sid": "50522-rebirth.mod",
+          "location_name_ru": "Столица людоедов",
+          "location_name_en": "Cannibal Capital",
+          "region": "Cannibal Plains",
+          "link_type": "resident",
+          "resolution": "unique",
+          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"]
+        }
+      ],
+      "dynamic": {
+        "state_code": 2,
+        "player_defeat_flag": true,
+        "squad_status": "confirmed_not_in_squad",
+        "character_id": null,
+        "handle": [1, 1234, -1458053120, 1, -969283584],
+        "captured_by": null,
+        "snapshot_id": "example-snapshot",
+        "game_time": "Day 136 20:21"
+      }
+    }
+  ],
+  "bosses": [
+    {
+      "npc_sid": "50519-rebirth.mod",
+      "name_en": "Grand Wizard",
+      "name_ru": "Великий шаман",
+      "classification_origin": "game_bounty",
+      "bounty": {"amount": 40000, "factions": []},
+      "associated_world_states": [],
+      "static_locations": [
+        {
+          "instance_id": "26-rebirth-INGAME",
+          "template_sid": "50522-rebirth.mod",
+          "location_name_ru": "Столица людоедов",
+          "location_name_en": "Cannibal Capital",
+          "region": "Cannibal Plains",
+          "link_type": "resident",
+          "resolution": "unique",
+          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"]
+        }
+      ],
+      "observed_state": {"state_code": 2, "player_defeat_flag": true, "captured_by": null},
+      "cleared_evidence": null
+    }
+  ],
+  "meitou_weapons": [
+    {
+      "base_sid": "52299-rebirth.mod",
+      "grade_sid": "52293-rebirth.mod",
+      "manufacturer_sid": "52288-rebirth.mod",
+      "name_ru": "Крест паладина",
+      "name_en": "Paladin's Cross",
+      "weapon_category": null,
+      "static_holders": [
+        {
+          "npc_sid": "17225-Dialogue.mod",
+          "npc_name": "Holy Lord Phoenix",
+          "town_instance_id": null,
+          "town_name": null
+        }
+      ],
+      "observed_instances": [
+        {
+          "item_sid": "example-meitou-instance",
+          "carrier_character_id": "ps:145629888",
+          "carrier_name": "Гриффин",
+          "carrier_squad": "Primaris",
+          "storage_location_key": null,
+          "storage_settlement": null,
+          "storage_building": null,
+          "location_kind": "equipped",
+          "slot": "back"
+        }
+      ],
+      "provenance_status": "confirmed_trophy",
+      "trophy_evidence": {
+        "event_id": "example-confirmed-trophy",
+        "day": 136,
+        "summary": "Демонстрационное подтверждённое событие: добыт Крест паладина [base_sid=52299-rebirth.mod]"
+      }
+    }
+  ]
+}

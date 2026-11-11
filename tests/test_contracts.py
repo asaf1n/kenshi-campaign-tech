@@ -4,10 +4,46 @@ import unittest
 
 from jsonschema import ValidationError
 from tools.io_utils import read_json
-from tools.validation import ROOT, check_examples, validate
+from tools.validation import ROOT, check_examples, validate, validate_unique_entities_registry
 
 
 class ContractTests(unittest.TestCase):
+    def test_unique_entities_registry_example(self) -> None:
+        value = read_json((ROOT / "examples/unique-entities-registry.example.json").read_bytes())
+        validate_unique_entities_registry(value)
+
+        unknown = copy.deepcopy(value)
+        unknown["unique_npcs"][0]["dynamic"].update(
+            state_code=None, player_defeat_flag=None, squad_status="unresolved",
+            character_id=None, handle=None, snapshot_id=None, game_time=None,
+        )
+        unknown["bosses"][0]["bounty"] = None
+        unknown["meitou_weapons"][0].update(
+            provenance_status="observed_in_inventory", trophy_evidence=None,
+        )
+        validate_unique_entities_registry(unknown)
+
+    def test_unique_entities_registry_rejects_invalid_contracts(self) -> None:
+        value = read_json((ROOT / "examples/unique-entities-registry.example.json").read_bytes())
+        cases = [
+            ((), "unexpected", True),
+            (("unique_npcs", 0, "dynamic"), "unexpected", True),
+            (("meitou_weapons", 0, "observed_instances", 0), "unexpected", True),
+            ((), "format", "kenshi-unique-entities-registry/2"),
+            (("unique_npcs", 0, "dynamic"), "squad_status", "in_squad"),
+        ]
+        for handle in ([1, 2, 3, 4], [1, 2, 3, 4, 5, 6], [1, None, 3, 4, 5],
+                       [True, 2, 3, 4, 5], [0, 0, 0, 0, 0]):
+            cases.append((("unique_npcs", 0, "dynamic"), "handle", handle))
+        for path, key, invalid in cases:
+            bad = copy.deepcopy(value)
+            target = bad
+            for part in path:
+                target = target[part]
+            target[key] = invalid
+            with self.subTest(path=path, key=key, value=invalid), self.assertRaises(ValidationError):
+                validate_unique_entities_registry(bad)
+
     def test_examples_and_legacy_shapes(self) -> None:
         self.assertGreaterEqual(check_examples(), 9)
         for name, schema in (("manifest", "manifest"), ("event", "timeline-event")):

@@ -74,7 +74,8 @@ def _validate_evidence_ref(ref: str) -> None:
 
 def validate(value: Any, schema_name: str) -> None:
     if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "location-registry",
-                           "location-progress", "index", "session", "screenshots-index", "screenshot-annotations"}:
+                           "location-progress", "unique-entities-registry", "index", "session",
+                           "screenshots-index", "screenshot-annotations"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
     Draft202012Validator.check_schema(schema)
@@ -83,6 +84,10 @@ def validate(value: Any, schema_name: str) -> None:
 
 def validate_manifest(manifest: dict[str, Any]) -> None:
     validate(manifest, "manifest")
+
+
+def validate_unique_entities_registry(payload: dict[str, Any]) -> None:
+    validate(payload, "unique-entities-registry")
 
 
 def validate_event(event: dict[str, Any], index_data: dict[str, Any] | None = None) -> None:
@@ -426,7 +431,7 @@ def validate_locations(
 
 
 def check_examples() -> int:
-    for name in ("location-registry", "location-progress"):
+    for name in ("location-registry", "location-progress", "unique-entities-registry"):
         Draft202012Validator.check_schema(read_json((ROOT / "contracts" / f"{name}.schema.json").read_bytes()))
     count = 0
     for path in sorted((ROOT / "examples").glob("*.json")):
@@ -438,6 +443,8 @@ def check_examples() -> int:
             validate_world_reference(value)
         elif fmt == "kenshi-locations/1":
             validate_locations(value)
+        elif fmt == "kenshi-unique-entities-registry/1":
+            validate_unique_entities_registry(value)
         elif fmt == "kenshi-index/2":
             validate_index(value)
         elif fmt in {"kenshi-session/10", "kenshi-session/11"}:
