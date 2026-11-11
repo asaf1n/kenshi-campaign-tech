@@ -510,15 +510,15 @@ class InboxGuardTests(unittest.TestCase):
             f"https://github.com/asaf1n/Kenshi-Compain/blob/{commit}/published/screenshots/screenshot_420.jpg",
             f"https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/{commit}/Campaign/file.md",
         )
-        payload = ARC + "\\n".join(f"[архив]({url})" for url in links) + "\\n"
+        payload = ARC + "\n".join(f"[архив]({url})" for url in links) + "\n"
         report = self.ingest(_block("Campaign/Хроники/Kenshi_Хронология.md", payload))
         self.assertEqual((len(report["processed"]), report["rejected"]), (1, []))
 
     def test_guard_checks_all_repo_links(self) -> None:
         """Безопасная историческая ссылка не маскирует вторую ссылку на изменяемую ветку."""
         commit = "e2f8918bd8dd1075685a6487dc06a3ad89f928ee"
-        payload = (ARC + f"https://github.com/asaf1n/Kenshi-Compain/tree/{commit}/Campaign\\n"
-                   + "https://github.com/asaf1n/Kenshi-Compain/blob/main/docs/x.md\\n")
+        payload = (ARC + f"https://github.com/asaf1n/Kenshi-Compain/tree/{commit}/Campaign\n"
+                   + "https://github.com/asaf1n/Kenshi-Compain/blob/main/docs/x.md\n")
         report = self.ingest(_block("Campaign/Хроники/Kenshi_Хронология.md", payload))
         self.assertEqual((report["processed"], len(report["rejected"])), ([], 1))
         self.assertIn("URL на файл репозитория", " ".join(report["rejected"][0]["files"][0]["reasons"]))
