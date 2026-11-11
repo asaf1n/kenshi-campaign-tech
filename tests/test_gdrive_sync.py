@@ -502,6 +502,27 @@ class InboxGuardTests(unittest.TestCase):
                          + _block(f"{SESSIONS}/S-20261105-2.md", "---\ncampaign: Хроники\n---\nтекст\n"))
         self.assertEqual((len(ok["processed"]), ok["rejected"]), (1, []))
 
+    def test_immutable_history_links_are_accepted(self) -> None:
+        """Исторические blob/tree/raw ссылки на SHA своего репозитория не блокируют резервную Хронологию."""
+        commit = "e2f8918bd8dd1075685a6487dc06a3ad89f928ee"
+        links = (
+            f"https://github.com/asaf1n/Kenshi-Compain/tree/{commit}/Campaign",
+            f"https://github.com/asaf1n/Kenshi-Compain/blob/{commit}/published/screenshots/screenshot_420.jpg",
+            f"https://raw.githubusercontent.com/asaf1n/Kenshi-Compain/{commit}/Campaign/file.md",
+        )
+        payload = ARC + "\n".join(f"[архив]({url})" for url in links) + "\n"
+        report = self.ingest(_block("Campaign/Хроники/Kenshi_Хронология.md", payload))
+        self.assertEqual((len(report["processed"]), report["rejected"]), (1, []))
+
+    def test_guard_checks_all_repo_links(self) -> None:
+        """Безопасная историческая ссылка не маскирует вторую ссылку на изменяемую ветку."""
+        commit = "e2f8918bd8dd1075685a6487dc06a3ad89f928ee"
+        payload = (ARC + f"https://github.com/asaf1n/Kenshi-Compain/tree/{commit}/Campaign\n"
+                   + "https://github.com/asaf1n/Kenshi-Compain/blob/main/docs/x.md\n")
+        report = self.ingest(_block("Campaign/Хроники/Kenshi_Хронология.md", payload))
+        self.assertEqual((report["processed"], len(report["rejected"])), ([], 1))
+        self.assertIn("URL на файл репозитория", " ".join(report["rejected"][0]["files"][0]["reasons"]))
+
     def test_accept_lifts_guard_only_for_named_file(self) -> None:
         """Ловит --accept, снимающий защиту для всего пакета или не названного файла, и отсутствие SHA в отчёте."""
         body = (_block("Campaign/Хроники/Kenshi_Хронология.md", "# Арка\n\n## Начало\nстрока\n\n## Финал\nконец\n")
