@@ -143,11 +143,11 @@ class GitSyncTests(unittest.TestCase):
                     "locations": []}
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         result = self._deliver()
-        self.assertEqual((result["status"], result["location_progress"], result["pushed"]), ("delivered", "invalid", True))
+        self.assertEqual((result["status"], result["location_progress"], result["pushed"]), ("degraded", "invalid", True))
         self.assertIn("удалена", result["location_progress_reason"])
-        self.assertEqual(target_registry.read_bytes(), canonical(registry))
-        self.assertEqual(self.git("show", f"main:published/{REGISTRY_FILENAME}", cwd=self.remote),
-                         canonical(registry).decode("utf-8"))
+        self.assertEqual(read_json(target_registry.read_bytes())["locations"][0]["cleared"], {"evidence": "S-001"})
+        self.assertEqual(read_json(self.git("show", f"main:published/{REGISTRY_FILENAME}", cwd=self.remote).encode("utf-8"))["locations"][0]["cleared"],
+                         {"evidence": "S-001"})
 
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         progress["locations"] = [dict(cleared)]
@@ -162,14 +162,14 @@ class GitSyncTests(unittest.TestCase):
         progress["locations"][0]["evidence"] = "Исправление ссылки S-001"
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
         result = self._deliver()
-        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "invalid"))
+        self.assertEqual((result["status"], result["location_progress"]), ("degraded", "invalid"))
         self.assertIn("Неизвестный instance_id", result["location_progress_reason"])
 
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), "{")
         (self.published / "brief.md").write_text("выпуск с невалидными отметками\n", encoding="utf-8")
         result = self._deliver()
-        self.assertEqual((result["status"], result["location_progress"]), ("delivered", "invalid"))
+        self.assertEqual((result["status"], result["location_progress"]), ("degraded", "invalid"))
         self.assertTrue(result["location_progress_reason"])
         self.assertIn("выпуск с невалидными отметками", self.git("show", "main:published/brief.md", cwd=self.remote))
 
@@ -268,7 +268,7 @@ class GitSyncTests(unittest.TestCase):
         (self.published / "world_reference.json").write_bytes(canonical(world))
 
         entities = {
-            "format": "kenshi-unique-entities-registry/1",
+            "format": "kenshi-unique-entities-registry/2",
             "campaign_id": "hot-lon",
             "snapshot_id": "snap-entities",
             "world_ref_id": world_ref_id,
@@ -279,6 +279,7 @@ class GitSyncTests(unittest.TestCase):
                 "npc_sid": "boss-test",
                 "name_en": "Test Boss",
                 "name_ru": "Тестовый босс",
+                "category": "boss",
                 "classification_origin": "game_bounty",
                 "bounty": None,
                 "associated_world_states": [],
@@ -286,9 +287,11 @@ class GitSyncTests(unittest.TestCase):
                     "instance_id": instance, "template_sid": "tpl-1", "location_name_ru": "Локация",
                     "location_name_en": "Location", "region": "border-zone",
                     "link_type": "resident", "resolution": "unique", "source_chain": ["TOWN:tpl-1"],
+                    "cleared_evidence": None,
                 }],
                 "observed_state": {"state_code": 1, "player_defeat_flag": False, "captured_by": None},
                 "cleared_evidence": None,
+                "personal_evidence": {"event_id": "ev-test", "day": 135, "summary": "Победа [npc_sid=boss-test]"},
             }],
             "meitou_weapons": [],
         }
@@ -304,7 +307,7 @@ class GitSyncTests(unittest.TestCase):
         delivered = read_json(target_entities_path.read_bytes())
         self.assertIsNone(delivered["bosses"][0]["cleared_evidence"])
 
-        # 2. Появление прогресса в клоне
+        # 2. Появление прогресса в клоне: обогащение JSON и пересборка unique_entities.csv
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         (self.other / PROGRESS_RELATIVE).parent.mkdir(parents=True, exist_ok=True)
         progress = {
@@ -324,10 +327,33 @@ class GitSyncTests(unittest.TestCase):
         self.assertEqual(boss["cleared_evidence"]["source"], "session-boss-cleared")
         self.assertEqual(boss["cleared_evidence"]["cleared_at"], "Day 135 10:00")
 
+        # Таблица unique_entities.csv пересобрана из обогащённого JSON
+        target_csv_path = self.clone / "published/tables/unique_entities.csv"
+        self.assertTrue(target_csv_path.is_file())
+        csv_text = target_csv_path.read_text(encoding="utf-8")
+        self.assertIn("boss-test", csv_text)
+        self.assertIn("session-boss-cleared", csv_text)
+
+        # 3. Защита ручного слоя при ошибке: невалидный прогресс выставляет status: degraded
+        # и блокирует перезапись зависимых файлов (unique_entities_registry.json, unique_entities.csv)
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(PROGRESS_RELATIVE.as_posix(), "{")
+        res_deg = self._deliver()
+        self.assertEqual((res_deg["status"], res_deg["location_progress"]), ("degraded", "invalid"))
+        # Зависимые файлы не перезаписаны и сохраняют ранее валидное состояние
+        self.assertEqual(target_entities_path.read_bytes(), canonical(delivered2))
+        self.assertEqual(target_csv_path.read_text(encoding="utf-8"), csv_text)
+
+        # Восстановление после исправления файла прогресса
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
+        res_rec = self._deliver()
+        self.assertEqual((res_rec["status"], res_rec["location_progress"]), ("delivered", "ok"))
+
         # Исходный файл в published/ остался без изменений
         self.assertEqual(source_entities_path.read_bytes(), canonical(entities))
 
-        # 3. Удаление реестра из published/: файл удаляется и в клоне
+        # 4. Удаление реестра из published/: файл удаляется и в клоне
         source_entities_path.unlink()
         res3 = self._deliver()
         self.assertEqual(res3["status"], "delivered")

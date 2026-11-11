@@ -761,6 +761,8 @@ def unique_entities_table(
     unique_entities: dict[str, Any] | None,
     current: dict[str, Any] | None = None,
 ) -> Table:
+    from tools.unique_entities_registry import resolve_primary_location
+
     columns = [
         ("entity_kind", "Категория сущности: npc, boss, meitou"),
         ("sid", "sid шаблона (npc_sid для персонажей и боссов, base_sid для оружия Мейто)"),
@@ -773,16 +775,21 @@ def unique_entities_table(
         ("location_resolution", "Точность привязки к локации: unique, ambiguous, unresolved"),
         ("meitou_base_sid", "sid базовой модели оружия Мейто"),
         ("carrier_or_storage", "Носитель или хранилище экземпляра (вид:имя)"),
-        ("provenance_status", "Статус происхождения: confirmed_trophy, observed_in_inventory, либо источник зачистки босса"),
+        ("provenance_status", "Статус происхождения: confirmed_trophy, unconfirmed, либо источник зачистки босса"),
     ]
     if unique_entities is None:
         rows: list[dict[str, Any]] = []
     else:
+        npc_by_sid = {
+            npc["npc_sid"]: npc
+            for npc in (unique_entities.get("unique_npcs") or [])
+            if npc.get("npc_sid")
+        }
         rows = []
         for npc in unique_entities.get("unique_npcs") or []:
             dyn = npc.get("dynamic") or {}
             locs = npc.get("locations") or []
-            first_loc = locs[0] if locs else {}
+            primary_iid, resolution = resolve_primary_location(locs)
             rows.append({
                 "entity_kind": "npc",
                 "sid": npc.get("npc_sid") or npc.get("sid"),
@@ -791,36 +798,44 @@ def unique_entities_table(
                 "state_code": dyn.get("state_code"),
                 "squad_status": dyn.get("squad_status"),
                 "character_id": dyn.get("character_id"),
-                "primary_location_instance_id": first_loc.get("instance_id") or None,
-                "location_resolution": first_loc.get("resolution") or None,
+                "primary_location_instance_id": primary_iid,
+                "location_resolution": resolution,
                 "meitou_base_sid": None,
                 "carrier_or_storage": None,
                 "provenance_status": None,
             })
         for boss in unique_entities.get("bosses") or []:
-            dyn = boss.get("dynamic") or boss.get("observed_state") or {}
+            sid = boss.get("npc_sid") or boss.get("sid")
+            npc_entry = npc_by_sid.get(sid)
+            obs = boss.get("observed_state") or boss.get("dynamic") or {}
+            npc_dyn = (npc_entry.get("dynamic") if npc_entry else {}) or {}
+
+            state_code = obs.get("state_code") if obs.get("state_code") is not None else npc_dyn.get("state_code")
+            squad_status = obs.get("squad_status") or npc_dyn.get("squad_status")
+            character_id = obs.get("character_id") or npc_dyn.get("character_id")
+
             locs = boss.get("static_locations") or boss.get("locations") or []
-            first_loc = locs[0] if locs else {}
+            primary_iid, resolution = resolve_primary_location(locs)
+
             cleared = boss.get("cleared_evidence")
-            source = cleared.get("source") if cleared else None
+            personal = boss.get("personal_evidence")
+            source = cleared.get("source") if cleared else (personal.get("event_id") if personal else None)
             rows.append({
                 "entity_kind": "boss",
-                "sid": boss.get("npc_sid") or boss.get("sid"),
+                "sid": sid,
                 "name_ru": boss.get("name_ru"),
                 "name_en": boss.get("name_en"),
-                "state_code": dyn.get("state_code"),
-                "squad_status": dyn.get("squad_status"),
-                "character_id": dyn.get("character_id"),
-                "primary_location_instance_id": first_loc.get("instance_id") or None,
-                "location_resolution": first_loc.get("resolution") or None,
+                "state_code": state_code,
+                "squad_status": squad_status,
+                "character_id": character_id,
+                "primary_location_instance_id": primary_iid,
+                "location_resolution": resolution,
                 "meitou_base_sid": None,
                 "carrier_or_storage": None,
                 "provenance_status": source,
             })
         for weapon in unique_entities.get("meitou_weapons") or []:
             base_sid = weapon.get("base_sid") or weapon.get("sid")
-            holders = weapon.get("static_holders") or []
-            first_holder = holders[0] if holders else {}
             observed = weapon.get("observed_instances") or []
             carrier_or_storage = None
             if observed:
@@ -843,7 +858,7 @@ def unique_entities_table(
                 "state_code": None,
                 "squad_status": None,
                 "character_id": None,
-                "primary_location_instance_id": first_holder.get("town_instance_id") or None,
+                "primary_location_instance_id": None,
                 "location_resolution": None,
                 "meitou_base_sid": base_sid,
                 "carrier_or_storage": carrier_or_storage,

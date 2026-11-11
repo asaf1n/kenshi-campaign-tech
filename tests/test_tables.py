@@ -679,7 +679,8 @@ class TableValidationTests(unittest.TestCase):
         meitou_row = t.rows[1]
         self.assertEqual(meitou_row["sid"], "blade-1")
         self.assertEqual(meitou_row["meitou_base_sid"], "blade-1")
-        self.assertEqual(meitou_row["primary_location_instance_id"], "loc-2")
+        self.assertIsNone(meitou_row["primary_location_instance_id"])
+        self.assertIsNone(meitou_row["location_resolution"])
         self.assertEqual(meitou_row["carrier_or_storage"], "equipped:Хот Лон")
         self.assertEqual(meitou_row["provenance_status"], "confirmed_trophy")
         self.assertIsNone(meitou_row["state_code"])
@@ -690,6 +691,70 @@ class TableValidationTests(unittest.TestCase):
         self.assertEqual(npc_row["character_id"], "ps:1")
         self.assertEqual(npc_row["primary_location_instance_id"], "loc-1")
         self.assertEqual(npc_row["location_resolution"], "unique")
+
+    def test_unique_entities_table_ambiguous_and_boss_sync(self) -> None:
+        """Проверяет разрешение неоднозначных локаций и синхронизацию динамических полей босса."""
+        entities = {
+            "unique_npcs": [
+                {
+                    "npc_sid": "hamut", "name_en": "Hamut", "name_ru": "Хамут",
+                    "category": "recruit",
+                    # 5 разных городов
+                    "locations": [
+                        {"instance_id": f"loc-{i}", "resolution": "unique"}
+                        for i in range(1, 6)
+                    ],
+                    "dynamic": {"state_code": 1, "squad_status": "confirmed_in_squad", "character_id": "ps:hamut"},
+                },
+                {
+                    "npc_sid": "agnu", "name_en": "Agnu", "name_ru": "Агну",
+                    "category": "recruit",
+                    "locations": [{"instance_id": "loc-tower", "resolution": "unique"}],
+                    "dynamic": {"state_code": 1, "squad_status": "confirmed_in_squad", "character_id": "ps:agnu"},
+                },
+            ],
+            "bosses": [
+                {
+                    "npc_sid": "agnu", "name_en": "Agnu", "name_ru": "Агну",
+                    "category": "recruit",
+                    "classification_origin": "world_state",
+                    "static_locations": [{"instance_id": "loc-tower", "resolution": "unique"}],
+                    "observed_state": {"state_code": 1, "player_defeat_flag": False, "captured_by": None},
+                    "cleared_evidence": None,
+                    "personal_evidence": None,
+                },
+            ],
+            "meitou_weapons": [
+                {
+                    "base_sid": "paladins_cross", "name_en": "Paladin's Cross", "name_ru": "Крест паладина",
+                    "static_holders": [{"town_instance_id": "loc-blister", "npc_sid": "phoenix"}],
+                    "observed_instances": [{"location_kind": "equipped", "carrier_name": "Гриффин"}],
+                    "observation_status": "observed",
+                    "provenance_status": "unconfirmed",
+                },
+            ],
+        }
+        t = unique_entities_table(entities)
+        rows_by_sid = {(r["entity_kind"], r["sid"]): r for r in t.rows}
+
+        # 1. Хамут: 5 городов -> ambiguous, primary_location_instance_id: None
+        hamut_row = rows_by_sid[("npc", "hamut")]
+        self.assertIsNone(hamut_row["primary_location_instance_id"])
+        self.assertEqual(hamut_row["location_resolution"], "ambiguous")
+
+        # 2. Агну (boss): динамические поля (squad_status, character_id) получены согласованно с NPC
+        agnu_row = rows_by_sid[("boss", "agnu")]
+        self.assertEqual(agnu_row["state_code"], 1)
+        self.assertEqual(agnu_row["squad_status"], "confirmed_in_squad")
+        self.assertEqual(agnu_row["character_id"], "ps:agnu")
+        self.assertEqual(agnu_row["primary_location_instance_id"], "loc-tower")
+        self.assertIsNone(agnu_row["provenance_status"])
+
+        # 3. Мейто Крест паладина: без локации владельца, provenance_status: unconfirmed
+        meitou_row = rows_by_sid[("meitou", "paladins_cross")]
+        self.assertIsNone(meitou_row["primary_location_instance_id"])
+        self.assertIsNone(meitou_row["location_resolution"])
+        self.assertEqual(meitou_row["provenance_status"], "unconfirmed")
 
 
 

@@ -4,88 +4,463 @@
   "title": "Реестр уникальных NPC, боссов и оружия Мейто",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "campaign_id", "snapshot_id", "world_ref_id", "game_time", "generated_at",
-               "unique_npcs", "bosses", "meitou_weapons"],
+  "required": [
+    "format",
+    "campaign_id",
+    "snapshot_id",
+    "world_ref_id",
+    "game_time",
+    "generated_at",
+    "unique_npcs",
+    "bosses",
+    "meitou_weapons"
+  ],
   "properties": {
-    "format": {"const": "kenshi-unique-entities-registry/1"},
-    "campaign_id": {"type": ["string", "null"], "minLength": 1},
-    "snapshot_id": {"$ref": "#/$defs/id"},
-    "world_ref_id": {"$ref": "#/$defs/id"},
-    "game_time": {"type": ["string", "number", "null"]},
-    "generated_at": {"type": "string", "format": "date-time"},
-    "unique_npcs": {"type": "array", "items": {"$ref": "#/$defs/unique_npc"}},
-    "bosses": {"type": "array", "items": {"$ref": "#/$defs/boss"}},
-    "meitou_weapons": {"type": "array", "items": {"$ref": "#/$defs/meitou_weapon"}}
+    "format": {
+      "enum": [
+        "kenshi-unique-entities-registry/1",
+        "kenshi-unique-entities-registry/2"
+      ]
+    },
+    "campaign_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "snapshot_id": {
+      "$ref": "#/$defs/id"
+    },
+    "world_ref_id": {
+      "$ref": "#/$defs/id"
+    },
+    "game_time": {
+      "type": ["string", "number", "null"]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "unique_npcs": {
+      "type": "array"
+    },
+    "bosses": {
+      "type": "array"
+    },
+    "meitou_weapons": {
+      "type": "array"
+    }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "kenshi-unique-entities-registry/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "unique_npcs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/unique_npc_v1"
+            }
+          },
+          "bosses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/boss_v1"
+            }
+          },
+          "meitou_weapons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/meitou_weapon_v1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "kenshi-unique-entities-registry/2"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "unique_npcs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/unique_npc"
+            }
+          },
+          "bosses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/boss"
+            }
+          },
+          "meitou_weapons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/meitou_weapon"
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
-    "id": {"type": "string", "minLength": 1},
-    "nullable_string": {"type": ["string", "null"]},
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullable_string": {
+      "type": ["string", "null"]
+    },
     "location_link": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["instance_id", "template_sid", "location_name_ru", "location_name_en", "region",
-                   "link_type", "resolution", "source_chain"],
+      "required": [
+        "instance_id",
+        "template_sid",
+        "location_name_ru",
+        "location_name_en",
+        "region",
+        "link_type",
+        "resolution",
+        "source_chain",
+        "cleared_evidence"
+      ],
       "properties": {
-        "instance_id": {"type": "string"},
-        "template_sid": {"type": "string"},
-        "location_name_ru": {"$ref": "#/$defs/nullable_string"},
-        "location_name_en": {"type": "string"},
-        "region": {"$ref": "#/$defs/nullable_string"},
-        "link_type": {"enum": ["resident", "bar_squad", "roaming", "homeless"]},
-        "resolution": {"enum": ["unique", "ambiguous", "unresolved"]},
-        "source_chain": {"type": "array", "items": {"type": "string"}}
+        "instance_id": {
+          "type": "string"
+        },
+        "template_sid": {
+          "type": "string"
+        },
+        "location_name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "location_name_en": {
+          "type": "string"
+        },
+        "region": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "link_type": {
+          "enum": ["resident", "bar_squad", "roaming", "homeless"]
+        },
+        "resolution": {
+          "enum": ["unique", "ambiguous", "unresolved"]
+        },
+        "source_chain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cleared_evidence": {
+          "$ref": "#/$defs/cleared_evidence"
+        }
+      }
+    },
+    "location_link_v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "template_sid",
+        "location_name_ru",
+        "location_name_en",
+        "region",
+        "link_type",
+        "resolution",
+        "source_chain"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string"
+        },
+        "template_sid": {
+          "type": "string"
+        },
+        "location_name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "location_name_en": {
+          "type": "string"
+        },
+        "region": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "link_type": {
+          "enum": ["resident", "bar_squad", "roaming", "homeless"]
+        },
+        "resolution": {
+          "enum": ["unique", "ambiguous", "unresolved"]
+        },
+        "source_chain": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "unique_npc": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["npc_sid", "name_en", "name_ru", "category", "locations", "dynamic"],
+      "required": [
+        "npc_sid",
+        "name_en",
+        "name_ru",
+        "category",
+        "locations",
+        "dynamic",
+        "personal_evidence"
+      ],
       "properties": {
-        "npc_sid": {"type": "string"},
-        "name_en": {"type": "string"},
-        "name_ru": {"$ref": "#/$defs/nullable_string"},
-        "category": {"enum": ["recruit", "boss", "world_leader", "unique_npc"]},
-        "locations": {"type": "array", "items": {"$ref": "#/$defs/location_link"}},
-        "dynamic": {"$ref": "#/$defs/dynamic"}
+        "npc_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "category": {
+          "enum": [
+            "recruit",
+            "boss",
+            "world_leader",
+            "significant_npc",
+            "unique_npc"
+          ]
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/location_link"
+          }
+        },
+        "dynamic": {
+          "$ref": "#/$defs/dynamic"
+        },
+        "personal_evidence": {
+          "$ref": "#/$defs/personal_evidence"
+        }
+      }
+    },
+    "unique_npc_v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "npc_sid",
+        "name_en",
+        "name_ru",
+        "category",
+        "locations",
+        "dynamic"
+      ],
+      "properties": {
+        "npc_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "category": {
+          "enum": ["recruit", "boss", "world_leader", "unique_npc"]
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/location_link_v1"
+          }
+        },
+        "dynamic": {
+          "$ref": "#/$defs/dynamic"
+        }
       }
     },
     "dynamic": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state_code", "player_defeat_flag", "squad_status", "character_id", "handle",
-                   "captured_by", "snapshot_id", "game_time"],
+      "required": [
+        "state_code",
+        "player_defeat_flag",
+        "squad_status",
+        "character_id",
+        "handle",
+        "captured_by",
+        "snapshot_id",
+        "game_time"
+      ],
       "properties": {
-        "state_code": {"type": ["integer", "null"]},
-        "player_defeat_flag": {"type": ["boolean", "null"]},
-        "squad_status": {"enum": ["confirmed_in_squad", "confirmed_not_in_squad", "unresolved"]},
-        "character_id": {"$ref": "#/$defs/nullable_string"},
+        "state_code": {
+          "type": ["integer", "null"]
+        },
+        "player_defeat_flag": {
+          "type": ["boolean", "null"]
+        },
+        "squad_status": {
+          "enum": ["confirmed_in_squad", "confirmed_not_in_squad", "unresolved"]
+        },
+        "character_id": {
+          "$ref": "#/$defs/nullable_string"
+        },
         "handle": {
           "type": ["array", "null"],
-          "items": {"type": "integer"},
+          "items": {
+            "type": "integer"
+          },
           "minItems": 5,
           "maxItems": 5,
-          "not": {"const": [0, 0, 0, 0, 0]}
+          "not": {
+            "const": [0, 0, 0, 0, 0]
+          }
         },
-        "captured_by": {"$ref": "#/$defs/nullable_string"},
-        "snapshot_id": {"$ref": "#/$defs/nullable_string"},
-        "game_time": {"$ref": "#/$defs/nullable_string"}
+        "captured_by": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "snapshot_id": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "game_time": {
+          "$ref": "#/$defs/nullable_string"
+        }
       }
     },
     "boss": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["npc_sid", "name_en", "name_ru", "classification_origin", "bounty",
-                   "associated_world_states", "static_locations", "observed_state", "cleared_evidence"],
+      "required": [
+        "npc_sid",
+        "name_en",
+        "name_ru",
+        "category",
+        "classification_origin",
+        "bounty",
+        "associated_world_states",
+        "static_locations",
+        "observed_state",
+        "cleared_evidence",
+        "personal_evidence"
+      ],
       "properties": {
-        "npc_sid": {"type": "string"},
-        "name_en": {"type": "string"},
-        "name_ru": {"$ref": "#/$defs/nullable_string"},
-        "classification_origin": {"enum": ["game_bounty", "world_state", "meitou_holder", "custom_catalog"]},
-        "bounty": {"$ref": "#/$defs/bounty"},
-        "associated_world_states": {"type": "array", "items": {"$ref": "#/$defs/world_state"}},
-        "static_locations": {"type": "array", "items": {"$ref": "#/$defs/location_link"}},
-        "observed_state": {"$ref": "#/$defs/observed_state"},
-        "cleared_evidence": {"$ref": "#/$defs/cleared_evidence"}
+        "npc_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "category": {
+          "enum": [
+            "recruit",
+            "boss",
+            "world_leader",
+            "significant_npc",
+            "unique_npc"
+          ]
+        },
+        "classification_origin": {
+          "enum": [
+            "game_bounty",
+            "world_state",
+            "meitou_holder",
+            "custom_catalog"
+          ]
+        },
+        "bounty": {
+          "$ref": "#/$defs/bounty"
+        },
+        "associated_world_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/world_state"
+          }
+        },
+        "static_locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/location_link"
+          }
+        },
+        "observed_state": {
+          "$ref": "#/$defs/observed_state"
+        },
+        "cleared_evidence": {
+          "$ref": "#/$defs/cleared_evidence"
+        },
+        "personal_evidence": {
+          "$ref": "#/$defs/personal_evidence"
+        }
+      }
+    },
+    "boss_v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "npc_sid",
+        "name_en",
+        "name_ru",
+        "classification_origin",
+        "bounty",
+        "associated_world_states",
+        "static_locations",
+        "observed_state",
+        "cleared_evidence"
+      ],
+      "properties": {
+        "npc_sid": {
+          "type": "string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "classification_origin": {
+          "enum": [
+            "game_bounty",
+            "world_state",
+            "meitou_holder",
+            "custom_catalog"
+          ]
+        },
+        "bounty": {
+          "$ref": "#/$defs/bounty"
+        },
+        "associated_world_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/world_state"
+          }
+        },
+        "static_locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/location_link_v1"
+          }
+        },
+        "observed_state": {
+          "$ref": "#/$defs/observed_state"
+        },
+        "cleared_evidence": {
+          "$ref": "#/$defs/cleared_evidence"
+        }
       }
     },
     "bounty": {
@@ -93,8 +468,15 @@
       "additionalProperties": false,
       "required": ["amount", "factions"],
       "properties": {
-        "amount": {"type": "integer"},
-        "factions": {"type": "array", "items": {"type": "string"}}
+        "amount": {
+          "type": "integer"
+        },
+        "factions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "world_state": {
@@ -102,9 +484,15 @@
       "additionalProperties": false,
       "required": ["state_sid", "state_name", "value"],
       "properties": {
-        "state_sid": {"type": "string"},
-        "state_name": {"type": "string"},
-        "value": {"type": ["integer", "boolean", "null"]}
+        "state_sid": {
+          "type": "string"
+        },
+        "state_name": {
+          "type": "string"
+        },
+        "value": {
+          "type": ["integer", "boolean", "null"]
+        }
       }
     },
     "observed_state": {
@@ -112,9 +500,21 @@
       "additionalProperties": false,
       "required": ["state_code", "player_defeat_flag", "captured_by"],
       "properties": {
-        "state_code": {"type": ["integer", "null"]},
-        "player_defeat_flag": {"type": ["boolean", "null"]},
-        "captured_by": {"$ref": "#/$defs/nullable_string"}
+        "state_code": {
+          "type": ["integer", "null"]
+        },
+        "player_defeat_flag": {
+          "type": ["boolean", "null"]
+        },
+        "captured_by": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "squad_status": {
+          "enum": ["confirmed_in_squad", "confirmed_not_in_squad", "unresolved"]
+        },
+        "character_id": {
+          "$ref": "#/$defs/nullable_string"
+        }
       }
     },
     "cleared_evidence": {
@@ -122,27 +522,143 @@
       "additionalProperties": false,
       "required": ["location_instance_id", "cleared_at", "source"],
       "properties": {
-        "location_instance_id": {"type": "string"},
-        "cleared_at": {"type": "string"},
-        "source": {"type": "string"}
+        "location_instance_id": {
+          "type": "string"
+        },
+        "cleared_at": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    },
+    "personal_evidence": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["event_id", "day", "summary"],
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "day": {
+          "type": ["integer", "null"]
+        },
+        "summary": {
+          "type": "string"
+        }
       }
     },
     "meitou_weapon": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["base_sid", "grade_sid", "manufacturer_sid", "name_ru", "name_en", "weapon_category",
-                   "static_holders", "observed_instances", "provenance_status", "trophy_evidence"],
+      "required": [
+        "base_sid",
+        "grade_sid",
+        "manufacturer_sid",
+        "name_ru",
+        "name_en",
+        "weapon_category",
+        "static_holders",
+        "observed_instances",
+        "observation_status",
+        "provenance_status",
+        "trophy_evidence"
+      ],
       "properties": {
-        "base_sid": {"type": "string"},
-        "grade_sid": {"const": "52293-rebirth.mod"},
-        "manufacturer_sid": {"const": "52288-rebirth.mod"},
-        "name_ru": {"$ref": "#/$defs/nullable_string"},
-        "name_en": {"type": "string"},
-        "weapon_category": {"$ref": "#/$defs/nullable_string"},
-        "static_holders": {"type": "array", "items": {"$ref": "#/$defs/static_holder"}},
-        "observed_instances": {"type": "array", "items": {"$ref": "#/$defs/observed_instance"}},
-        "provenance_status": {"enum": ["confirmed_trophy", "observed_in_inventory"]},
-        "trophy_evidence": {"$ref": "#/$defs/trophy_evidence"}
+        "base_sid": {
+          "type": "string"
+        },
+        "grade_sid": {
+          "const": "52293-rebirth.mod"
+        },
+        "manufacturer_sid": {
+          "const": "52288-rebirth.mod"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "weapon_category": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "static_holders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/static_holder"
+          }
+        },
+        "observed_instances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observed_instance"
+          }
+        },
+        "observation_status": {
+          "enum": ["observed", "not_observed"]
+        },
+        "provenance_status": {
+          "enum": ["confirmed_trophy", "unconfirmed"]
+        },
+        "trophy_evidence": {
+          "$ref": "#/$defs/trophy_evidence"
+        }
+      }
+    },
+    "meitou_weapon_v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_sid",
+        "grade_sid",
+        "manufacturer_sid",
+        "name_ru",
+        "name_en",
+        "weapon_category",
+        "static_holders",
+        "observed_instances",
+        "provenance_status",
+        "trophy_evidence"
+      ],
+      "properties": {
+        "base_sid": {
+          "type": "string"
+        },
+        "grade_sid": {
+          "const": "52293-rebirth.mod"
+        },
+        "manufacturer_sid": {
+          "const": "52288-rebirth.mod"
+        },
+        "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "name_en": {
+          "type": "string"
+        },
+        "weapon_category": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "static_holders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/static_holder"
+          }
+        },
+        "observed_instances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observed_instance"
+          }
+        },
+        "provenance_status": {
+          "enum": ["confirmed_trophy", "observed_in_inventory"]
+        },
+        "trophy_evidence": {
+          "$ref": "#/$defs/trophy_evidence"
+        }
       }
     },
     "static_holder": {
@@ -150,27 +666,62 @@
       "additionalProperties": false,
       "required": ["npc_sid", "npc_name", "town_instance_id", "town_name"],
       "properties": {
-        "npc_sid": {"type": "string"},
-        "npc_name": {"type": "string"},
-        "town_instance_id": {"$ref": "#/$defs/nullable_string"},
-        "town_name": {"$ref": "#/$defs/nullable_string"}
+        "npc_sid": {
+          "type": "string"
+        },
+        "npc_name": {
+          "type": "string"
+        },
+        "town_instance_id": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "town_name": {
+          "$ref": "#/$defs/nullable_string"
+        }
       }
     },
     "observed_instance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["item_sid", "carrier_character_id", "carrier_name", "carrier_squad", "storage_location_key",
-                   "storage_settlement", "storage_building", "location_kind", "slot"],
+      "required": [
+        "item_sid",
+        "carrier_character_id",
+        "carrier_name",
+        "carrier_squad",
+        "storage_location_key",
+        "storage_settlement",
+        "storage_building",
+        "location_kind",
+        "slot"
+      ],
       "properties": {
-        "item_sid": {"type": "string"},
-        "carrier_character_id": {"$ref": "#/$defs/nullable_string"},
-        "carrier_name": {"$ref": "#/$defs/nullable_string"},
-        "carrier_squad": {"$ref": "#/$defs/nullable_string"},
-        "storage_location_key": {"$ref": "#/$defs/nullable_string"},
-        "storage_settlement": {"$ref": "#/$defs/nullable_string"},
-        "storage_building": {"$ref": "#/$defs/nullable_string"},
-        "location_kind": {"enum": ["equipped", "inventory", "backpack", "storage"]},
-        "slot": {"$ref": "#/$defs/nullable_string"}
+        "item_sid": {
+          "type": "string"
+        },
+        "carrier_character_id": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "carrier_name": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "carrier_squad": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "storage_location_key": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "storage_settlement": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "storage_building": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "location_kind": {
+          "enum": ["equipped", "inventory", "backpack", "storage"]
+        },
+        "slot": {
+          "$ref": "#/$defs/nullable_string"
+        }
       }
     },
     "trophy_evidence": {
@@ -178,9 +729,15 @@
       "additionalProperties": false,
       "required": ["event_id", "day", "summary"],
       "properties": {
-        "event_id": {"type": "string"},
-        "day": {"type": ["integer", "null"]},
-        "summary": {"type": "string"}
+        "event_id": {
+          "type": "string"
+        },
+        "day": {
+          "type": ["integer", "null"]
+        },
+        "summary": {
+          "type": "string"
+        }
       }
     }
   }

@@ -19,9 +19,50 @@ class ContractTests(unittest.TestCase):
         )
         unknown["bosses"][0]["bounty"] = None
         unknown["meitou_weapons"][0].update(
-            provenance_status="observed_in_inventory", trophy_evidence=None,
+            observation_status="not_observed", provenance_status="unconfirmed", trophy_evidence=None,
         )
         validate_unique_entities_registry(unknown)
+
+        # Обратная совместимость: схема /2 валидирует и легаси-структуру /1
+        legacy_v1 = {
+            "format": "kenshi-unique-entities-registry/1",
+            "campaign_id": "legacy",
+            "snapshot_id": "snap-1",
+            "world_ref_id": "world-1",
+            "game_time": "Day 1 00:00",
+            "generated_at": "2026-11-11T00:00:00Z",
+            "unique_npcs": [{
+                "npc_sid": "npc-1", "name_en": "Npc", "name_ru": None, "category": "recruit",
+                "locations": [{
+                    "instance_id": "loc-1", "template_sid": "t-1", "location_name_ru": None,
+                    "location_name_en": "Loc", "region": None, "link_type": "resident",
+                    "resolution": "unique", "source_chain": ["c"],
+                }],
+                "dynamic": {
+                    "state_code": 1, "player_defeat_flag": False, "squad_status": "unresolved",
+                    "character_id": None, "handle": None, "captured_by": None,
+                    "snapshot_id": None, "game_time": None,
+                },
+            }],
+            "bosses": [{
+                "npc_sid": "boss-1", "name_en": "Boss", "name_ru": None, "classification_origin": "game_bounty",
+                "bounty": None, "associated_world_states": [],
+                "static_locations": [{
+                    "instance_id": "loc-1", "template_sid": "t-1", "location_name_ru": None,
+                    "location_name_en": "Loc", "region": None, "link_type": "resident",
+                    "resolution": "unique", "source_chain": ["c"],
+                }],
+                "observed_state": {"state_code": 1, "player_defeat_flag": False, "captured_by": None},
+                "cleared_evidence": None,
+            }],
+            "meitou_weapons": [{
+                "base_sid": "w-1", "grade_sid": "52293-rebirth.mod", "manufacturer_sid": "52288-rebirth.mod",
+                "name_ru": None, "name_en": "Weapon", "weapon_category": None,
+                "static_holders": [], "observed_instances": [],
+                "provenance_status": "observed_in_inventory", "trophy_evidence": None,
+            }],
+        }
+        validate_unique_entities_registry(legacy_v1)
 
     def test_unique_entities_registry_rejects_invalid_contracts(self) -> None:
         value = read_json((ROOT / "examples/unique-entities-registry.example.json").read_bytes())
@@ -29,8 +70,10 @@ class ContractTests(unittest.TestCase):
             ((), "unexpected", True),
             (("unique_npcs", 0, "dynamic"), "unexpected", True),
             (("meitou_weapons", 0, "observed_instances", 0), "unexpected", True),
-            ((), "format", "kenshi-unique-entities-registry/2"),
+            ((), "format", "kenshi-unique-entities-registry/3"),
             (("unique_npcs", 0, "dynamic"), "squad_status", "in_squad"),
+            (("meitou_weapons", 0), "provenance_status", "observed_in_inventory"),
+            (("meitou_weapons", 0), "observation_status", "unknown_status"),
         ]
         for handle in ([1, 2, 3, 4], [1, 2, 3, 4, 5, 6], [1, None, 3, 4, 5],
                        [True, 2, 3, 4, 5], [0, 0, 0, 0, 0]):

@@ -289,13 +289,13 @@ Publisher читает журнал целиком, проверяет его, �
 
 Отчёт доставки содержит `location_progress` (`ok`, `invalid`, `absent`) и `location_progress_reason` (`null` при `ok`). При отсутствующем или невалидном ручном слое доставляется реестр без отметок. Превышение лимита размера при наложении отметок даёт `invalid` и тот же результат. `status=failed` относится к сбою доставки выпуска `published/`.
 
-## Реестр уникальных сущностей: kenshi-unique-entities-registry/1
+## Реестр уникальных сущностей: kenshi-unique-entities-registry/2
 
-`publish` формирует `published/unique_entities_registry.json` по схеме [kenshi-unique-entities-registry/1](../contracts/unique-entities-registry.schema.json). Модуль построения — `tools.unique_entities_registry` (`build_unique_entities_registry`). Назначение артефакта — единый детерминированный реестр уникальных NPC, боссов и оружия Мейто со статической привязкой к локациям игрового мира и динамическим состоянием из текущего снимка сохранения.
+`publish` формирует `published/unique_entities_registry.json` по схеме [kenshi-unique-entities-registry/2](../contracts/unique-entities-registry.schema.json) (с полной поддержкой обратной совместимости с версией `/1`). Модуль построения — `tools.unique_entities_registry` (`build_unique_entities_registry`). Назначение артефакта — единый детерминированный реестр уникальных NPC, боссов и оружия Мейто со статической привязкой к локациям игрового мира, динамическим состоянием из текущего снимка сохранения и подтверждёнными свидетельствами из активного таймлайна и ручного слоя прогресса.
 
 ### Корневые поля
 
-- `format`: константа `"kenshi-unique-entities-registry/1"`.
+- `format`: константа `"kenshi-unique-entities-registry/2"`.
 - `campaign_id`: строковый идентификатор кампании (`string | null`, канонический `"hot-lon"`).
 - `snapshot_id`: идентификатор публикуемого снимка (`sha256-...`).
 - `world_ref_id`: идентификатор справочника мира (`sha256-...`), связывающий реестр со статическими данными мира.
@@ -311,10 +311,11 @@ Publisher читает журнал целиком, проверяет его, �
 - `npc_sid`: устойчивый `sid` шаблона персонажа (FCS `CHARACTER`, тип 1).
 - `name_en`: каноническое английское имя персонажа из шаблона данных игры или индекса.
 - `name_ru`: локализованное русское имя (`string | null`) из словарей перевода (`gamedata.po`) или модов.
-- `category`: категория уникального NPC (`"recruit" | "boss" | "world_leader" | "unique_npc"`):
+- `category`: категория уникального NPC (`"recruit" | "boss" | "world_leader" | "significant_npc" | "unique_npc"`):
   - `recruit`: уникальные потенциальные рекруты (`NPC class == 9` либо размещение в барах `link_type == "bar_squad"`).
-  - `boss`: боссы и лидеры, классифицированные по происхождению (награда, мировые реакции, оружие Мейто, каталог).
   - `world_leader`: лидеры мировых фракций (`NPC class == 5`).
+  - `boss`: боссы с высокой базовой наградой (`bounty amount >= 10000`), либо боссы из специального каталога (`custom_catalog`), либо обладатели Мейто (`meitou_holder`).
+  - `significant_npc`: значимые NPC с меньшей наградой (`bounty amount < 10000`) или уникальные NPC, участвующие исключительно в мировых реакциях/триггерах (`world_state`).
   - `unique_npc`: прочие уникальные персонажи мира.
 - `locations`: список статических привязок к локациям мира по цепочке вложенности FCS-шаблонов (`CHARACTER` → `SQUAD` → `TOWN` → `INSTANCE`):
   - `instance_id`: устойчивый ID экземпляра локации из `world_reference.json` (пустая строка при отсутствии).
@@ -328,11 +329,13 @@ Publisher читает журнал целиком, проверяет его, �
     - `ambiguous`: шаблону соответствует несколько экземпляров поселений в мире.
     - `unresolved`: экземпляр локации в справочнике мира не найден.
   - `source_chain`: цепочка шагов разрешения (`["CHARACTER:<sid>", "SQUAD:<sid>", "TOWN:<sid>", "INSTANCE:<id>"]`).
+  - `cleared_evidence`: свидетельство зачистки конкретной локации (`{"location_instance_id": string, "cleared_at": string, "source": string}`) или `null`, обогащаемое при доставке в игровой репозиторий (`deliver-companion`, `apply_progress_to_unique_entities`) из ручного слоя `locations_progress.json`.
+- `personal_evidence`: объект подтверждения персонального взаимодействия (`{"event_id": string, "day": int | null, "summary": string}`) или `null`, извлекаемый из активного таймлайна по маркеру `[npc_sid=...]`.
 - `dynamic`: динамическое состояние персонажа в сохранении:
   - `state_code`: числовой код состояния из `world_state.unique_npcs` (`integer | null`): 0 — мёртв, 1 — жив и свободен, 2 — в плену (`null` — персонаж в сохранении не встречался).
   - `player_defeat_flag`: булев флаг победы игрока над персонажем (`usedUniquesPlayer*`).
   - `squad_status`: статус нахождения в отряде игрока (`"confirmed_in_squad" | "confirmed_not_in_squad" | "unresolved"`):
-    - `confirmed_in_squad`: персонаж подтверждённо принят в отряд игрока (сопоставление по строгому 5-компонентному `handle`).
+    - `confirmed_in_squad`: персонаж подтверждённо принят в отряд игрока (сопоставление по строгому 5-компонентному `handle` либо совпадению по имени среди членов отряда игрока).
     - `confirmed_not_in_squad`: персонаж имеет валидный `handle`, но в составе отрядов игрока отсутствует.
     - `unresolved`: `handle` отсутствует или не валиден.
   - `character_id`: постоянный идентификатор персонажа в отряде игрока (`ps:...` или `null`).
@@ -349,18 +352,24 @@ Publisher читает журнал целиком, проверяет его, �
   - `world_state`: NPC участвует в условиях триггеров переопределения мира или городов (`reactions/world_states`, условия `NPC is` / `NPC is NOT`).
   - `meitou_holder`: обладание оружием Мейто по базовым шаблонам снаряжения (производитель Кросс `52288-rebirth.mod`, уровень `52293-rebirth.mod`).
   - `custom_catalog`: боссы, подтверждённые предметным заданием (`50519-rebirth.mod`, `96407-rebirth.mod`, `96409-rebirth.mod`).
+- Категория `category`: `"boss" | "world_leader" | "significant_npc" | "recruit" | "unique_npc"`. Отделена от источников классификации: при `NPC class == 5` категория — `world_leader`; при награде `>= 10000`, `custom_catalog` или `meitou_holder` — `boss`; при меньшей награде или участии только в триггерах мира — `significant_npc`.
 - Поля объекта босса:
   - `npc_sid`: строковый `sid` шаблона персонажа.
   - `name_en`: каноническое английское имя.
   - `name_ru`: локализованное русское имя (`string | null`).
   - `classification_origin`: источник классификации босса.
+  - `category`: категория сущности.
   - `bounty`: объект награды за голову (`{"amount": int, "factions": [string]}`) или `null`, если награда не назначена.
   - `associated_world_states`: список связанных триггеров состояния мира с полями `state_sid`, `state_name`, `value` (`null` для статических условий шаблона).
-  - `static_locations`: список привязок к локациям (объекты `location_link`).
+  - `static_locations`: список привязок к локациям (объекты `location_link` с полем `cleared_evidence`).
+  - `personal_evidence`: объект подтверждения персонального события взаимодействия (`{"event_id": string, "day": int | null, "summary": string}`) или `null` по маркеру `[npc_sid=...]` в активном таймлайне.
   - `observed_state`: снимок наблюдаемого состояния (`state_code`, `player_defeat_flag`, `captured_by`).
   - `cleared_evidence`: свидетельство победы/зачистки (`{"location_instance_id": string, "cleared_at": string, "source": string}`) или `null`.
 - **Инвариант зачистки**: конвертер (`tools.unique_entities_registry`) при локальной сборке реестра в `published/` **никогда не выставляет `cleared_evidence` самостоятельно** (значение строго `null`). Конвертер извлекает объективные факты сохранений и статических баз данных и не выносит суждений о победах над боссами.
-- Поле `cleared_evidence` обогащается **исключительно при доставке в игровой репозиторий** (`deliver-companion`, функция `apply_progress_to_unique_entities`) из подтверждённого ручного слоя `Campaign/<кампания>/locations_progress.json` формата `kenshi-location-progress/3`, если хотя бы одна статическая локация босса отмечена как зачищенная (`cleared`).
+- **Двухфакторное подтверждение победы над боссом при доставке**: поле `cleared_evidence` босса обогащается **исключительно при доставке в игровой репозиторий** (`deliver-companion`, функция `apply_progress_to_unique_entities`) и только при одновременном выполнении двух условий:
+  1. Хотя бы одна статическая локация босса отмечена как зачищенная (`cleared`) в ручном слое `Campaign/<кампания>/locations_progress.json` формата `kenshi-location-progress/3`.
+  2. Зафиксировано личное подтверждение взаимодействия с боссом (`personal_evidence is not None`).
+  При отсутствии личного подтверждения зачистка локации фиксируется только на самой локации (`static_locations[].cleared_evidence`), а `cleared_evidence` босса остаётся `null`.
 
 ### Группа `meitou_weapons`
 
@@ -386,10 +395,9 @@ Publisher читает журнал целиком, проверяет его, �
   - `storage_building`: здание хранилища или `null`.
   - `location_kind`: тип размещения экземпляра (`"equipped"` — надето в боевом слоте оружия, `"inventory"` — в основном инвентаре, `"backpack"` — внутри рюкзака, `"storage"` — на складе базы).
   - `slot`: слот предмета (`string | null`).
-- `provenance_status`: статус происхождения оружия (`"confirmed_trophy" | "observed_in_inventory"`):
-  - `confirmed_trophy`: подтверждённый трофей — наличие связанного события с маркером `[base_sid=...]` в активном таймлайне (`timeline/events.jsonl`, статус `confirmed`, не отменённого перезагрузкой или коррекцией).
-  - `observed_in_inventory`: оружие физически наблюдается у игрока, но подтверждающего события в таймлайне пока нет.
-  - для моделей без наблюдаемых экземпляров у игрока массив `observed_instances` пуст.
+- Ортогональные статусы наблюдения и происхождения:
+  - `observation_status`: `"observed" | "not_observed"`. Отражает факт физического присутствия хотя бы одного экземпляра модели оружия у игрока (`observed_instances` не пуст).
+  - `provenance_status`: `"confirmed_trophy" | "unconfirmed"`. Отражает документальное подтверждение получения трофея: `confirmed_trophy` — наличие связанного события с маркером `[base_sid=...]` в активном таймлайне (`timeline/events.jsonl`, статус `confirmed`, не отменённого перезагрузкой или коррекцией); иначе — `unconfirmed`.
 - `trophy_evidence`: свидетельство трофея (`{"event_id": string, "day": int | null, "summary": string}`) или `null`.
 
 ## Дипломатия и состояние мира: геополитические структуры FCS
@@ -542,14 +550,14 @@ Publisher читает журнал целиком, проверяет его, �
 2. `sid`: строковый идентификатор (`npc_sid` для NPC и боссов, `base_sid` для оружия Мейто).
 3. `name_ru`: русскоязычное наименование или имя.
 4. `name_en`: англоязычное наименование или имя.
-5. `state_code`: числовой код состояния NPC (0 — мёртв, 1 — свободен, 2 — в плену; для meitou — пусто).
-6. `squad_status`: статус в отряде игрока (`confirmed_in_squad`, `confirmed_not_in_squad`, `unresolved`; для meitou — пусто).
-7. `character_id`: постоянный идентификатор персонажа игрока (`ps:...`), если завербован.
-8. `primary_location_instance_id`: идентификатор основной локации (поселения/города) из справочника мира.
-9. `location_resolution`: точность привязки к локации (`unique`, `ambiguous`, `unresolved`).
+5. `state_code`: числовой код состояния NPC (0 — мёртв, 1 — свободен, 2 — в плену; для боссов синхронизируется с соответствующим `unique_npc`; для meitou — пусто).
+6. `squad_status`: статус в отряде игрока (`confirmed_in_squad`, `confirmed_not_in_squad`, `unresolved`; для боссов синхронизируется с `unique_npc`; для meitou — пусто).
+7. `character_id`: постоянный идентификатор персонажа игрока (`ps:...`), если завербован (синхронизируется между боссом и `unique_npc`).
+8. `primary_location_instance_id`: идентификатор основной локации (поселения/города) из справочника мира. Заполняется только при однозначной привязке (ровно 1 локация); при множественной привязке (1:N, например бродячие рекруты) или отсутствии — пусто. Для оружия Мейто — всегда пусто.
+9. `location_resolution`: точность привязки к локации (`unique` при ровно 1 локации, `ambiguous` при нескольких привязках 1:N, `unresolved` при неразрешённой локации; для meitou — пусто).
 10. `meitou_base_sid`: `sid` базовой модели оружия Мейто (для NPC/боссов — пусто).
 11. `carrier_or_storage`: носитель или хранилище фактически наблюдаемого экземпляра в формате `<вид>:<имя>` (например, `equipped:Хот Лон` или `storage:Оружейный шкаф`).
-12. `provenance_status`: статус происхождения или подтверждения: для meitou — `confirmed_trophy` или `observed_in_inventory`; для боссов — источник подтверждения зачистки `cleared_evidence.source` (при наличии); для не связанных с событиями сущностей — пусто.
+12. `provenance_status`: статус происхождения или подтверждения: для meitou — `confirmed_trophy` или `unconfirmed`; для боссов — источник подтверждения зачистки `cleared_evidence.source` (при наличии); для не связанных с событиями сущностей — пусто.
 
 ### Значения `state_code` и отношения
 

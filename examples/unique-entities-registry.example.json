@@ -1,5 +1,5 @@
 {
-  "format": "kenshi-unique-entities-registry/1",
+  "format": "kenshi-unique-entities-registry/2",
   "campaign_id": "example-campaign",
   "snapshot_id": "example-snapshot",
   "world_ref_id": "example-world-reference",
@@ -20,7 +20,8 @@
           "region": "Floodlands",
           "link_type": "resident",
           "resolution": "unique",
-          "source_chain": ["CHARACTER:50570-rebirth.mod", "SQUAD:50569-rebirth.mod", "TOWN:48447-rebirth.mod", "INSTANCE:6-rebirth-INGAME"]
+          "source_chain": ["CHARACTER:50570-rebirth.mod", "SQUAD:50569-rebirth.mod", "TOWN:48447-rebirth.mod", "INSTANCE:6-rebirth-INGAME"],
+          "cleared_evidence": null
         }
       ],
       "dynamic": {
@@ -32,7 +33,8 @@
         "captured_by": null,
         "snapshot_id": "example-snapshot",
         "game_time": "Day 136 20:21"
-      }
+      },
+      "personal_evidence": null
     },
     {
       "npc_sid": "50519-rebirth.mod",
@@ -48,7 +50,8 @@
           "region": "Cannibal Plains",
           "link_type": "resident",
           "resolution": "unique",
-          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"]
+          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"],
+          "cleared_evidence": null
         }
       ],
       "dynamic": {
@@ -60,7 +63,8 @@
         "captured_by": null,
         "snapshot_id": "example-snapshot",
         "game_time": "Day 136 20:21"
-      }
+      },
+      "personal_evidence": null
     }
   ],
   "bosses": [
@@ -68,6 +72,7 @@
       "npc_sid": "50519-rebirth.mod",
       "name_en": "Grand Wizard",
       "name_ru": "Великий шаман",
+      "category": "boss",
       "classification_origin": "game_bounty",
       "bounty": {"amount": 40000, "factions": []},
       "associated_world_states": [],
@@ -80,11 +85,13 @@
           "region": "Cannibal Plains",
           "link_type": "resident",
           "resolution": "unique",
-          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"]
+          "source_chain": ["CHARACTER:50519-rebirth.mod", "SQUAD:50521-rebirth.mod", "TOWN:50522-rebirth.mod", "INSTANCE:26-rebirth-INGAME"],
+          "cleared_evidence": null
         }
       ],
       "observed_state": {"state_code": 2, "player_defeat_flag": true, "captured_by": null},
-      "cleared_evidence": null
+      "cleared_evidence": null,
+      "personal_evidence": null
     }
   ],
   "meitou_weapons": [
@@ -116,6 +123,7 @@
           "slot": "back"
         }
       ],
+      "observation_status": "observed",
       "provenance_status": "confirmed_trophy",
       "trophy_evidence": {
         "event_id": "example-confirmed-trophy",

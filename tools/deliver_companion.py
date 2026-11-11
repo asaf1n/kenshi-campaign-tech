@@ -229,6 +229,8 @@ def check_location_progress(published_dir: Path | None = None, companion_dir: Pa
 def _write_release(
     pub_path: Path, target_repo: Path, game_time: str, registry: bytes | None,
     unique_entities: bytes | None = None,
+    unique_entities_csv: bytes | None = None,
+    progress_status: str = "ok",
 ) -> tuple[str, str, list[str]]:
     """Записывает published/, encounters.md и картографические артефакты в клон; идемпотентно.
 
@@ -252,23 +254,37 @@ def _write_release(
     for legacy in LEGACY_ARTIFACTS:
         if not (pub_path / legacy).is_file():
             (target_published / legacy).unlink(missing_ok=True)
-    if registry is None:
-        registry_target.unlink(missing_ok=True)
+    if progress_status == "invalid":
+        # При невалидном ручном слое блокируем перезапись зависимых файлов (location_registry.json, unique_entities_registry.json)
+        pass
     else:
-        registry_target.write_bytes(registry)
-    if unique_entities is None:
-        target_entities.unlink(missing_ok=True)
-    else:
-        target_entities.write_bytes(unique_entities)
+        if registry is None:
+            registry_target.unlink(missing_ok=True)
+        else:
+            registry_target.write_bytes(registry)
+        if unique_entities is None:
+            target_entities.unlink(missing_ok=True)
+        else:
+            target_entities.write_bytes(unique_entities)
 
     gitkeep = pub_path / ".gitkeep"
     if gitkeep.is_file():
         shutil.copy2(gitkeep, target_published / ".gitkeep")
 
     # 2. Каталоги выпуска; удаление устаревших файлов строго внутри этих каталогов
+    csv_target = target_published / "tables" / "unique_entities.csv"
+    saved_csv = csv_target.read_bytes() if (progress_status == "invalid" and csv_target.is_file()) else None
+
     for name in SYNCED_DIRS:
         if (pub_path / name).is_dir():
             _sync_dir(pub_path / name, target_published / name)
+
+    if progress_status == "invalid":
+        if saved_csv is not None:
+            csv_target.write_bytes(saved_csv)
+    elif unique_entities_csv is not None:
+        csv_target.parent.mkdir(parents=True, exist_ok=True)
+        csv_target.write_bytes(unique_entities_csv)
 
     for name in LEGACY_DIRS:
         legacy_dir = target_published / name
@@ -350,46 +366,63 @@ def deliver_to_companion(
         progress_status, progress_reason, unmatched = "absent", "Проверка ручного слоя не выполнена", []
         registry_data = None
         unique_entities_bytes = None
+        unique_entities_csv_bytes = None
         world_ref = None
         progress = None
-        if "location_registry" in manifest.get("artifacts", {}):
-            world_ref = _read_release_world(pub_path, manifest)
-            registry = load_location_registry(pub_path, manifest, world_ref)
+
+        if "world_reference" in manifest.get("artifacts", {}) and (pub_path / "world_reference.json").is_file():
+            try:
+                world_ref = _read_release_world(pub_path, manifest)
+            except Exception:
+                world_ref = None
+
+        has_loc_registry = "location_registry" in manifest.get("artifacts", {})
+        has_entities_registry = (pub_path / "unique_entities_registry.json").is_file()
+
+        if not (has_loc_registry or has_entities_registry):
+            progress_reason = "В выпуске нет реестра локаций"
+        elif world_ref is not None:
             progress_reason = "Ручной слой для кампании отсутствует"
             try:
                 progress, unmatched = _read_progress(target_repo, manifest.get("campaign_id"), world_ref)
                 if progress is not None:
-                    merged = merge_progress(registry, progress)
-                    validate_registry(merged, manifest, world_ref)
-                    registry_data = registry_bytes(merged)
                     progress_status, progress_reason = "ok", None
             except ValidationError as exc:
                 field = ".".join(map(str, exc.absolute_path)) or "корень файла"
                 progress_status, progress_reason = "invalid", f"Нарушение схемы ручного слоя в {field} ({exc.validator})"
             except (OSError, ValueError, GitSyncError, RecursionError) as exc:
                 progress_status, progress_reason = "invalid", str(exc)
-            if registry_data is None:
+
+        if has_loc_registry:
+            if world_ref is None:
+                world_ref = _read_release_world(pub_path, manifest)
+            registry = load_location_registry(pub_path, manifest, world_ref)
+            if progress_status == "ok" and progress is not None:
+                try:
+                    merged = merge_progress(registry, progress)
+                    validate_registry(merged, manifest, world_ref)
+                    registry_data = registry_bytes(merged)
+                except ValidationError as exc:
+                    field = ".".join(map(str, exc.absolute_path)) or "корень файла"
+                    progress_status, progress_reason = "invalid", f"Нарушение схемы ручного слоя в {field} ({exc.validator})"
+                except (OSError, ValueError, GitSyncError, RecursionError) as exc:
+                    progress_status, progress_reason = "invalid", str(exc)
+            elif progress_status != "invalid":
                 unmatched = []
                 registry_data = registry_bytes(merge_progress(registry, None))
-        else:
-            progress_reason = "В выпуске нет реестра локаций"
 
-        if (pub_path / "unique_entities_registry.json").is_file():
-            if world_ref is None and "world_reference" in manifest.get("artifacts", {}) and (pub_path / "world_reference.json").is_file():
-                try:
-                    world_ref = _read_release_world(pub_path, manifest)
-                except Exception:
-                    world_ref = None
-            if progress is None and world_ref is not None and progress_status != "invalid":
-                try:
-                    progress, _ = _read_progress(target_repo, manifest.get("campaign_id"), world_ref)
-                except Exception:
-                    progress = None
-            entities = read_json((pub_path / "unique_entities_registry.json").read_bytes())
-            entities = apply_progress_to_unique_entities(entities, progress, world_ref)
-            unique_entities_bytes = canonical(entities)
+        if has_entities_registry:
+            if progress_status != "invalid":
+                entities = read_json((pub_path / "unique_entities_registry.json").read_bytes())
+                entities = apply_progress_to_unique_entities(entities, progress, world_ref)
+                unique_entities_bytes = canonical(entities)
+                from tools.tables import csv_bytes, unique_entities_table
+                unique_entities_csv_bytes = csv_bytes(unique_entities_table(entities))
 
-        return _write_release(pub_path, target_repo, game_time, registry_data, unique_entities_bytes)
+        return _write_release(
+            pub_path, target_repo, game_time, registry_data, unique_entities_bytes,
+            unique_entities_csv_bytes, progress_status,
+        )
 
     def commit_release() -> bool:
         return _commit_release(target_repo, game_time, snap_short)
@@ -433,7 +466,7 @@ def deliver_to_companion(
 
     result: dict[str, Any] = {
         # Диагностика ручного слоя и карты отделена от доставки published/.
-        "status": "failed" if git_error or delivery_error is not None else "delivered",
+        "status": "failed" if git_error or delivery_error is not None else ("degraded" if progress_status == "invalid" else "delivered"),
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),

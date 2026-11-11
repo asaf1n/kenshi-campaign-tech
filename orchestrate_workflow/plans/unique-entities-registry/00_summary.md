@@ -2,9 +2,9 @@
 
 Статус плана: завершён 2026-11-11
 
-Цель плана: Расширить конвертер `kenshi-campaign-tech` техническим реестром уникальных NPC, боссов и оружия Мейто (`published/unique_entities_registry.json`, схема `kenshi-unique-entities-registry/1`) с детерминированной привязкой к игровым локациям (`instance_id`), наблюдаемому состоянию кампании (снимки `current.json`, отряд `characters`, `world_state`) и подтверждённым фактам (`locations_progress.json`), строго сохраняя независимость фактов от игровых решений и не допуская автоматических отметок `cleared`.
+Цель плана: Расширить конвертер `kenshi-campaign-tech` техническим реестром уникальных NPC, боссов и оружия Мейто (`published/unique_entities_registry.json`, схема `kenshi-unique-entities-registry/2`) с детерминированной привязкой к игровым локациям (`instance_id`), наблюдаемому состоянию кампании (снимки `current.json`, отряд `characters`, `world_state`) и подтверждённым фактам (`locations_progress.json`), строго сохраняя независимость фактов от игровых решений и устраняя дефекты действующей реализации.
 
-Открытых задач нет. Все задачи плана выполнены и приняты независимым ревью.
+Все задачи плана выполнены и приняты независимым ревью.
 
 ## Очередь задач
 
@@ -14,3 +14,4 @@
 | [02-unique-entities-registry-model-and-schema](02-unique-entities-registry-model-and-schema.md) | завершена | Схема `contracts/unique-entities-registry.schema.json` (/1), модель данных, выделение боссов, учет Мейто, обработка неоднозначностей 1:N и модуль сборки реестра |
 | [03-pipeline-publication-delivery-and-tables](03-pipeline-publication-delivery-and-tables.md) | завершена | Интеграция в `manifest.schema.json`, `publisher.py`, `validation.py`, `deliver_companion.py`, проверка идемпотентности `generated_at` и табличные выгрузки |
 | [04-testing-and-verification](04-testing-and-verification.md) | завершена | Модульные, интеграционные и регрессионные тесты по всем сценариям и контрольным точкам (Башня Ожога, Столица людоедов, Башня Жестокости, Мейто, ложные зачистки) |
+| [05-defect-remediation](05-defect-remediation.md) | завершена | Устранение дефектов P1/P2: разделение зачистки локации и состояния босса, семантика Мейто, согласование JSON/CSV, разрешение локаций, классификация боссов, защита прогресса при доставке, схема /2 |

@@ -443,7 +443,7 @@ def check_examples() -> int:
             validate_world_reference(value)
         elif fmt == "kenshi-locations/1":
             validate_locations(value)
-        elif fmt == "kenshi-unique-entities-registry/1":
+        elif fmt in ("kenshi-unique-entities-registry/1", "kenshi-unique-entities-registry/2"):
             validate_unique_entities_registry(value)
         elif fmt == "kenshi-index/2":
             validate_index(value)

@@ -165,8 +165,9 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 registry = self.build(timeline_data={"events": [{**event, **changes}]})
                 weapon = registry["meitou_weapons"][0]
+                self.assertEqual(weapon["observation_status"], "observed")
                 self.assertEqual(weapon["provenance_status"],
-                                 "confirmed_trophy" if confirmed else "observed_in_inventory")
+                                 "confirmed_trophy" if confirmed else "unconfirmed")
                 self.assertEqual(weapon["trophy_evidence"] is not None, confirmed)
                 self.assertEqual({row["location_kind"] for row in weapon["observed_instances"]},
                                  {"equipped", "inventory", "backpack", "storage"})
@@ -207,14 +208,42 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
             with self.subTest(campaign=campaign, time=time):
                 progress["campaign_id"] = campaign
                 progress["locations"][0]["game_time"] = time
-                bosses = {row["npc_sid"]: row for row in self.build(progress_data=progress)["bosses"]}
-                self.assertEqual(bosses[WIZARD]["cleared_evidence"] is not None, expected)
+                # Без персонального подтверждения: босс не получает cleared_evidence,
+                # но его static_locations получают отметку зачистки
+                reg_no_p = self.build(progress_data=progress)
+                bosses_no_p = {row["npc_sid"]: row for row in reg_no_p["bosses"]}
+                self.assertIsNone(bosses_no_p[WIZARD]["cleared_evidence"])
+                loc_evidence = bosses_no_p[WIZARD]["static_locations"][0]["cleared_evidence"]
+                self.assertEqual(loc_evidence is not None, expected)
                 if expected:
-                    self.assertEqual(bosses[WIZARD]["cleared_evidence"], {
+                    self.assertEqual(loc_evidence, {
+                        "location_instance_id": "26-rebirth-INGAME", "cleared_at": time, "source": "session-note"})
+
+                # С персональным подтверждением в таймлайне: босс получает и personal_evidence, и cleared_evidence
+                wizard_event = {
+                    "format": "kenshi-event/1", "event_id": "wizard-defeat", "session_id": "session",
+                    "recorded_at": "2026-11-11T00:00:00Z", "kind": "battle", "status": "confirmed",
+                    "game_day": 136, "game_time": "Day 136 20:20",
+                    "summary": f"Победа над Великим шаманом [npc_sid={WIZARD}]",
+                    "evidence": [{"kind": "user_note", "ref": "sessions/session/notes.md"}],
+                }
+                reg_with_p = self.build(progress_data=progress, timeline_data={"events": [wizard_event]})
+                bosses_p = {row["npc_sid"]: row for row in reg_with_p["bosses"]}
+                self.assertIsNotNone(bosses_p[WIZARD]["personal_evidence"])
+                self.assertEqual(bosses_p[WIZARD]["cleared_evidence"] is not None, expected)
+                if expected:
+                    self.assertEqual(bosses_p[WIZARD]["cleared_evidence"], {
                         "location_instance_id": "26-rebirth-INGAME", "cleared_at": time, "source": "session-note"})
 
     def test_apply_progress_to_unique_entities(self) -> None:
-        registry = self.build()
+        wizard_event = {
+            "format": "kenshi-event/1", "event_id": "wizard-defeat", "session_id": "session",
+            "recorded_at": "2026-11-11T00:00:00Z", "kind": "battle", "status": "confirmed",
+            "game_day": 136, "game_time": "Day 136 20:20",
+            "summary": f"Победа над Великим шаманом [npc_sid={WIZARD}]",
+            "evidence": [{"kind": "user_note", "ref": "sessions/session/notes.md"}],
+        }
+        registry = self.build(timeline_data={"events": [wizard_event]})
         progress = {
             "format": "kenshi-location-progress/3", "campaign_id": "campaign", "world_ref_id": "world",
             "locations": [{"instance_id": "26-rebirth-INGAME", "evidence": "session-note", "game_time": "Day 136 20:20"}],
@@ -226,10 +255,13 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
         self.assertEqual(bosses[WIZARD]["cleared_evidence"], {
             "location_instance_id": "26-rebirth-INGAME", "cleared_at": "Day 136 20:20", "source": "session-note",
         })
+        self.assertEqual(bosses[WIZARD]["static_locations"][0]["cleared_evidence"], {
+            "location_instance_id": "26-rebirth-INGAME", "cleared_at": "Day 136 20:20", "source": "session-note",
+        })
         # Исходный реестр не изменился (иммутабельность)
         self.assertIsNone(next(b for b in registry["bosses"] if b["npc_sid"] == WIZARD)["cleared_evidence"])
 
-        # 2. Применение прогресса без world_ref (сбор instance_id из боссов)
+        # 2. Применение прогресса без world_ref (сбор instance_id из сущностей)
         enriched_no_wref = apply_progress_to_unique_entities(registry, progress, world_ref=None)
         validate_unique_entities_registry(enriched_no_wref)
         bosses_no_wref = {b["npc_sid"]: b for b in enriched_no_wref["bosses"]}
@@ -241,6 +273,102 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
         reset = apply_progress_to_unique_entities(enriched, None)
         validate_unique_entities_registry(reset)
         self.assertTrue(all(b["cleared_evidence"] is None for b in reset["bosses"]))
+        self.assertTrue(all(link["cleared_evidence"] is None for b in reset["bosses"] for link in b["static_locations"]))
+
+    def test_agnu_remediation_and_categories_and_multi_locations(self) -> None:
+        """Проверяет Агну в отряде, классификацию категорий и независимость 1:N локаций."""
+        AGNU = "97095-rebirth.mod"
+        TOWER_ABUSE = "108-rebirth-INGAME"
+        # Настройка Агну: NPC class 9, в world_states, в отряде игрока (state_code 1, confirmed_in_squad)
+        self.cur["world_state"]["unique_npcs"].append({
+            "sid": AGNU, "handle": [1, 5, 5, 5, 5], "state_code": 1, "player": False,
+        })
+        self.cur["characters"].append({
+            "id": "ps:agnu", "name": "Агну", "handle": [1, 5, 5, 5, 5], "squad_name": "Squad", "items": [],
+        })
+        self.records["units"]["characters"].append({
+            "sid": AGNU, "name": "Agnu", "bool": {"unique": True}, "int": {"NPC class": 9},
+        })
+        self.records["units"]["squads"].append({
+            "sid": "agnu-squad", "refs": {"leader": _ref(AGNU)},
+        })
+        self.records["units"]["towns"].append({
+            "sid": "tower-town", "name": "Tower of Abuse", "refs": {"residents": _ref("agnu-squad")},
+        })
+        self.world["locations"].append({
+            "instance_id": TOWER_ABUSE, "template_sid": "tower-town", "name_en": "Tower of Abuse",
+            "name_ru": "Башня Жестокости", "region": "Venge",
+        })
+        self.records["reactions"]["world_states"].append({
+            "sid": "agnu-state", "name": "Agnu rescued", "type_id": 110, "refs": {"NPC is": _ref(AGNU)},
+        })
+
+        MINOR = "minor-bounty-npc"
+        self.records["units"]["characters"].append({
+            "sid": MINOR, "name": "Minor Bounty", "bool": {"unique": True}, "int": {"bounty amount": 5000},
+        })
+        LEADER = "faction-leader"
+        self.records["units"]["characters"].append({
+            "sid": LEADER, "name": "Leader", "bool": {"unique": True}, "int": {"NPC class": 5, "bounty amount": 50000},
+        })
+
+        progress = {
+            "format": "kenshi-location-progress/3", "campaign_id": "campaign", "world_ref_id": "world",
+            "locations": [{"instance_id": TOWER_ABUSE, "evidence": "session-tower", "game_time": "Day 136 20:20"}],
+        }
+
+        registry = self.build(progress_data=progress)
+        validate_unique_entities_registry(registry)
+
+        npcs = {r["npc_sid"]: r for r in registry["unique_npcs"]}
+        bosses = {r["npc_sid"]: r for r in registry["bosses"]}
+
+        # 1. Агну: category == 'recruit' (NPC class 9 приоритетнее world_state), в отряде
+        self.assertEqual(npcs[AGNU]["category"], "recruit")
+        self.assertEqual(npcs[AGNU]["dynamic"]["squad_status"], "confirmed_in_squad")
+        self.assertEqual(npcs[AGNU]["dynamic"]["character_id"], "ps:agnu")
+        # Связь с Башней Жестокости сохранена и содержит cleared_evidence
+        self.assertEqual(npcs[AGNU]["locations"][0]["instance_id"], TOWER_ABUSE)
+        self.assertIsNotNone(npcs[AGNU]["locations"][0]["cleared_evidence"])
+        self.assertEqual(npcs[AGNU]["locations"][0]["cleared_evidence"]["location_instance_id"], TOWER_ABUSE)
+        # Но персональное свидетельство поражения отсутствует!
+        self.assertIsNone(npcs[AGNU]["personal_evidence"])
+        if AGNU in bosses:
+            self.assertEqual(bosses[AGNU]["category"], "recruit")
+            self.assertIsNone(bosses[AGNU]["cleared_evidence"])
+            self.assertIsNone(bosses[AGNU]["personal_evidence"])
+
+        # 2. Категории: minor bounty -> significant_npc, leader -> world_leader
+        self.assertEqual(npcs[MINOR]["category"], "significant_npc")
+        self.assertEqual(npcs[LEADER]["category"], "world_leader")
+        self.assertEqual(bosses[LEADER]["category"], "world_leader")
+
+    def test_meitou_orthogonal_statuses(self) -> None:
+        """Проверяет независимость observation_status и provenance_status для оружия Мейто."""
+        sid = WEAPONS[0][0]
+        event = {
+            "format": "kenshi-event/1", "event_id": "trophy-lost", "session_id": "session",
+            "recorded_at": "2026-11-11T00:00:00Z", "kind": "battle", "status": "confirmed",
+            "game_day": 136, "game_time": "Day 136 20:20", "summary": f"Трофей [base_sid={sid}]",
+            "evidence": [{"kind": "user_note", "ref": "sessions/session/notes.md"}],
+        }
+        self.cur["characters"][0]["items"] = []
+        reg = self.build(timeline_data={"events": [event]})
+        validate_unique_entities_registry(reg)
+        w = next(item for item in reg["meitou_weapons"] if item["base_sid"] == sid)
+        self.assertEqual(w["observation_status"], "not_observed")
+        self.assertEqual(w["provenance_status"], "confirmed_trophy")
+        self.assertEqual(len(w["observed_instances"]), 0)
+
+        cross_sid = "52299-rebirth.mod"
+        self.cur["characters"][0]["items"] = [_item("equipped-cross", cross_sid, "back")]
+        reg2 = self.build(timeline_data={"events": []})
+        validate_unique_entities_registry(reg2)
+        w_cross = next(item for item in reg2["meitou_weapons"] if item["base_sid"] == cross_sid)
+        self.assertEqual(w_cross["observation_status"], "observed")
+        self.assertEqual(w_cross["provenance_status"], "unconfirmed")
+        self.assertEqual(len(w_cross["observed_instances"]), 1)
+        self.assertIsNone(w_cross["trophy_evidence"])
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ class PublisherUniqueEntitiesTests(unittest.TestCase):
         self.assertTrue(registry_path.is_file())
         registry = read_json(registry_path.read_bytes())
 
-        self.assertEqual(registry["format"], "kenshi-unique-entities-registry/1")
+        self.assertEqual(registry["format"], "kenshi-unique-entities-registry/2")
         self.assertEqual(registry["snapshot_id"], manifest["snapshot_id"])
         self.assertEqual(registry["campaign_id"], manifest["campaign_id"])
         self.assertEqual(registry["world_ref_id"], manifest["world_ref_id"])
