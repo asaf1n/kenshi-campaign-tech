@@ -10,6 +10,17 @@ from collections import Counter, defaultdict
 from typing import Any, Sequence
 
 
+def is_valid_strict_handle(h: Sequence[int | None] | None) -> tuple[int, ...] | None:
+    """Проверяет handle из ровно пяти int-компонентов, не все из которых равны нулю."""
+    if not h or len(h) != 5:
+        return None
+    if any(type(v) is not int for v in h):
+        return None
+    if all(v == 0 for v in h):
+        return None
+    return tuple(h)
+
+
 def _clean_handle_tuple(h: Sequence[int | None] | None) -> tuple[int | None, ...] | None:
     if not h or len(h) < 5:
         return None
@@ -160,15 +171,29 @@ def enrich_world_and_production_context(
 ) -> None:
     """Обогащает jobs, carrying, unique_npcs и рассчитывает складской баланс по базам."""
     handle_map: dict[tuple[int | None, ...], str] = {}
+    char_by_handle: dict[tuple[int, ...], dict[str, Any]] = {}
 
     # 1. Индексация персонажей отряда
     for ch in characters:
+        strict_handle = is_valid_strict_handle(ch.get("handle"))
+        if strict_handle:
+            char_by_handle[strict_handle] = ch
         h = _clean_handle_tuple(ch.get("handle"))
         if h:
             handle_map[h] = ch.get("name") or ch.get("id") or "Персонаж"
 
     # 2. Индексация уникальных NPC мира
     for u in unique_npcs or []:
+        strict_handle = is_valid_strict_handle(u.get("handle"))
+        ch = char_by_handle.get(strict_handle)
+        if ch is not None:
+            u["squad_status"] = "in_squad"
+            u["character_id"] = ch.get("id")
+            u["character_name"] = ch.get("name")
+        else:
+            u["squad_status"] = "not_in_squad" if strict_handle else "unresolved"
+            u["character_id"] = None
+            u["character_name"] = None
         uh = _clean_handle_tuple(u.get("handle"))
         if uh:
             handle_map[uh] = u.get("name_ru") or u.get("name") or u.get("sid") or "NPC"

@@ -2,12 +2,14 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from tools.player_assets import research_block
+from tools import converter_worker
 from tools.rendering import render_brief, render_squad
 from tools.world_context import aggregate_storage_by_location, enrich_world_and_production_context, storage_rows
 
@@ -173,7 +175,22 @@ class TestWorldContextAndProduction(unittest.TestCase):
                 "player": False,
                 "handle": [1, 7, 7, 1, 77],
             },
+            {
+                "sid": "miu",
+                "name": "Miu",
+                "name_ru": "Мью",
+                "player": False,
+                "handle": [1, 20, 30, 1, 200],
+            },
         ]
+        invalid_handles = [
+            None, [], [1, 10, 20, 1], [1, 10, 20, 1, None],
+            [0, 0, 0, 0, 0], [1, 10, 20, 1, "100"], [1, 10, 20, 1, 100.0],
+            [1, 10, 20, 1, 100, 99], [True, 10, 20, 1, 100],
+        ]
+        for index, handle in enumerate(invalid_handles):
+            chars.append({"id": f"invalid:{index}", "name": "Мью", "handle": handle})
+            npcs.append({"sid": f"invalid:{index}", "name": "Мью", "handle": handle})
 
         enrich_world_and_production_context(chars, prop_data, npcs)
 
@@ -194,8 +211,55 @@ class TestWorldContextAndProduction(unittest.TestCase):
         self.assertNotIn("captured_by", npcs[0])
         self.assertNotIn("captured_by", npcs[2])
 
+        self.assertEqual(npcs[3]["squad_status"], "in_squad")
+        self.assertEqual(npcs[3]["character_id"], "p2")
+        self.assertEqual(npcs[3]["character_name"], "Мью")
+        for npc in npcs[:3]:
+            with self.subTest(sid=npc["sid"]):
+                self.assertEqual(npc["squad_status"], "not_in_squad")
+                self.assertIsNone(npc["character_id"])
+                self.assertIsNone(npc["character_name"])
+        for npc in npcs[4:]:
+            with self.subTest(handle=npc["handle"]):
+                self.assertEqual(npc["squad_status"], "unresolved")
+                self.assertIsNone(npc["character_id"])
+                self.assertIsNone(npc["character_name"])
+
         # 4. Проверяем создание storage_by_location
         self.assertIn("storage_by_location", prop_data)
+
+    def test_native_snapshot_preserves_character_template_sid(self) -> None:
+        faction_sid = "204-gamedata.base"
+        state = {"type": 36, "int": {"portrait_serial": 1},
+                 "string": {"name": "Мью", "owner faction ID": faction_sid}}
+        base = {"id": "ps:1", "name": "Мью"}
+
+        for template_sid in ("miu-template", None):
+            with self.subTest(template_sid=template_sid):
+                inst = {"id": "miu", "target": template_sid, "states": ["state"]}
+
+                def build_snapshot(save: str, faction: str, timer: object) -> dict:
+                    ch = converter_worker.session_export.character(inst, {"state": state}, None)
+                    compact = converter_worker.session_export.compact_character(ch, {}, None, {}, [], ({}, []))
+                    return {"characters": [compact], "property": {"buildings": []}, "warnings": []}
+
+                with (
+                    patch.object(converter_worker.session_export, "character", return_value={
+                        **base, "faction": {"sid": faction_sid},
+                    }),
+                    patch.object(converter_worker.session_export, "compact_character", return_value=base),
+                    patch.object(converter_worker.session_export, "build_snapshot", side_effect=build_snapshot),
+                    patch.object(converter_worker.save_reader, "read_quick_save", return_value={
+                        "diplomacy": {}, "world_state": {"unique_npcs": []},
+                    }),
+                    patch.object(converter_worker.save_reader, "read_player_property", return_value={"buildings": []}),
+                ):
+                    snapshot = converter_worker.build_native_snapshot(Path("unused-save"), faction_sid, {})
+
+                self.assertEqual(snapshot["format"], "kenshi-session/11")
+                self.assertIn("template_sid", snapshot["characters"][0])
+                self.assertEqual(snapshot["characters"][0]["template_sid"], template_sid)
+                self.assertEqual(snapshot["characters"][0]["id"], "ps:1")
 
     def test_tech_level_calculation(self):
         names_data = {

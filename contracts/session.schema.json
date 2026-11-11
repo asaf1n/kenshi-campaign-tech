@@ -119,6 +119,7 @@
                 "name": {"type": ["string", "null"]},
                 "squad_id": {"type": ["string", "null"]},
                 "handle": {"type": ["array", "null"]},
+                "template_sid": {"type": ["string", "null"]},
                 "jobs": {
                   "type": ["object", "null"],
                   "properties": {
