@@ -378,12 +378,25 @@ def publish(
     from tools.changes_render import render_changes_md
 
     squad_md = render_squad(cur, snapshot_id, locations=locations_data)
-    table_files = build_tables(cur, locations_data, snapshot_id, game_index, game_records, game_notes, w_ref)
+    manifest_generated_at = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    unique_entities_payload = build_unique_entities_registry(
+        cur=dict(cur, snapshot_id=snapshot_id, campaign_id=effective_campaign,
+                 game_time=game_time, generated_at=manifest_generated_at),
+        world_ref=w_ref,
+        game_records=game_records or {},
+        game_index=game_index or {},
+        progress_data=None,
+        timeline_data={"events": timeline_data},
+    )
+    table_files = build_tables(
+        cur, locations_data, snapshot_id, game_index, game_records, game_notes, w_ref,
+        unique_entities_registry=unique_entities_payload,
+    )
     changes_md = render_changes_md(diff_data, chain_steps)
 
     manifest_data = {
         "format": PUBLICATION_FORMAT,
-        "generated_at": generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": manifest_generated_at,
         "snapshot_id": snapshot_id,
         "parent_snapshot_id": effective_parent,
         "campaign_id": effective_campaign,
@@ -640,17 +653,6 @@ def publish(
 
             (staging_dir / "world_reference.json").write_bytes(canonical(public_world_reference(w_ref)))
             (staging_dir / REGISTRY_FILENAME).write_bytes(registry_data)
-            # Ручной слой кампании применяется при доставке в игровой репозиторий.
-            progress_data = None
-            unique_entities_payload = build_unique_entities_registry(
-                cur=dict(cur, snapshot_id=snapshot_id, campaign_id=effective_campaign,
-                         game_time=game_time, generated_at=manifest_data["generated_at"]),
-                world_ref=w_ref,
-                game_records=game_records or {},
-                game_index=game_index or {},
-                progress_data=progress_data,
-                timeline_data={"events": timeline_data},
-            )
             (staging_dir / UNIQUE_ENTITIES_FILENAME).write_bytes(canonical(unique_entities_payload))
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")

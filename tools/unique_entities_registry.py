@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import copy
 import re
 from typing import Any
 
@@ -297,4 +298,52 @@ def build_unique_entities_registry(
         })
     result.update(unique_npcs=npcs, bosses=bosses, meitou_weapons=weapons)
     validate_unique_entities_registry(result)
+    return result
+
+
+def apply_progress_to_unique_entities(
+    entities: dict[str, Any],
+    progress_data: dict[str, Any] | None,
+    world_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Переносит отметки зачистки кампании в боссов реестра; чистая функция без побочных эффектов."""
+    result = copy.deepcopy(entities)
+    bosses = result.get("bosses", [])
+    if progress_data is None:
+        for boss in bosses:
+            boss["cleared_evidence"] = None
+        return result
+
+    if world_ref and world_ref.get("locations"):
+        all_locations = [{"instance_id": r["instance_id"]} for r in world_ref.get("locations", [])]
+    else:
+        unique_iids: set[str] = set()
+        for b in bosses:
+            for link in b.get("static_locations") or b.get("locations") or []:
+                iid = link.get("instance_id")
+                if iid:
+                    unique_iids.add(iid)
+        all_locations = [{"instance_id": iid} for iid in sorted(unique_iids)]
+
+    synth_reg = {
+        "campaign_id": entities.get("campaign_id", ""),
+        "game_time": entities.get("game_time", ""),
+        "locations": all_locations,
+    }
+    marked = merge_progress(synth_reg, progress_data)
+    marks = {row["instance_id"]: row["cleared"] for row in marked.get("locations", []) if "cleared" in row}
+
+    for boss in bosses:
+        clearance = None
+        for link in boss.get("static_locations") or boss.get("locations") or []:
+            iid = link.get("instance_id")
+            if iid and iid in marks:
+                clearance = {
+                    "location_instance_id": iid,
+                    "cleared_at": marks[iid].get("game_time", ""),
+                    "source": marks[iid].get("evidence", ""),
+                }
+                break
+        boss["cleared_evidence"] = clearance
+
     return result

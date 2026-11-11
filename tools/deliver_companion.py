@@ -14,9 +14,10 @@ from jsonschema import ValidationError
 from tools import cartography
 from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
 from tools.git_sync import GitSyncError, abort_unfinished, prepare_clone, push_delivery, require_git, run_git
-from tools.io_utils import linked, read_json
+from tools.io_utils import canonical, linked, read_json
 from tools.location_registry import (PROGRESS_RELATIVE, REGISTRY_FILENAME, merge_progress, registry_bytes,
                                      validate_progress, validate_registry)
+from tools.unique_entities_registry import apply_progress_to_unique_entities
 from tools.validation import load_location_registry, validate_world_reference
 
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
@@ -227,16 +228,20 @@ def check_location_progress(published_dir: Path | None = None, companion_dir: Pa
 
 def _write_release(
     pub_path: Path, target_repo: Path, game_time: str, registry: bytes | None,
+    unique_entities: bytes | None = None,
 ) -> tuple[str, str, list[str]]:
     """Записывает published/, encounters.md и картографические артефакты в клон; идемпотентно.
 
     Возвращает (статус encounters, статус картографии, ошибки картографии)."""
     target_published = target_repo / "published"
     registry_target = target_published / REGISTRY_FILENAME
-    if linked(target_published) or linked(registry_target):
+    target_entities = target_published / "unique_entities_registry.json"
+    if linked(target_published) or linked(registry_target) or linked(target_entities):
         raise ValueError("Путь назначения реестра содержит ссылку")
     if registry_target.exists() and not registry_target.is_file():
         raise ValueError(f"Путь назначения {REGISTRY_FILENAME} занят каталогом")
+    if target_entities.exists() and not target_entities.is_file():
+        raise ValueError("Путь назначения unique_entities_registry.json занят каталогом")
     target_published.mkdir(parents=True, exist_ok=True)
 
     # 1. Корневые артефакты и .gitkeep
@@ -251,6 +256,10 @@ def _write_release(
         registry_target.unlink(missing_ok=True)
     else:
         registry_target.write_bytes(registry)
+    if unique_entities is None:
+        target_entities.unlink(missing_ok=True)
+    else:
+        target_entities.write_bytes(unique_entities)
 
     gitkeep = pub_path / ".gitkeep"
     if gitkeep.is_file():
@@ -340,6 +349,9 @@ def deliver_to_companion(
         nonlocal progress_status, progress_reason, unmatched
         progress_status, progress_reason, unmatched = "absent", "Проверка ручного слоя не выполнена", []
         registry_data = None
+        unique_entities_bytes = None
+        world_ref = None
+        progress = None
         if "location_registry" in manifest.get("artifacts", {}):
             world_ref = _read_release_world(pub_path, manifest)
             registry = load_location_registry(pub_path, manifest, world_ref)
@@ -361,7 +373,23 @@ def deliver_to_companion(
                 registry_data = registry_bytes(merge_progress(registry, None))
         else:
             progress_reason = "В выпуске нет реестра локаций"
-        return _write_release(pub_path, target_repo, game_time, registry_data)
+
+        if (pub_path / "unique_entities_registry.json").is_file():
+            if world_ref is None and "world_reference" in manifest.get("artifacts", {}) and (pub_path / "world_reference.json").is_file():
+                try:
+                    world_ref = _read_release_world(pub_path, manifest)
+                except Exception:
+                    world_ref = None
+            if progress is None and world_ref is not None and progress_status != "invalid":
+                try:
+                    progress, _ = _read_progress(target_repo, manifest.get("campaign_id"), world_ref)
+                except Exception:
+                    progress = None
+            entities = read_json((pub_path / "unique_entities_registry.json").read_bytes())
+            entities = apply_progress_to_unique_entities(entities, progress, world_ref)
+            unique_entities_bytes = canonical(entities)
+
+        return _write_release(pub_path, target_repo, game_time, registry_data, unique_entities_bytes)
 
     def commit_release() -> bool:
         return _commit_release(target_repo, game_time, snap_short)

@@ -15,7 +15,7 @@ from unittest.mock import patch
 from tests.test_publish import _create_sample_snapshot
 from tools import itemstats
 from tools.publisher import publish
-from tools.tables import build_tables
+from tools.tables import build_tables, unique_entities_table
 from tools.validation import PublicationValidationError, validate_publication, validate_tables
 
 SNAPSHOT_ID = "sha256-mini"
@@ -23,6 +23,11 @@ SNAPSHOT_ID = "sha256-mini"
 # Эталон колонок небольших таблиц: изменение схемы - осознанное, с обновлением словаря index.md и контракта.
 GOLDEN_HEADERS: dict[str, list[str]] = {
     "unique_npcs.csv": ["sid", "name_en", "name_ru", "state_code", "player", "captured_by"],
+    "unique_entities.csv": [
+        "entity_kind", "sid", "name_ru", "name_en", "state_code", "squad_status", "character_id",
+        "primary_location_instance_id", "location_resolution", "meitou_base_sid", "carrier_or_storage",
+        "provenance_status",
+    ],
     "diplomacy.csv": ["faction_sid", "faction_name", "relation", "trust", "trust_neg"],
     "town_overrides.csv": ["replacement_sid", "town", "raw_name", "replacement_name", "replacement_name_ru",
                            "faction_sid", "faction_name", "factions_here"],
@@ -628,6 +633,64 @@ class TableValidationTests(unittest.TestCase):
         self.assertIn("не перечислены", package(lambda f: f.update({"extra.csv": b"a\n1\n"})))
         self.assertIn("другому снимку", package(lambda f: f.update(
             {"index.md": f["index.md"].replace(SNAPSHOT_ID.encode(), b"sha256-other")})))
+
+    def test_unique_entities_table(self) -> None:
+        """Проверяет структуру, колонки, форматирование строк и сортировку таблицы unique_entities.csv."""
+        t_empty = unique_entities_table(None)
+        self.assertEqual(len(t_empty.rows), 0)
+        self.assertEqual([c for c, _ in t_empty.columns], GOLDEN_HEADERS["unique_entities.csv"])
+
+        sample_entities = {
+            "unique_npcs": [{
+                "npc_sid": "npc-1", "name_en": "Npc One", "name_ru": "НПС Один",
+                "category": "recruit",
+                "locations": [{"instance_id": "loc-1", "resolution": "unique"}],
+                "dynamic": {"state_code": 1, "squad_status": "confirmed_in_squad", "character_id": "ps:1"},
+            }],
+            "bosses": [{
+                "npc_sid": "boss-1", "name_en": "Boss One", "name_ru": "Босс Один",
+                "classification_origin": "game_bounty",
+                "static_locations": [{"instance_id": "loc-2", "resolution": "ambiguous"}],
+                "observed_state": {"state_code": 0},
+                "cleared_evidence": {"location_instance_id": "loc-2", "cleared_at": "Day 10 12:00", "source": "session-1"},
+            }],
+            "meitou_weapons": [{
+                "base_sid": "blade-1", "name_en": "Meitou Blade", "name_ru": "Клинок Мейто",
+                "static_holders": [{"town_instance_id": "loc-2", "npc_sid": "boss-1"}],
+                "observed_instances": [{
+                    "location_kind": "equipped", "carrier_name": "Хот Лон",
+                }],
+                "provenance_status": "confirmed_trophy",
+            }],
+        }
+        t = unique_entities_table(sample_entities)
+        self.assertEqual(len(t.rows), 3)
+        # Порядок сортировки: boss, meitou, npc
+        kinds = [r["entity_kind"] for r in t.rows]
+        self.assertEqual(kinds, ["boss", "meitou", "npc"])
+
+        boss_row = t.rows[0]
+        self.assertEqual(boss_row["sid"], "boss-1")
+        self.assertEqual(boss_row["primary_location_instance_id"], "loc-2")
+        self.assertEqual(boss_row["location_resolution"], "ambiguous")
+        self.assertEqual(boss_row["provenance_status"], "session-1")
+        self.assertEqual(boss_row["state_code"], 0)
+
+        meitou_row = t.rows[1]
+        self.assertEqual(meitou_row["sid"], "blade-1")
+        self.assertEqual(meitou_row["meitou_base_sid"], "blade-1")
+        self.assertEqual(meitou_row["primary_location_instance_id"], "loc-2")
+        self.assertEqual(meitou_row["carrier_or_storage"], "equipped:Хот Лон")
+        self.assertEqual(meitou_row["provenance_status"], "confirmed_trophy")
+        self.assertIsNone(meitou_row["state_code"])
+
+        npc_row = t.rows[2]
+        self.assertEqual(npc_row["sid"], "npc-1")
+        self.assertEqual(npc_row["squad_status"], "confirmed_in_squad")
+        self.assertEqual(npc_row["character_id"], "ps:1")
+        self.assertEqual(npc_row["primary_location_instance_id"], "loc-1")
+        self.assertEqual(npc_row["location_resolution"], "unique")
+
 
 
 class PublishTablesTests(unittest.TestCase):

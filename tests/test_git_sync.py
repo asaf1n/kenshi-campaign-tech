@@ -13,6 +13,7 @@ from tools.deliver_companion import deliver_to_companion
 from tools.gdrive_sync import ensure_buffer, ingest_inbox
 from tools.io_utils import canonical, read_json
 from tools.location_registry import PROGRESS_RELATIVE, REGISTRY_FILENAME, build_registry
+from tools.validation import validate_unique_entities_registry
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -252,6 +253,86 @@ class GitSyncTests(unittest.TestCase):
         self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now, sync=False)["processed"]), 1)
         self.assertFalse(packet.exists())
         self.assertEqual(self.git("show", "main:Campaign/Кампания/Новый.md", cwd=self.remote), "а\n")
+
+    def test_unique_entities_delivery_and_progress_enrichment(self) -> None:
+        """Проверяет доставку unique_entities_registry.json и его обогащение ручным слоем прогресса."""
+        world = read_json((ROOT / "examples/world-reference.example.json").read_bytes())
+        world_ref_id = world["world_ref_id"]
+        instance = world["locations"][0]["instance_id"]
+        manifest = {
+            "snapshot_id": "snap-entities", "campaign_id": "hot-lon",
+            "world_ref_id": world_ref_id, "game_time": "Day 135 10:49", "validation": {"status": "passed"},
+            "artifacts": {"world_reference": "world_reference.json"},
+        }
+        (self.published / "manifest.json").write_bytes(canonical(manifest))
+        (self.published / "world_reference.json").write_bytes(canonical(world))
+
+        entities = {
+            "format": "kenshi-unique-entities-registry/1",
+            "campaign_id": "hot-lon",
+            "snapshot_id": "snap-entities",
+            "world_ref_id": world_ref_id,
+            "game_time": "Day 135 10:49",
+            "generated_at": "2026-11-11T00:00:00Z",
+            "unique_npcs": [],
+            "bosses": [{
+                "npc_sid": "boss-test",
+                "name_en": "Test Boss",
+                "name_ru": "Тестовый босс",
+                "classification_origin": "game_bounty",
+                "bounty": None,
+                "associated_world_states": [],
+                "static_locations": [{
+                    "instance_id": instance, "template_sid": "tpl-1", "location_name_ru": "Локация",
+                    "location_name_en": "Location", "region": "border-zone",
+                    "link_type": "resident", "resolution": "unique", "source_chain": ["TOWN:tpl-1"],
+                }],
+                "observed_state": {"state_code": 1, "player_defeat_flag": False, "captured_by": None},
+                "cleared_evidence": None,
+            }],
+            "meitou_weapons": [],
+        }
+        validate_unique_entities_registry(entities)
+        source_entities_path = self.published / "unique_entities_registry.json"
+        source_entities_path.write_bytes(canonical(entities))
+
+        # 1. Доставка без прогресса: файл скопирован в клон
+        res = self._deliver()
+        self.assertEqual(res["status"], "delivered")
+        target_entities_path = self.clone / "published/unique_entities_registry.json"
+        self.assertTrue(target_entities_path.is_file())
+        delivered = read_json(target_entities_path.read_bytes())
+        self.assertIsNone(delivered["bosses"][0]["cleared_evidence"])
+
+        # 2. Появление прогресса в клоне
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        (self.other / PROGRESS_RELATIVE).parent.mkdir(parents=True, exist_ok=True)
+        progress = {
+            "format": "kenshi-location-progress/3", "campaign_id": "hot-lon", "world_ref_id": world_ref_id,
+            "locations": [{"instance_id": instance, "evidence": "session-boss-cleared",
+                           "game_time": "Day 135 10:00"}],
+        }
+        self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
+
+        res2 = self._deliver()
+        self.assertEqual(res2["status"], "delivered")
+        delivered2 = read_json(target_entities_path.read_bytes())
+        validate_unique_entities_registry(delivered2)
+        boss = delivered2["bosses"][0]
+        self.assertIsNotNone(boss["cleared_evidence"])
+        self.assertEqual(boss["cleared_evidence"]["location_instance_id"], instance)
+        self.assertEqual(boss["cleared_evidence"]["source"], "session-boss-cleared")
+        self.assertEqual(boss["cleared_evidence"]["cleared_at"], "Day 135 10:00")
+
+        # Исходный файл в published/ остался без изменений
+        self.assertEqual(source_entities_path.read_bytes(), canonical(entities))
+
+        # 3. Удаление реестра из published/: файл удаляется и в клоне
+        source_entities_path.unlink()
+        res3 = self._deliver()
+        self.assertEqual(res3["status"], "delivered")
+        self.assertFalse(target_entities_path.exists())
+
 
 
 if __name__ == "__main__":

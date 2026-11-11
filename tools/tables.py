@@ -757,6 +757,102 @@ def unique_npcs_table(current: dict[str, Any]) -> Table:
     return Table("unique_npcs.csv", "sid", "Уникальные NPC мира и их состояние", columns, rows)
 
 
+def unique_entities_table(
+    unique_entities: dict[str, Any] | None,
+    current: dict[str, Any] | None = None,
+) -> Table:
+    columns = [
+        ("entity_kind", "Категория сущности: npc, boss, meitou"),
+        ("sid", "sid шаблона (npc_sid для персонажей и боссов, base_sid для оружия Мейто)"),
+        ("name_ru", "Имя/название на русском языке"),
+        ("name_en", "Имя/название на английском языке"),
+        ("state_code", "Код состояния: 0 мёртв, 1 жив и свободен, 2 в плену"),
+        ("squad_status", "Статус в отряде игрока: confirmed_in_squad, confirmed_not_in_squad, unresolved"),
+        ("character_id", "Идентификатор персонажа игрока, если принят в отряд"),
+        ("primary_location_instance_id", "Идентификатор основной локации (поселения/города)"),
+        ("location_resolution", "Точность привязки к локации: unique, ambiguous, unresolved"),
+        ("meitou_base_sid", "sid базовой модели оружия Мейто"),
+        ("carrier_or_storage", "Носитель или хранилище экземпляра (вид:имя)"),
+        ("provenance_status", "Статус происхождения: confirmed_trophy, observed_in_inventory, либо источник зачистки босса"),
+    ]
+    if unique_entities is None:
+        rows: list[dict[str, Any]] = []
+    else:
+        rows = []
+        for npc in unique_entities.get("unique_npcs") or []:
+            dyn = npc.get("dynamic") or {}
+            locs = npc.get("locations") or []
+            first_loc = locs[0] if locs else {}
+            rows.append({
+                "entity_kind": "npc",
+                "sid": npc.get("npc_sid") or npc.get("sid"),
+                "name_ru": npc.get("name_ru"),
+                "name_en": npc.get("name_en"),
+                "state_code": dyn.get("state_code"),
+                "squad_status": dyn.get("squad_status"),
+                "character_id": dyn.get("character_id"),
+                "primary_location_instance_id": first_loc.get("instance_id") or None,
+                "location_resolution": first_loc.get("resolution") or None,
+                "meitou_base_sid": None,
+                "carrier_or_storage": None,
+                "provenance_status": None,
+            })
+        for boss in unique_entities.get("bosses") or []:
+            dyn = boss.get("dynamic") or boss.get("observed_state") or {}
+            locs = boss.get("static_locations") or boss.get("locations") or []
+            first_loc = locs[0] if locs else {}
+            cleared = boss.get("cleared_evidence")
+            source = cleared.get("source") if cleared else None
+            rows.append({
+                "entity_kind": "boss",
+                "sid": boss.get("npc_sid") or boss.get("sid"),
+                "name_ru": boss.get("name_ru"),
+                "name_en": boss.get("name_en"),
+                "state_code": dyn.get("state_code"),
+                "squad_status": dyn.get("squad_status"),
+                "character_id": dyn.get("character_id"),
+                "primary_location_instance_id": first_loc.get("instance_id") or None,
+                "location_resolution": first_loc.get("resolution") or None,
+                "meitou_base_sid": None,
+                "carrier_or_storage": None,
+                "provenance_status": source,
+            })
+        for weapon in unique_entities.get("meitou_weapons") or []:
+            base_sid = weapon.get("base_sid") or weapon.get("sid")
+            holders = weapon.get("static_holders") or []
+            first_holder = holders[0] if holders else {}
+            observed = weapon.get("observed_instances") or []
+            carrier_or_storage = None
+            if observed:
+                inst = observed[0]
+                storage_type = inst.get("storage_type") or inst.get("location_kind") or ""
+                target_name = (
+                    inst.get("carrier_name")
+                    or inst.get("container_name")
+                    or inst.get("storage_settlement")
+                    or inst.get("storage_building")
+                    or inst.get("storage_location_key")
+                    or ""
+                )
+                carrier_or_storage = f"{storage_type}:{target_name}"
+            rows.append({
+                "entity_kind": "meitou",
+                "sid": base_sid,
+                "name_ru": weapon.get("name_ru"),
+                "name_en": weapon.get("name_en"),
+                "state_code": None,
+                "squad_status": None,
+                "character_id": None,
+                "primary_location_instance_id": first_holder.get("town_instance_id") or None,
+                "location_resolution": None,
+                "meitou_base_sid": base_sid,
+                "carrier_or_storage": carrier_or_storage,
+                "provenance_status": weapon.get("provenance_status"),
+            })
+        rows.sort(key=lambda r: (r["entity_kind"], str(r.get("sid") or ""), str(r.get("primary_location_instance_id") or "")))
+    return Table("unique_entities.csv", "sid", "Реестр уникальных сущностей Kenshi (NPC, боссы, оружие Мейто)", columns, rows)
+
+
 def town_overrides_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
     rows = [{
         "replacement_sid": t.get("replacement_sid"), "town": t.get("name"), "raw_name": t.get("raw_name"),
@@ -2031,6 +2127,7 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         "- Итоговые цены продажи и покупки в городах не вычисляются: связь город - культура задана записями, "
         "но остальные множители (отряд-торговец, константы, разброс) не сверены с игрой.",
         "- Для зданий без поселения в `storage.csv` колонка `settlement` пуста, а `location_key` содержит «зона N (поселение не определено)».",
+        "- `unique_entities.csv`: сводный реестр уникальных сущностей (именованные NPC, боссы, оружие Мейто) со статусом обнаружения, привязкой к локациям и состоянием в отряде.",
         "", "## Коды state_code уникальных NPC", "",
         "Факт игры (fcs.def, WORLD_EVENT_STATE, поле `NPC is`): 0 - мёртв, 1 - жив и свободен, 2 - в плену.", "",
         "## Словарь колонок",
@@ -2050,8 +2147,27 @@ def build_tables(
     game_records: dict[str, Any] | None = None,
     game_notes: Sequence[str] = (),
     world_ref: dict[str, Any] | None = None,
+    unique_entities_registry: dict[str, Any] | None = None,
 ) -> dict[str, bytes]:
     """Файлы tables/: имя -> содержимое. Без справочника игры колонки шаблонов и таблицы реакций пусты; это названо в index.md."""
+    if unique_entities_registry is None and current:
+        from tools.unique_entities_registry import build_unique_entities_registry
+        safe_cur = dict(current)
+        safe_cur.setdefault("snapshot_id", snapshot_id)
+        safe_wref = dict(world_ref or {})
+        safe_wref.setdefault("world_ref_id", "unresolved")
+        safe_wref.setdefault("created_at", "1970-01-01T00:00:00Z")
+        safe_wref.setdefault("locations", [])
+        try:
+            unique_entities_registry = build_unique_entities_registry(
+                cur=safe_cur,
+                world_ref=safe_wref,
+                game_records=game_records or {},
+                game_index=game_index or {},
+            )
+        except Exception:
+            unique_entities_registry = None
+
     zone_places = zone_settlements(locations, world_ref)
     tables = [
         squad_table(current, locations),
@@ -2065,6 +2181,7 @@ def build_tables(
         item_prices_table(game_index),
         trade_modifiers_table(game_records, game_index),
         unique_npcs_table(current),
+        unique_entities_table(unique_entities_registry, current),
         town_overrides_table(current, game_index),
         diplomacy_table(current),
         world_reactions_table(game_records, game_index),

@@ -5,7 +5,9 @@ from copy import deepcopy
 import unittest
 from typing import Any
 
-from tools.unique_entities_registry import GRADE_SID, MANUFACTURER_SID, build_unique_entities_registry
+from tools.unique_entities_registry import (
+    GRADE_SID, MANUFACTURER_SID, apply_progress_to_unique_entities, build_unique_entities_registry,
+)
 from tools.validation import validate_unique_entities_registry
 
 
@@ -210,6 +212,35 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
                 if expected:
                     self.assertEqual(bosses[WIZARD]["cleared_evidence"], {
                         "location_instance_id": "26-rebirth-INGAME", "cleared_at": time, "source": "session-note"})
+
+    def test_apply_progress_to_unique_entities(self) -> None:
+        registry = self.build()
+        progress = {
+            "format": "kenshi-location-progress/3", "campaign_id": "campaign", "world_ref_id": "world",
+            "locations": [{"instance_id": "26-rebirth-INGAME", "evidence": "session-note", "game_time": "Day 136 20:20"}],
+        }
+        # 1. Применение прогресса с world_ref
+        enriched = apply_progress_to_unique_entities(registry, progress, self.world)
+        validate_unique_entities_registry(enriched)
+        bosses = {b["npc_sid"]: b for b in enriched["bosses"]}
+        self.assertEqual(bosses[WIZARD]["cleared_evidence"], {
+            "location_instance_id": "26-rebirth-INGAME", "cleared_at": "Day 136 20:20", "source": "session-note",
+        })
+        # Исходный реестр не изменился (иммутабельность)
+        self.assertIsNone(next(b for b in registry["bosses"] if b["npc_sid"] == WIZARD)["cleared_evidence"])
+
+        # 2. Применение прогресса без world_ref (сбор instance_id из боссов)
+        enriched_no_wref = apply_progress_to_unique_entities(registry, progress, world_ref=None)
+        validate_unique_entities_registry(enriched_no_wref)
+        bosses_no_wref = {b["npc_sid"]: b for b in enriched_no_wref["bosses"]}
+        self.assertEqual(bosses_no_wref[WIZARD]["cleared_evidence"], {
+            "location_instance_id": "26-rebirth-INGAME", "cleared_at": "Day 136 20:20", "source": "session-note",
+        })
+
+        # 3. Сброс отметки при progress_data is None
+        reset = apply_progress_to_unique_entities(enriched, None)
+        validate_unique_entities_registry(reset)
+        self.assertTrue(all(b["cleared_evidence"] is None for b in reset["bosses"]))
 
 
 if __name__ == "__main__":
