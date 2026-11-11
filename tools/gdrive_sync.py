@@ -849,10 +849,10 @@ def _repo_link_pattern(slugs: Iterable[str]) -> re.Pattern[str]:
 
 
 _IMMUTABLE_GITHUB_LINK = re.compile(
-    r"^https?://(?:www\\.)?github\\.com/[^/\\s]+/[^/\\s]+/(?:blob|tree)/[0-9a-f]{7,40}/[^?#\\s]+"
-    r"(?:#L\\d+(?:-L\\d+)?)?$", re.IGNORECASE)
+    r"^https?://(?:www\.)?github\.com/[^/\s]+/[^/\s]+/(?:blob|tree)/[0-9a-f]{7,40}/[^?#\s]+"
+    r"(?:#L\d+(?:-L\d+)?)?$", re.IGNORECASE)
 _IMMUTABLE_RAW_LINK = re.compile(
-    r"^https?://raw\\.githubusercontent\\.com/[^/\\s]+/[^/\\s]+/[0-9a-f]{7,40}/[^?#\\s]+$",
+    r"^https?://raw\.githubusercontent\.com/[^/\s]+/[^/\s]+/[0-9a-f]{7,40}/[^?#\s]+$",
     re.IGNORECASE)
 
 
