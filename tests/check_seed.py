@@ -13,13 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def run() -> None:
     required = [
-        'README.md', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md',
-        'prompts/01-START-AGENT.md', 'prompts/02-EXECUTE-APPROVED.md',
+        'README.md', 'AGENTS.md', 'CLAUDE.md',
         'orchestrate_workflow/method.md',
         'docs/requirements.md', 'docs/data-contract.md',
         'docs/architecture.md', 'docs/acceptance.md',
         'docs/multiagent.md', 'docs/chatgpt-interface.md',
-        'references/observed-export.md', 'references/assessment-nov-2026.md',
         'contracts/manifest.schema.json', 'contracts/timeline-event.schema.json',
         'examples/manifest.example.json', 'examples/event.example.json'
     ]

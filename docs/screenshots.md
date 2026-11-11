@@ -52,7 +52,6 @@ published/
 └── screenshots/
     ├── index.json          # Машиночитаемый реестр kenshi-screenshots-index/1
     ├── index.md            # Индекс кадров: дельта снимка, архивный хвост, первичная разметка
-    ├── screenshots_latest.pdf  # Вне git: кадры дельты с текстовой шапкой для Google Диска
     ├── annotations.jsonl   # (только при содержательном OCR) Машинная разметка кадров kenshi-screenshot-annotation/1
     ├── feed.md             # (только при содержательном OCR) Техническая хронологическая лента серий для чтения компаньоном
     ├── screenshot_393-1a2b3c4d.jpg  # Уменьшенные ключевые кадры окна 7 суток

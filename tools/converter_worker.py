@@ -28,11 +28,9 @@ ENGINE_FILES: list[str] = [
     "tools/prosthetics.py",
     "tools/save_reader.py",
     "tools/saves.py",
-    "tools/session_diff.py",
     "tools/session_export.py",
     "tools/task_types.py",
     "tools/world_context.py",
-    "tools/zipnames.py",
 ]
 
 

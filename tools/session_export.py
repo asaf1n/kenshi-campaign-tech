@@ -17,7 +17,7 @@ import itemstats
 import player_assets
 import prosthetics
 import saves
-import session_diff
+from tools import diff as session_diff
 from export_platoons import STAT_UI, character, item_row
 from kenshi_gd import read_file
 

@@ -7,7 +7,7 @@
 
 Репозиторий `kenshi-campaign-tech` выполняет роль автономного инженерного конвертера (upstream) и поставляет проверенный срез состояния `published/`.
 
-Проекты ChatGPT читают GitHub `main` (`published/` и документы кампании) в `Kenshi-Compain`. Google Диск — односторонняя резервная копия `main` и выгрузки в нативных форматах Google (Docs — вставка текста, Sheets — RAW), источник блокнотов Gemini при возврате к Gemini (работа с Gemini приостановлена); не источник истины ([docs/gdrive-sync.md](gdrive-sync.md)).
+Проекты ChatGPT читают GitHub `main` (`published/` и документы кампании) в `Kenshi-Compain`.
 
 ## Поставляемые артефакты (`published/`, контракт `kenshi-publication/2`)
 
@@ -23,7 +23,7 @@
 9. `unique_entities_registry.json` (`kenshi-unique-entities-registry/2`, поддерживается чтение `/1`) — уникальные NPC, боссы и значимые персонажи, статические привязки, возможные владельцы Meitou, наблюдаемые экземпляры и подтверждённое происхождение трофеев. Доставка накладывает ручные свидетельства зачистки только на связи с локациями и согласованно пересобирает `tables/unique_entities.csv`.
 10. `timeline.jsonl` (`kenshi-event/1`) — опубликованная проекция подтверждённых игровых событий и автоматических событий дельт окна цепочки.
 11. `tables/` — табличные выгрузки состояния (24 CSV в UTF-8 и `tables/index.md` со словарём колонок); перечень ниже.
-12. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` формата `kenshi-screenshots-index/1` и `index.md` всегда; `annotations.jsonl` формата `kenshi-screenshot-annotation/1` и `feed.md` только при распознанном тексте; `screenshots_latest.pdf` вне git для копии на Google Диске). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
+12. `screenshots/` — 20–30 ключевых кадров окна 7 суток, уменьшенных до 1600 px (`index.json` формата `kenshi-screenshots-index/1` и `index.md` всегда; `annotations.jsonl` формата `kenshi-screenshot-annotation/1` и `feed.md` только при распознанном тексте). Машинная разметка даёт день и время с экрана, выбранного персонажа и задачи; это навигация, а не просмотр кадра и не подтверждённое событие.
 
 ## Разграничение ролей географических и справочных артефактов для ИИ-агента
 
@@ -66,7 +66,7 @@
 
 ## Доставка в Kenshi-Compain
 
-Канонический запуск полного цикла (выбор подходящего сейва `check-save`, `pipeline`, доставка в `Kenshi-Compain` с наложением `locations_progress.json` на `location_registry.json`, генерацией `docs/reference/encounters.md`, обновлением картографических артефактов и синхронизацией Google Диска) выполняется одной командой:
+Канонический запуск полного цикла (выбор подходящего сейва `check-save`, `pipeline`, доставка в `Kenshi-Compain` с наложением `locations_progress.json` на `location_registry.json`, генерацией `docs/reference/encounters.md` и обновлением картографических артефактов) выполняется одной командой:
 ```powershell
 .\Initialize-Pipeline.ps1
 ```

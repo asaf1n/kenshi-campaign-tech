@@ -17,9 +17,9 @@ published/{manifest.json,extended/current.json,changes.json,locations.json,
            world_reference.json (без regions_map и source_hashes),location_registry.json,unique_entities_registry.json,timeline.jsonl,brief.md,squad.md,changes.md,
            tables/{index.md + 24 CSV: отряд, экипировка, инвентари, расы, склады, постройки, исследования, каталог строительства, ресурсы биомов, цены, торговые записи, NPC,
                    уникальные сущности, Town Overrides, дипломатия, реакции мира, справочник юнитов},
-           screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR; screenshots_latest.pdf вне git}}
+           screenshots/{index.json,index.md,*.jpg; annotations.jsonl, feed.md при содержательном OCR}}
         |
-verified GitHub delivery (основной канал: проекты ChatGPT читают main) + Google Drive sync (односторонняя копия main и выгрузки в нативных Docs/Sheets; allowlist-профили, docs/gdrive-sync.md) / manual transport fallback
+verified GitHub delivery (основной канал: проекты ChatGPT читают main) / manual transport fallback
         |
 LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose plans and events
 ```
@@ -100,8 +100,8 @@ LLM (чат-ИИ): verify manifest -> read release -> visual context -> propose 
 
 | Вариант | Плюсы | Минусы |
 |---|---|---|
-| Отдельный репозиторий или каталог доставки на кампанию (`--deliver-to`, `KENSHI_COMPANION_DIR`) | Нет изменения контракта потребителя; изоляция истории и прав | Дублирование инструкций чат-ИИ и канона; больше мест синхронизации (Диск) |
-| Подкаталог `published/<campaign_id>/` в одном репозитории | Один репозиторий и общие инструкции | Меняется контракт потребителя (пути в инструкциях компаньона, `deliver_companion`, `gdrive_sync`); риск смешения кампаний |
-| Ветка репозитория на кампанию | Пути не меняются | Переключение веток на одной машине; доставка и Диск зависят от текущей ветки; легко доставить не в ту |
+| Отдельный репозиторий или каталог доставки на кампанию (`--deliver-to`, `KENSHI_COMPANION_DIR`) | Нет изменения контракта потребителя; изоляция истории и прав | Дублирование инструкций чат-ИИ и канона |
+| Подкаталог `published/<campaign_id>/` в одном репозитории | Один репозиторий и общие инструкции | Меняется контракт потребителя (пути в инструкциях компаньона, `deliver_companion`); риск смешения кампаний |
+| Ветка репозитория на кампанию | Пути не меняются | Переключение веток на одной машине; доставка зависит от текущей ветки; легко доставить не в ту |
 
 Для любого варианта сохраняется проверка принадлежности сейва (раздел «Проверка принадлежности сейва кампании» в `docs/data-contract.md`). Папка сохранений Kenshi общая для всех прохождений, поэтому единственная защита от чужой игры - состав персонажей; неизменяющая команда `check-save` служит для автоматического выбора папки в `Initialize-Pipeline.ps1`.
