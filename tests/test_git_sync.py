@@ -10,7 +10,6 @@ import unittest
 from unittest import mock
 
 from tools.deliver_companion import deliver_to_companion
-from tools.gdrive_sync import ensure_buffer, ingest_inbox
 from tools.io_utils import canonical, read_json
 from tools.location_registry import PROGRESS_RELATIVE, REGISTRY_FILENAME, build_registry
 from tools.validation import validate_unique_entities_registry
@@ -46,9 +45,6 @@ class GitSyncTests(unittest.TestCase):
         self.published.mkdir()
         (self.published / "manifest.json").write_text(json.dumps({"validation": {"status": "passed"}}), encoding="utf-8")
         (self.published / "brief.md").write_text("новый\n", encoding="utf-8")
-
-        self.drive = self.tmp / "drive"
-        ensure_buffer(self.drive)
 
     def git(self, *args: str, cwd: Path) -> str:
         return subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8").stdout
@@ -231,28 +227,6 @@ class GitSyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("--abort", result["git_error"])
         self.assertTrue((self.clone / ".git/rebase-merge").is_dir())
-
-    def test_ingest_requires_main_and_recovers_after_remote_moved(self) -> None:
-        """Ловит перенос в processed без попадания в main и зависание повтора после чужого коммита."""
-        packet = self.drive / "tmp/inbox/p.md"
-        packet.write_text("=== ФАЙЛ: Новый.md ===\nа\n=== КОНЕЦ ===\n", encoding="utf-8")
-        now = datetime(2026, 11, 4, tzinfo=timezone.utc)
-
-        self.git("checkout", "-b", "feature", cwd=self.clone)
-        report = ingest_inbox(self.drive, self.clone, now=now, sync=False)
-        self.assertIn("error", report)
-        self.assertTrue(packet.is_file())
-        self.git("checkout", "main", cwd=self.clone)
-
-        self.git("remote", "set-url", "--push", "origin", str(self.tmp / "absent.git"), cwd=self.clone)
-        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now, sync=False)["rejected"]), 1)
-        self.assertTrue(packet.is_file())
-
-        self._remote_commit("Campaign/Кампания/Другой.md", "чужой\n")
-        self.git("remote", "set-url", "--push", "origin", str(self.remote), cwd=self.clone)
-        self.assertEqual(len(ingest_inbox(self.drive, self.clone, now=now, sync=False)["processed"]), 1)
-        self.assertFalse(packet.exists())
-        self.assertEqual(self.git("show", "main:Campaign/Кампания/Новый.md", cwd=self.remote), "а\n")
 
     def test_unique_entities_delivery_and_progress_enrichment(self) -> None:
         """Проверяет доставку unique_entities_registry.json и его обогащение ручным слоем прогресса."""

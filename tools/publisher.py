@@ -456,7 +456,6 @@ def publish(
     hud_warning: str | None = None
     screenshots_index_md = None
     screenshots_section = None
-    pdf_frames: list[dict[str, Any]] = []
     collected_screenshots: list[dict[str, Any]] = []
 
     if target_screens_dir is not None:
@@ -611,7 +610,6 @@ def publish(
         tail_frames = [to_frame(item) for item in old_items[-screenshot_delta.TAIL_FRAMES:]]
         screenshots_index_md = screenshot_delta.render_index_md(screenshots_index_data, new_frames, tail_frames)
         screenshots_section = screenshot_delta.render_brief_section(new_frames, screenshots_index_data["count"])
-        pdf_frames = new_frames or tail_frames[-screenshot_delta.PDF_FALLBACK_FRAMES:]
 
     brief_md = render_brief(
         cur, diff_data, snapshot_id, locations=locations_data, timeline=timeline_data, timeline_projection=True,
@@ -674,22 +672,6 @@ def publish(
                     src_p = item["source_path"]
                     dst_p = sc_staging / item["filename"]
                     copy_screenshot_safe(src_p, dst_p, expected_sha256=item["sha256"])
-                if pdf_frames:
-                    from tools.screenshot_pdf import build_screenshots_pdf
-
-                    # PDF нужен только Диску: его сбой не должен останавливать публикацию и доставку в GitHub.
-                    pdf_path = sc_staging / screenshot_delta.PDF_NAME
-                    try:
-                        # Сборка в %TEMP%: на Диск и в выпуск попадает только завершённый файл.
-                        with tempfile.TemporaryDirectory() as pdf_tmp:
-                            built = Path(pdf_tmp) / screenshot_delta.PDF_NAME
-                            publication_warnings += [f"PDF: кадр пропущен: {name}"
-                                                     for name in build_screenshots_pdf(pdf_frames, built)]
-                            if built.is_file():
-                                shutil.copyfile(built, pdf_path)
-                    except Exception as pdf_error:
-                        pdf_path.unlink(missing_ok=True)
-                        publication_warnings.append(f"PDF не собран: {pdf_error}")
 
             # Время выпуска меняется только при изменении содержимого bundle.
             previous_manifest = published_dir / "manifest.json"

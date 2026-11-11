@@ -1,4 +1,4 @@
-"""Дельта кадров, index.md, changes.md и screenshots_latest.pdf на сквозной публикации."""
+"""Дельта кадров, index.md и changes.md на сквозной публикации."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -14,7 +14,6 @@ from tools.changes_render import render_changes_md
 from tools.io_utils import canonical, read_json
 from tools.publisher import publish
 from tools.screenshot_delta import bind_interval, delta_boundary, new_frame_names
-from tools.screenshot_pdf import build_screenshots_pdf
 from tools.timeline import project_timeline
 
 PARENT, CHILD = "snap_parent", "snap_child"
@@ -73,7 +72,6 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertIn("screenshot_1-", tail_part)
         self.assertIn(f"published/screenshots/{new_name})", delta_part)
         self.assertIn(f"`published/screenshots/{new_name}`", delta_part)
-        self.assertIn("`published/screenshots/screenshots_latest.pdf`", index_md)
         self.assertIn("Казна: 100 -> 50 (-50)", delta_part)
 
         brief = (self.published / "brief.md").read_text(encoding="utf-8")
@@ -85,15 +83,9 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertNotIn("screenshot_1-", brief)
         self.assertTrue((self.published / "changes.md").is_file())
 
-        pdf_path = self.published / "screenshots/screenshots_latest.pdf"
-        pdf = pdf_path.read_bytes()
-        self.assertTrue(pdf.startswith(b"%PDF"))
-        self.assertEqual(pdf.count(b"/Type /Page\n") or pdf.count(b"/Type /Page "), 1)
-
         second = self._publish_pair(now, now + timedelta(minutes=5))
         self.assertEqual(second["manifest"]["generated_at"], first["manifest"]["generated_at"])
         self.assertEqual((self.published / "brief.md").read_text(encoding="utf-8"), brief)
-        self.assertEqual(pdf_path.read_bytes(), pdf)
 
     def test_interval_binding_and_delta_boundary(self) -> None:
         """Ловит сдвиг границы: кадр в секунду регистрации родителя относится к прошлой выгрузке."""
@@ -120,17 +112,6 @@ class ScreenshotDeltaTests(unittest.TestCase):
         self.assertEqual(delta_boundary(index, "b", "a"), "2026-11-01T10:00:00Z")
         self.assertEqual(delta_boundary(index, "c", "b"), "2026-11-01T10:00:00Z")
         self.assertIsNone(delta_boundary(index, "a", None))
-
-    def test_pdf_skips_truncated_frame(self) -> None:
-        """Ловит срыв публикации кадром с верной сигнатурой, который игра ещё дописывает."""
-        good, broken = self.screens / "good.jpg", self.screens / "broken.jpg"
-        write_test_image(good, b"good", mtime=1_800_000_000)
-        broken.write_bytes(good.read_bytes()[:200])
-        target = self.tmp / "out.pdf"
-        frames = [{"source_path": good, "filename": "good.jpg", "pdf_header": "Кадр"},
-                  {"source_path": broken, "filename": "broken.jpg", "pdf_header": "Кадр"}]
-        self.assertEqual(build_screenshots_pdf(frames, target), ["broken.jpg"])
-        self.assertTrue(target.read_bytes().startswith(b"%PDF"))
 
     def test_changes_md_expands_intermediate_diff_referenced_by_timeline(self) -> None:
         """Ловит слепую ссылку data/diffs/: событие прошлого перехода ведёт на существующий раздел changes.md."""

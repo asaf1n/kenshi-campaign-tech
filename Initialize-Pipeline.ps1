@@ -17,9 +17,7 @@
     "python -m tools.campaign check-save" (состав персонажей против головы кампании); берётся первая папка,
     относящаяся к кампании. Если ни одна не подходит, ошибка со списком проверенных папок, код 1.
     Перед публикацией pipeline в любом случае повторно сверяет состав персонажей с родительским снимком;
-    при несовпадении публикации, доставки и синхронизации Диска нет, код возврата 1.
-    Синхронизация Диска (--sync-drive) выполняется по умолчанию после публикации и доставки; недоступный Диск или Google API
-    (нет токена, сети, G:, ошибка Drive API) - предупреждение "drive: skipped|failed (причина)", код возврата остаётся 0.
+    при несовпадении публикации и доставки нет, код возврата 1.
 
 .PARAMETER SaveFolder
     Имя или шаблон (wildcard) папки сохранения кампании.
@@ -114,9 +112,6 @@ try {
 
     if ((Invoke-Python @('-c', 'import sys; print(sys.version_info >= (3, 12))')).Out -notcontains 'True') { throw 'Нужен Python 3.12+.' }
     if ((Invoke-Python @('-c', 'import jsonschema')).Code -ne 0) { throw 'Не установлен jsonschema: pip install jsonschema' }
-    if (-not $CheckOnly) {
-        if ((Invoke-Python @('-c', 'import reportlab')).Code -ne 0) { throw 'Не установлен reportlab: pip install reportlab' }
-    }
 
     $folders = @($env:KENSHI_SAVE_DIRS -split ';' | Where-Object { $_ } | ForEach-Object { Get-ChildItem -LiteralPath $_ -Directory })
 
@@ -159,7 +154,7 @@ try {
         if (-not $save -and $CheckOnly) { Write-Host 'ни одна не подходит'; exit 1 }
         if (-not $save) {
             throw ("Ни одна из последних $MaxCandidates папок сохранений не относится к кампании $campaignId; " +
-                "публикация, доставка и синхронизация Диска не выполнялись. Проверено (свежие сверху):`n" + ($report -join "`n") +
+                "публикация и доставка не выполнялись. Проверено (свежие сверху):`n" + ($report -join "`n") +
                 "`nУкажите папку явно (-SaveFolder), увеличьте -MaxCandidates либо используйте -AllowNewCampaign для нового старта.")
         }
     }
@@ -173,12 +168,12 @@ try {
     Write-Host "campaign_id=$campaignId; доставка: $companion"
     $allowArgs = if ($AllowNewCampaign) { @('--allow-new-campaign') } else { @() }
     $pyArgs = @('-m', 'tools.campaign', 'pipeline', '--source-kind', 'save', '--source', $save.FullName, '--campaign-id', $campaignId) +
-        $allowArgs + @('--deliver-to', $companion, '--deliver-push', '--sync-drive')
+        $allowArgs + @('--deliver-to', $companion, '--deliver-push')
     $run = Invoke-Python $pyArgs
     $pipelineOut = $run.Out
     $pipelineCode = $run.Code
     $pipelineOut | ForEach-Object { Write-Host $_ }
-    # stderr (в т.ч. WARNING шага Диска) - предупреждения, не причина отказа: решает только код возврата.
+    # stderr - предупреждения, не причина отказа: решает только код возврата.
     $run.Err | ForEach-Object { Write-Warning ($_ -replace '^WARNING:\s*', '') }
     if ($pipelineCode -ne 0) {
         $delivery = $null
@@ -188,12 +183,7 @@ try {
                 "Публикация published/ готова. Устраните причину в клоне $companion (незавершённый rebase: git rebase --abort; правки: закоммитьте или откатите) и повторите запуск: доставка идемпотентна.")
         }
     }
-    if ($pipelineCode -ne 0) { throw "pipeline завершился с кодом $pipelineCode (при отказе проверки кампании published/, доставка и Диск не затронуты)" }
-    # Недоступный Диск или Google API - предупреждение: публикация и доставка уже выполнены.
-    $driveLine = $null
-    try { $driveLine = (($pipelineOut -join "`n") | ConvertFrom-Json).drive } catch { }
-    if ($driveLine -and $driveLine -ne 'synced') { if (-not ($run.Err -match '^WARNING:\s*drive:')) { Write-Warning "drive: $driveLine" } }
-    elseif ($driveLine) { Write-Host 'drive: synced' }
+    if ($pipelineCode -ne 0) { throw "pipeline завершился с кодом $pipelineCode (при отказе проверки кампании published/ и доставка не затронуты)" }
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.validation.status -ne 'passed') { throw "validation.status=$($manifest.validation.status)" }

@@ -100,7 +100,6 @@ def main(argv: list[str] | None = None) -> int:
     pipe_parser.add_argument("--deliver-to", type=Path, help="Каталог игрового репозитория Kenshi-Compain для односторонней доставки")
     pipe_parser.add_argument("--deliver-push", action="store_true", help="Выполнить git push в игровом репозитории Kenshi-Compain")
     pipe_parser.add_argument("--allow-new-campaign", action="store_true", help="Пропустить проверку принадлежности сейва кампании (осознанный новый старт кампании)")
-    pipe_parser.add_argument("--sync-drive", action="store_true", help="Синхронизировать выгрузку и канон с Google Диском")
     for publication_parser in (pub_parser, pipe_parser):
         publication_parser.add_argument("--timeline", type=Path, help="Исходный timeline/events.jsonl")
         publication_parser.add_argument("--sessions-root", type=Path, help="Корень кампании с sessions/")
@@ -137,30 +136,6 @@ def main(argv: list[str] | None = None) -> int:
     progress_parser = commands.add_parser("check-location-progress", help="Проверка ручных отметок перед коммитом")
     progress_parser.add_argument("--published-dir", type=Path, help="Каталог выпуска со справочником мира")
     progress_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
-
-    # 7.3. sync-drive
-    drive_parser = commands.add_parser("sync-drive", help="Синхронизация выгрузки и канона с Google Диском")
-    drive_parser.add_argument("--scope", choices=("all", "session", "chronicle", "docs"), default="all",
-                              help="all = session + docs + chronicle (Campaign/)")
-    drive_parser.add_argument("--published-dir", type=Path, default=ROOT / "published")
-    drive_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
-    drive_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (по умолчанию KENSHI_GDRIVE_DIR или автопоиск)")
-    drive_parser.add_argument("--dry-run", action="store_true", help="Только план: ничего не писать и не удалять на Диске")
-    drive_parser.add_argument("--prune", action="store_true", help="Удалить с Диска выпавшие из набора файлы, известные репозиториям, и прежние .md/.csv с созданной нативной копией (в корзину); без флага только перечисляются")
-
-    # 7.3.1. gdrive-export
-    export_parser = commands.add_parser("gdrive-export", help="Восстановление .md/.csv из нативной копии на Google Диске (экспорт и обратная нормализация)")
-    export_parser.add_argument("path", help="Путь файла в репозитории с расширением, например docs/companion-guide.md")
-    export_parser.add_argument("--output", type=Path, help="Файл результата; без него текст выводится в stdout")
-    export_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске (sync-state); без него поиск по именам через API")
-
-    # 7.4. ingest-inbox
-    inbox_parser = commands.add_parser("ingest-inbox", help="Приём пакетов из tmp/inbox/ Google Диска: запись в Campaign/, commit и push в Kenshi-Compain")
-    inbox_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
-    inbox_parser.add_argument("--gdrive-dir", type=Path, help="Корень проекта на Google Диске")
-    inbox_parser.add_argument("--accept", action="append", default=[], metavar="ФАЙЛ",
-                              help="Снять защиты ingest-inbox для файла пакета (путь, окончание пути или имя); можно повторять")
-    inbox_parser.add_argument("--no-push", action="store_true", help="Закоммитить в клон без push; пакет остаётся во входящих, Диск не синхронизируется")
 
     # 8. build-world
     build_world_parser = commands.add_parser("build-world", help="Сборка версионированного справочника мира")
@@ -468,15 +443,6 @@ def main(argv: list[str] | None = None) -> int:
                     auto_push=getattr(args, "deliver_push", False),
                 )
                 result["companion_delivery"] = deliv_res
-            if getattr(args, "sync_drive", False) and not args.dry_run:
-                from tools.deliver_companion import companion_root
-                from tools.gdrive_sync import PIPELINE_SCOPE, drive_outcome, sync_drive_soft
-                # Основная публикация уже завершена: недоступный Диск или Google API - предупреждение, не отказ.
-                result["gdrive"] = sync_drive_soft(cfg.gdrive_root, (args.published_dir or ROOT / "published").resolve(),
-                                                   companion_root(args.deliver_to), scope=PIPELINE_SCOPE)
-                result["drive"] = drive_outcome(result["gdrive"])
-                if result["gdrive"].get("status") != "synced":
-                    sys.stderr.buffer.write(f"WARNING: drive: {result['drive']}\n".encode("utf-8"))
 
         elif args.command == "deliver-companion":
             from tools.deliver_companion import deliver_to_companion
@@ -490,32 +456,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "check-location-progress":
             from tools.deliver_companion import check_location_progress
             result = check_location_progress(args.published_dir, args.companion_dir)
-
-        elif args.command == "sync-drive":
-            from tools.config import find_gdrive_root
-            from tools.deliver_companion import companion_root
-            from tools.gdrive_sync import sync_drive
-            result = sync_drive(args.gdrive_dir or find_gdrive_root(), args.published_dir.resolve(),
-                                companion_root(args.companion_dir), scope=args.scope,
-                                dry_run=args.dry_run, prune=args.prune)
-
-        elif args.command == "gdrive-export":
-            from tools.config import find_gdrive_root
-            from tools.gdrive_sync import gdrive_export
-            data, result = gdrive_export(args.path, args.gdrive_dir or find_gdrive_root())
-            if args.output is None:
-                sys.stdout.buffer.write(data)
-                return 0
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_bytes(data)
-            result["output"] = args.output.name
-
-        elif args.command == "ingest-inbox":
-            from tools.config import find_gdrive_root
-            from tools.deliver_companion import companion_root
-            from tools.gdrive_sync import ingest_inbox
-            result = ingest_inbox(args.gdrive_dir or find_gdrive_root(), companion_root(args.companion_dir),
-                                  accept=args.accept, push=not args.no_push)
 
         elif args.command == "build-world":
             from tools.world_reference import build_world_reference, save_world_reference
@@ -551,8 +491,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
         sys.stdout.buffer.write(canonical(result))
-        if args.command == "sync-drive" and result.get("status") != "synced":
-            return 1
         if args.command == "check-save" and not result["belongs"]:
             return 1
         if args.command == "check-location-progress" and result["status"] != "passed":
@@ -561,9 +499,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         delivery = result.get("companion_delivery") if args.command == "pipeline" else result
         if args.command in ("pipeline", "deliver-companion") and delivery and delivery.get("status") in ("partial", "failed"):
-            return 1
-        if args.command == "ingest-inbox" and (
-                result.get("rejected") or result.get("error") or any("move_error" in item for item in result["processed"])):
             return 1
         return 0
 

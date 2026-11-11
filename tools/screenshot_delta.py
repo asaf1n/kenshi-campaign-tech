@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from tools.chain_timeline import chain_ids, significant_changes
-from tools.config import GDRIVE_SESSION_DIR
 from tools.screenshots import RAW_DEFAULT_URL
 
 TAIL_FRAMES = 12
@@ -163,7 +162,7 @@ def frame_record(
         "interval": interval,
         "markup": markup,
         "url_raw": f"{RAW_DEFAULT_URL}/published/screenshots/{name}" if in_bundle else None,
-        "drive_path": f"{GDRIVE_SESSION_DIR}/screenshots/{name}",
+        "drive_path": f"published/screenshots/{name}",
         "source_path": item["source_path"],
         "pdf_header": f"Кадр: {name} | Файл: {stamp} UTC | Снимок: {snapshot} | Первичная разметка: {markup}",
     }
@@ -212,7 +211,6 @@ def render_index_md(index_data: dict[str, Any], new_frames: list[dict[str, Any]]
         f"- **Обновлено:** `{index_data['generated_at']}`",
         f"- **Окно выборки:** {index_data['window_days']} суток (с `{index_data['window_start']}` по `{index_data['window_end']}`)",
         f"- **Кадров в выпуске:** {index_data['count']}",
-        f"- **Пакет для просмотра на Google Диске:** `{GDRIVE_SESSION_DIR}/screenshots/{PDF_NAME}`",
         "",
         MARKUP_NOTE,
         "",
