@@ -848,6 +848,20 @@ def _repo_link_pattern(slugs: Iterable[str]) -> re.Pattern[str]:
                       re.IGNORECASE)
 
 
+_IMMUTABLE_GITHUB_LINK = re.compile(
+    r"^https?://(?:www\\.)?github\\.com/[^/\\s]+/[^/\\s]+/(?:blob|tree)/[0-9a-f]{7,40}/[^?#\\s]+"
+    r"(?:#L\\d+(?:-L\\d+)?)?$", re.IGNORECASE)
+_IMMUTABLE_RAW_LINK = re.compile(
+    r"^https?://raw\\.githubusercontent\\.com/[^/\\s]+/[^/\\s]+/[0-9a-f]{7,40}/[^?#\\s]+$",
+    re.IGNORECASE)
+
+
+def _immutable_repo_link(link: str) -> bool:
+    """Допускает только ссылки на конкретный коммит того репозитория, который уже проверен link_pattern."""
+    value = link.rstrip("),.;]>")
+    return bool(_IMMUTABLE_GITHUB_LINK.fullmatch(value) or _IMMUTABLE_RAW_LINK.fullmatch(value))
+
+
 def packet_guards(relative: str, content: str, previous: str | None, link_pattern: re.Pattern[str]) -> list[str]:
     """Нарушения защит файла пакета (пусто - файл допустим). `previous` - версия в main, None - файл новый."""
     reasons: list[str] = []
@@ -863,9 +877,10 @@ def packet_guards(relative: str, content: str, previous: str | None, link_patter
     wrapper = _SEARCH_WRAPPER.search(content)
     if wrapper:
         reasons.append(f"ссылка-обёртка Google: {wrapper.group(0)}")
-    own = link_pattern.search(content)
-    if own:
-        reasons.append(f"абсолютный URL на файл репозитория: {own.group(0)[:80]}")
+    for own in link_pattern.finditer(content):
+        if not _immutable_repo_link(own.group(0)):
+            reasons.append(f"URL на файл репозитория без неизменяемого SHA: {own.group(0)[:80]}")
+            break
     if PurePosixPath(relative).parent.name == "sessions" and PurePosixPath(relative).name.startswith("S-"):
         front = _FRONTMATTER.match(content)
         if not (front and _CAMPAIGN.search(front.group(1))):
