@@ -14,6 +14,7 @@ from tools.validation import (
     validate,
     validate_entities_progress,
     validate_tables,
+    validate_unique_entities_registry,
 )
 
 
@@ -169,3 +170,80 @@ class TablesValidationTests(unittest.TestCase):
             with self.assertRaises(PublicationValidationError) as cm:
                 validate_tables(pkg, manifest)
             self.assertIn("extra.csv", str(cm.exception))
+
+
+class UniqueEntitiesRegistryValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "examples" / "unique-entities-registry.example.json"
+        self.example = json.loads(path.read_bytes())
+
+    def test_valid_v2_and_v1_documents(self) -> None:
+        validate_unique_entities_registry(self.example)
+
+        # Проверка обратной совместимости: валидность схемы v1
+        v1_doc = deepcopy(self.example)
+        v1_doc["format"] = "kenshi-unique-entities-registry/1"
+        for npc in v1_doc["unique_npcs"]:
+            npc.pop("personal_evidence", None)
+            for lk in npc["locations"]:
+                lk.pop("cleared_evidence", None)
+        for boss in v1_doc["bosses"]:
+            boss.pop("personal_evidence", None)
+            boss.pop("category", None)
+            for lk in boss["static_locations"]:
+                lk.pop("cleared_evidence", None)
+        for weapon in v1_doc["meitou_weapons"]:
+            weapon.pop("observation_status", None)
+            weapon["provenance_status"] = "confirmed_trophy"
+        validate_unique_entities_registry(v1_doc)
+
+    def test_personal_and_trophy_evidence_validation(self) -> None:
+        # Валидные evidence: null либо заполненный объект
+        doc = deepcopy(self.example)
+        doc["unique_npcs"][0]["personal_evidence"] = {
+            "outcome": "recruited", "evidence": "Joined in bar", "game_time": "Day 10 12:00"
+        }
+        doc["bosses"][0]["personal_evidence"] = {
+            "outcome": "defeated", "evidence": "Defeated at capital", "game_time": "Day 20 15:00"
+        }
+        validate_unique_entities_registry(doc)
+
+        # Невалидные структуры evidence
+        for scope, field, bad_val in [
+            ("personal_evidence", "outcome", 123),
+            ("personal_evidence", "evidence", None),
+            ("personal_evidence", "extra_field", "forbidden"),
+            ("trophy_evidence", "outcome", None),
+            ("trophy_evidence", "game_time", 456),
+        ]:
+            with self.subTest(scope=scope, field=field, bad_val=bad_val):
+                bad_doc = deepcopy(doc)
+                if scope == "personal_evidence":
+                    target = bad_doc["unique_npcs"][0]["personal_evidence"]
+                else:
+                    target = bad_doc["meitou_weapons"][0]["trophy_evidence"]
+                if field == "extra_field":
+                    target[field] = bad_val
+                elif bad_val is None:
+                    del target[field]
+                else:
+                    target[field] = bad_val
+                with self.assertRaises(ValidationError):
+                    validate_unique_entities_registry(bad_doc)
+
+    def test_invalid_format_and_statuses_rejected(self) -> None:
+        for field, bad_val in [
+            ("format", "kenshi-unique-entities-registry/3"),
+            ("format", "unknown"),
+        ]:
+            with self.subTest(field=field, bad_val=bad_val):
+                bad_doc = deepcopy(self.example)
+                bad_doc[field] = bad_val
+                with self.assertRaises(ValidationError):
+                    validate_unique_entities_registry(bad_doc)
+
+        # Невалидный observation_status в v2 meitou
+        bad_doc = deepcopy(self.example)
+        bad_doc["meitou_weapons"][0]["observation_status"] = "invalid_status"
+        with self.assertRaises(ValidationError):
+            validate_unique_entities_registry(bad_doc)
