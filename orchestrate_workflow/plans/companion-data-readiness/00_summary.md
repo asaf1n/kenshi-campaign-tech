@@ -6,7 +6,7 @@
 
 Архитектурное решение по Находке 9 (монолит tools/tables.py и парсеры): Декомпозиция новых витрин выносится в отдельные специализированные модули (`tools/skills_history.py`, `tools/encounters.py`, `tools/ruins_loot.py`), исключая раздувание исторического монолита `tools/tables.py` (в нём остаётся только минимальная регистрация внешних генераторов). Глубокий рефакторинг исторического монолита `tables.py` (деление на `tables_squad.py`, `tables_world.py`, `tables_gamedata.py`) и связки `session_export` + `save_reader` мотивированно отложен в отдельный техдолг-план, чтобы не рисковать стабильностью базового парсера форматов v10/v11 при создании новой аналитической функциональности компаньона.
 
-Открытая задача: [04-skills-history-and-squad-dynamics](04-skills-history-and-squad-dynamics.md)
+Открытая задача: [05-region-encounters-and-ruins-loot](05-region-encounters-and-ruins-loot.md)
 
 | Задача | Состояние очереди | Назначение |
 |---|---|---|
@@ -14,6 +14,6 @@
 | [02-entities-progress-manual-layer](02-entities-progress-manual-layer.md) | закрыта | Ручной слой entities_progress.json в Kenshi-Compain, чтение, валидация по схеме и объединение в deliver_companion.py и unique_entities_registry.py, обогащение personal_evidence боссов и подтверждения трофеев Мейто (Находка 2). Завершена 2026-11-12 |
 | [02a-unique-entities-table-fixes](02a-unique-entities-table-fixes.md) | закрыта | Устранение дефектов unique_entities.csv (location_cleared из связей с локациями, 1 строка на sid персонажей) и передача формата ручного слоя компаньону. Завершена 2026-11-12 |
 | [03-published-payload-optimization](03-published-payload-optimization.md) | закрыта | Сжатие brief.md до 3-5 КБ, снятие дублирующего squad.md, компактный tables/index.md, словари колонок tables/dict/*.md, исключение ссылок на тяжелые JSON из brief.md. Завершена 2026-11-12 |
-| [04-skills-history-and-squad-dynamics](04-skills-history-and-squad-dynamics.md) | открыта | Историческая витрина skills_history.csv в выделенном модуле tools/skills_history.py по цепочке снимков кампании, динамика характеристик, казны и состава отряда во времени (Находка 5, архитектурное решение по Находке 9) |
-| [05-region-encounters-and-ruins-loot](05-region-encounters-and-ruins-loot.md) | ожидает | Сводная плоская витрина region_encounters.csv в tools/encounters.py; парсинг статического лута руин в tools/ruins_loot.py для world_ruins_loot.csv без раздувания tables.py (Находка 1, архитектурное решение по Находке 9) |
+| [04-skills-history-and-squad-dynamics](04-skills-history-and-squad-dynamics.md) | закрыта | Историческая витрина skills_history.csv в выделенном модуле tools/skills_history.py по цепочке снимков кампании, динамика характеристик, казны и состава отряда во времени (Находка 5, архитектурное решение по Находке 9). Завершена 2026-11-12 |
+| [05-region-encounters-and-ruins-loot](05-region-encounters-and-ruins-loot.md) | открыта | Сводная плоская витрина region_encounters.csv в tools/encounters.py; парсинг статического лута руин в tools/ruins_loot.py для world_ruins_loot.csv без раздувания tables.py (Находка 1, архитектурное решение по Находке 9) |
 | [06-contract-tests-and-e2e-verification](06-contract-tests-and-e2e-verification.md) | ожидает | Синхронизация docs/data-contract.md по state_code/location_resolution, калибровка 64 предметов unverified_class, стабилизация 4 LIVE-SLOT тестов, прогон unit-тестов, схем и сквозного конвейера Initialize-Pipeline.ps1 (Находки 6, 7, 10) |

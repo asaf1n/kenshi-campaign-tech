@@ -2,12 +2,19 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 from jsonschema import ValidationError
 
 from tools.io_utils import ExtractionError
-from tools.validation import load_entities_progress, validate, validate_entities_progress
+from tools.validation import (
+    PublicationValidationError,
+    load_entities_progress,
+    validate,
+    validate_entities_progress,
+    validate_tables,
+)
 
 
 class LocationRegistryValidationTests(unittest.TestCase):
@@ -102,3 +109,63 @@ class EntitiesProgressValidationTests(unittest.TestCase):
                     validate_entities_progress(value)
         with self.assertRaises(ExtractionError):
             load_entities_progress('{"entities": {}, "entities": {}}')
+
+
+class TablesValidationTests(unittest.TestCase):
+    def test_validate_tables_history_showcases_consistency(self) -> None:
+        """Проверяет строгую валидацию согласованности исторических витрин в validate_tables."""
+        snapshot_id = "sha256-test-snapshot"
+        manifest = {
+            "snapshot_id": snapshot_id,
+            "artifacts": {"tables": "tables/index.md"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp)
+            tables_dir = pkg / "tables"
+            tables_dir.mkdir(parents=True)
+
+            skills_csv = "day,character_id,character_name,skill,level\n1,ps:1,Hot Lon,Strength,25\n"
+            campaign_csv = "day,game_time,cats,squad_size\n1,Day 1 12:00,1000,1\n"
+            relations_csv = "day,faction_sid,faction_name,relation\n1,shek,Shek Kingdom,0.0\n"
+
+            (tables_dir / "skills_history.csv").write_bytes(skills_csv.encode("utf-8"))
+            (tables_dir / "campaign_history.csv").write_bytes(campaign_csv.encode("utf-8"))
+            (tables_dir / "relations_history.csv").write_bytes(relations_csv.encode("utf-8"))
+
+            index_content = (
+                f"# Табличные выгрузки\n\n"
+                f"- snapshot_id: `{snapshot_id}`\n\n"
+                f"| Файл | Строк |\n"
+                f"|---|---|\n"
+                f"| `skills_history.csv` | 1 |\n"
+                f"| `campaign_history.csv` | 1 |\n"
+                f"| `relations_history.csv` | 1 |\n"
+            )
+            (tables_dir / "index.md").write_text(index_content, encoding="utf-8")
+
+            # 1. Валидный пакет проходит проверку без исключений
+            validate_tables(pkg, manifest)
+
+            # 2. Несоответствие числа строк в skills_history.csv
+            bad_index = index_content.replace("| `skills_history.csv` | 1 |", "| `skills_history.csv` | 2 |")
+            (tables_dir / "index.md").write_text(bad_index, encoding="utf-8")
+            with self.assertRaises(PublicationValidationError) as cm:
+                validate_tables(pkg, manifest)
+            self.assertIn("skills_history.csv", str(cm.exception))
+
+            # 3. Отсутствующий на диске файл витрины
+            (tables_dir / "skills_history.csv").unlink()
+            with self.assertRaises(PublicationValidationError) as cm:
+                validate_tables(pkg, manifest)
+            self.assertIn("skills_history.csv", str(cm.exception))
+
+            # Восстанавливаем файл и правильный index
+            (tables_dir / "skills_history.csv").write_bytes(skills_csv.encode("utf-8"))
+            (tables_dir / "index.md").write_text(index_content, encoding="utf-8")
+            validate_tables(pkg, manifest)
+
+            # 4. Лишняя незадекларированная таблица
+            (tables_dir / "extra.csv").write_bytes(b"a,b\n1,2\n")
+            with self.assertRaises(PublicationValidationError) as cm:
+                validate_tables(pkg, manifest)
+            self.assertIn("extra.csv", str(cm.exception))
