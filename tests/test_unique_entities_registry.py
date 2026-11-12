@@ -93,6 +93,46 @@ class UniqueEntitiesRegistryTests(unittest.TestCase):
     def build(self, **kwargs: Any) -> dict[str, Any]:
         return build_unique_entities_registry(self.cur, self.world, self.records, self.index, **kwargs)
 
+    def test_meitou_russian_names_with_incomplete_index(self) -> None:
+        # Эталон переводов из GameDB, независимый от резервного словаря генератора.
+        expected = dict(zip((sid for sid, _ in WEAPONS), (
+            "Вакидзаси", "Топпер", "Конеруб", "Катана", "Составной топор",
+            "Сабля с отверстием", "Тяжелый дзюттэ", "Боевой тесак", "Крест паладина",
+            "Лунный тесак", "Глефа", "Посох", "Дзюттэ", "Иноземная сабля",
+            "Пустынная сабля", "Падающее солнце", "Бердыш", "Нагината", "Нагината катана",
+            "Доска изгнанника", "Короткий тесак", "Меч", "Сабля с кольцами", "Нодати",
+            "Катана без цубы", "Клинок ниндзя",
+        ), strict=True))
+        original_index = deepcopy(self.index)
+        for missing, translation in ((True, None), (False, None), (False, ""),
+                                     (False, " \t "), (False, "Перевод из индекса")):
+            with self.subTest(missing=missing, translation=translation):
+                self.index = {} if missing else deepcopy(original_index)
+                for entry in self.index.values():
+                    entry[1] = translation
+                registry = self.build()
+                weapons = registry["meitou_weapons"]
+                self.assertEqual(len(weapons), 26)
+                self.assertEqual({weapon["base_sid"] for weapon in weapons}, set(expected))
+                for weapon in weapons:
+                    name_ru = translation if translation and translation.strip() else expected[weapon["base_sid"]]
+                    self.assertEqual(weapon["name_ru"], name_ru)
+                    self.assertEqual(weapon["weapon_name_ru"], name_ru)
+                    self.assertRegex(weapon["weapon_name_ru"], r"[А-Яа-яЁё]")
+                validate_unique_entities_registry(registry)
+                # Поле опционально в обеих версиях схемы, в том числе для старых выпусков.
+                for version in ("1", "2"):
+                    compatible = {**registry, "format": f"kenshi-unique-entities-registry/{version}",
+                                  "unique_npcs": [], "bosses": [], "meitou_weapons": deepcopy(weapons)}
+                    if version == "1":
+                        for weapon in compatible["meitou_weapons"]:
+                            weapon.pop("observation_status")
+                            weapon["provenance_status"] = "observed_in_inventory"
+                    validate_unique_entities_registry(compatible)
+                    for weapon in compatible["meitou_weapons"]:
+                        weapon.pop("weapon_name_ru")
+                    validate_unique_entities_registry(compatible)
+
     def test_schema_graph_dynamic_and_determinism(self) -> None:
         original = deepcopy((self.cur, self.world, self.records, self.index))
         registry = self.build()

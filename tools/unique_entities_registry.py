@@ -20,6 +20,35 @@ NPC_MARKER = re.compile(r"\[npc_sid=([a-zA-Z0-9_\-\.]+)\]")
 TOWN_LINKS = {"residents": "resident", "bar squads": "bar_squad", "roaming squads": "roaming"}
 # Подтверждённые заданием боссы. Остальные выводятся из игровых признаков.
 CUSTOM_BOSS_SIDS = frozenset({"50519-rebirth.mod", "96407-rebirth.mod", "96409-rebirth.mod"})
+# Канонические переводы GameDB; SID сохраняет привязку при неполном game_index.
+MEITOU_NAMES_RU: dict[str, str] = {
+    "1020-gamedata.base": "Вакидзаси",
+    "474-gamedata.base": "Топпер",
+    "475-gamedata.base": "Конеруб",
+    "476-gamedata.base": "Катана",
+    "477-gamedata.base": "Составной топор",
+    "52287-rebirth.mod": "Сабля с отверстием",
+    "52290-rebirth.mod": "Тяжелый дзюттэ",
+    "52292-rebirth.mod": "Боевой тесак",
+    "52299-rebirth.mod": "Крест паладина",
+    "52300-rebirth.mod": "Лунный тесак",
+    "52301-rebirth.mod": "Глефа",
+    "52302-rebirth.mod": "Посох",
+    "52303-rebirth.mod": "Дзюттэ",
+    "52304-rebirth.mod": "Иноземная сабля",
+    "52305-rebirth.mod": "Пустынная сабля",
+    "52306-rebirth.mod": "Падающее солнце",
+    "52307-rebirth.mod": "Бердыш",
+    "52308-rebirth.mod": "Нагината",
+    "52309-rebirth.mod": "Нагината катана",
+    "56728-Dialogue.mod": "Доска изгнанника",
+    "65260-rebirth.mod": "Короткий тесак",
+    "901-gamedata.base": "Меч",
+    "903-gamedata.base": "Сабля с кольцами",
+    "922-gamedata.base": "Нодати",
+    "923-gamedata.base": "Катана без цубы",
+    "924-gamedata.base": "Клинок ниндзя",
+}
 
 
 def resolve_primary_location(links: list[dict[str, Any]] | None) -> tuple[str | None, str | None]:
@@ -370,6 +399,8 @@ def build_unique_entities_registry(
     weapons = []
     for sid in sorted(set(holders) | set(observed_weapons)):
         name_en, name_ru = _names(game_index, sid)
+        if not name_ru or not name_ru.strip():
+            name_ru = MEITOU_NAMES_RU.get(sid)
         static_holders = []
         for npc_sid in sorted(holders.get(sid, ())):
             for link in locations.get(npc_sid) or [{}]:
@@ -380,7 +411,7 @@ def build_unique_entities_registry(
         inst_list = observed_weapons.get(sid, [])
         weapons.append({
             "base_sid": sid, "grade_sid": GRADE_SID, "manufacturer_sid": MANUFACTURER_SID,
-            "name_en": name_en or sid, "name_ru": name_ru,
+            "name_en": name_en or sid, "name_ru": name_ru, "weapon_name_ru": name_ru,
             "weapon_category": str(category_stat) if category_stat is not None else None,
             "static_holders": sorted(_ordered(static_holders), key=lambda row: (
                 row["npc_sid"], row["town_instance_id"] or "", row["town_name"] or "")),

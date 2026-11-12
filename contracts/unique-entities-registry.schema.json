@@ -578,6 +578,9 @@
         "name_ru": {
           "$ref": "#/$defs/nullable_string"
         },
+        "weapon_name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
         "name_en": {
           "type": "string"
         },
@@ -633,6 +636,9 @@
           "const": "52288-rebirth.mod"
         },
         "name_ru": {
+          "$ref": "#/$defs/nullable_string"
+        },
+        "weapon_name_ru": {
           "$ref": "#/$defs/nullable_string"
         },
         "name_en": {
