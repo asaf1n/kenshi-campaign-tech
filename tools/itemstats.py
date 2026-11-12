@@ -32,8 +32,8 @@ CONFIRMED_MELEE_COMBOS: frozenset[tuple[int, str]] = frozenset({
     (8, "Edgewalkers"), (8, "Cross"),
     (3, "Catun Scrapmaster"),
     (4, "Edgewalkers"), (4, "Cross")})
-# Арбалеты сверены на Зубочистке, Старом балете, Диверсанте, Орлином кресте, Рессоробое; протезы - на ноге разведчика.
-CONFIRMED_PROSTHETIC_LIMBS: tuple[str, ...] = ("left_leg", "right_leg")
+# Арбалеты сверены на Зубочистке, Старом балете, Диверсанте, Орлином кресте, Рессоробое; протезы ног - на ноге разведчика, рук - на руке Хот Лона.
+CONFIRMED_PROSTHETIC_LIMBS: tuple[str, ...] = ("left_leg", "right_leg", "left_arm", "right_arm")
 # Коэффициенты движка по классу и материалу брони — Kenshi Wiki «Armor Stats».
 CLASS_CUT = {0: 0.4, 1: 0.8, 2: 0.9, 3: 1.0}
 CLASS_BLUNT = {0: 0.03, 1: 0.21, 2: 0.27, 3: 0.3}

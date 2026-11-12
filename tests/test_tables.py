@@ -256,6 +256,9 @@ CALC_INDEX = {
     "leg": ["Scout Leg (left)", "Нога разведчика (левая)", "LIMB_REPLACEMENT", "Newwworld.mod",
             {"slot": 52, "weight kg": 10.0, "HP": 50, "HP 1": 150, "athletics mult": 1.0, "athletics mult 1": 1.4,
              "swimming mult": 0.75, "swimming mult 1": 1.0, "stealth mult": 0.25, "stealth mult 1": 0.95}],
+    "arm": ["Skeleton Arm (left)", "Рука скелета (левая)", "LIMB_REPLACEMENT", "Newwworld.mod",
+            {"slot": 50, "weight kg": 4.0, "HP": 50, "HP 1": 255, "athletics mult": 1.0, "athletics mult 1": 1.0,
+             "swimming mult": 1.0, "swimming mult 1": 1.0, "stealth mult": 0.9, "stealth mult 1": 0.9}],
 }
 CALC_EXPECTED: dict[str, dict[str, str]] = {
     "armour": {"calc_status": "verified", "calc_level": "80", "calc_cut_resist_pct": "42.48", "calc_blunt_resist_pct": "19.44",
@@ -465,6 +468,21 @@ class CalcColumnsTests(unittest.TestCase):
         self.assertIn("unverified_class", dict_text)
         index_text = files["index.md"].decode("utf-8")
         self.assertIn("[словарь](dict/equipment.md)", index_text)
+
+    def test_calc_prosthetic_arm_verified(self) -> None:
+        """Протезы рук (left_arm, right_arm) получают calc_status = 'verified' и корректный calc_hp_max."""
+        char = {"id": "ps:1", "name": "Хот Лон",
+                "prosthetics": [{"limb": "left_arm", "sid": "arm", "level": 95},
+                                {"limb": "right_arm", "sid": "arm", "level": 80}]}
+        files = build_tables({"characters": [char]}, None, SNAPSHOT_ID, CALC_INDEX, None)
+        rows = {r["slot"]: r for r in parse(files, "equipment.csv") if r["kind"] == "prosthetic"}
+        self.assertEqual(rows["left_arm"]["calc_status"], "verified")
+        self.assertEqual(rows["left_arm"]["calc_level"], "95")
+        self.assertEqual(rows["left_arm"]["calc_hp_max"], "245")
+        self.assertEqual(rows["left_arm"]["calc_stealth_mult"], "0.9")
+        self.assertEqual(rows["right_arm"]["calc_status"], "verified")
+        self.assertEqual(rows["right_arm"]["calc_level"], "80")
+        self.assertEqual(rows["right_arm"]["calc_hp_max"], "215")
 
 
 def _armour_tpl(**kw: Any) -> list[Any]:
