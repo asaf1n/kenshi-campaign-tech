@@ -29,7 +29,7 @@ GOLDEN_HEADERS: dict[str, list[str]] = {
         "provenance_status",
     ],
     "diplomacy.csv": ["faction_sid", "faction_name", "relation", "trust", "trust_neg"],
-    "town_overrides.csv": ["replacement_sid", "town", "raw_name", "replacement_name", "replacement_name_ru",
+    "town_overrides.csv": ["replacement_sid", "town", "raw_name", "variant", "replacement_name", "replacement_name_ru",
                            "faction_sid", "faction_name", "factions_here"],
     "world_reaction_links.csv": ["override_sid", "town_sid", "world_state_sid", "condition", "npc_sid", "npc_name",
                                  "required_state_code", "npc_in_save", "current_state_code", "current_player",
@@ -122,24 +122,24 @@ def parse(files: dict[str, bytes], name: str) -> list[dict[str, str]]:
 
 class TableContentTests(unittest.TestCase):
     def test_town_overrides_clean_prefixes_and_keep_localization(self) -> None:
-        """Ловит префиксы в CSV старых снимков и потерю локализованного имени замены."""
+        """Ловит локализацию города, сырое raw_name и извлечение variant."""
         cases = [
-            ("Town state Акула", "Town state Shark", "Акула", "Shark"),
-            ("Акула", "Shark", "Акула", "Shark"),
+            ("The Hub", "Town state The Hub", "Хаб", "Town state The Hub"),
+            ("Shark", "Shark", "Акула", "Shark"),
+            ("Town state Shark", "Town state Shark", "Акула", "Town state Shark"),
             (None, None, "", ""),
             ("", "", "", ""),
-            ("Акула Town state Shark", "Shark Town state Акула", "Акула Town state Shark", "Shark Town state Акула"),
         ]
         for name, raw_name, expected_name, expected_raw in cases:
             with self.subTest(name=name, raw_name=raw_name):
                 cur = mini_snapshot()
                 town = {"name": name, "raw_name": raw_name, "replacement_sid": "override-sid",
-                        "replacement_name": "Shark (override) all ded", "replacement_name_ru": "Акула (все мертвы)"}
+                        "replacement_name": "Shark (override) all ded", "replacement_name_ru": None}
                 cur["world_state"]["town_overrides"] = [town]
                 files = build_tables(cur, None, SNAPSHOT_ID, INDEX, RECORDS, world_ref=WORLD_REF)
                 row = parse(files, "town_overrides.csv")[0]
                 self.assertEqual((row["town"], row["raw_name"]), (expected_name, expected_raw))
-                self.assertEqual(row["replacement_name_ru"], "Акула (все мертвы)")
+                self.assertEqual(row["variant"], "all ded")
                 self.assertEqual(row["replacement_name"], "Shark (override) all ded")
                 self.assertEqual(row["replacement_sid"], "override-sid")
                 self.assertEqual((town["name"], town["raw_name"]), (name, raw_name))

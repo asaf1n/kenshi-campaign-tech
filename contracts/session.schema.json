@@ -288,6 +288,7 @@
                   "properties": {
                     "name": {"type": ["string", "null"]},
                     "raw_name": {"type": ["string", "null"]},
+                    "variant": {"type": ["string", "null"]},
                     "replacement_sid": {"type": "string", "minLength": 1},
                     "replacement_name": {"type": ["string", "null"]},
                     "replacement_name_ru": {"type": ["string", "null"]},

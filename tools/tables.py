@@ -217,9 +217,12 @@ def squad_table(current: dict[str, Any], locations: dict[str, Any] | None) -> Ta
             "is_animal": c.get("is_animal"), "is_leader": c.get("is_leader"), "female": c.get("female"),
             "squad_id": c.get("squad_id"), "squad_name": c.get("squad_name") or squad_names.get(c.get("squad_id")),
             "zone": place.get("zone"), "resolution_status": place.get("resolution_status"),
-            "region": (place.get("region") or {}).get("name_ru") or (place.get("region") or {}).get("name_en"),
-            "settlement": loc.get("name_ru") or loc.get("name_en"),
-            "nearby_settlement": near.get("name_ru") or near.get("name_en"),
+            "region": (place.get("region") or {}).get("name_en"),
+            "region_ru": (place.get("region") or {}).get("name_ru"),
+            "settlement": loc.get("name_en"),
+            "settlement_ru": loc.get("name_ru"),
+            "nearby_settlement": near.get("name_en"),
+            "nearby_settlement_ru": near.get("name_ru"),
             "status_active": _active(c.get("status")), "combat_modes_active": _active(c.get("combat_modes")),
             "blood": cond.get("blood"), "hunger_raw": cond.get("hunger_raw"),
             "bleeding": cond.get("bleeding"), "ko": cond.get("KO"),
@@ -243,8 +246,12 @@ def squad_table(current: dict[str, Any], locations: dict[str, Any] | None) -> Ta
         ("female", "Пол женский"), ("squad_id", "ID отряда"), ("squad_name", "Название отряда"),
         ("zone", "Зона карты `x.y` из locations.json"),
         ("resolution_status", "Способ определения места: in_location, near_location, in_region, unknown"),
-        ("region", "Регион карты"), ("settlement", "Поселение, в границах которого находится персонаж"),
-        ("nearby_settlement", "Ближайшее поселение при near_location"),
+        ("region", "Регион мира (en)"),
+        ("region_ru", "Регион мира (ru)"),
+        ("settlement", "Поселение, в границах которого находится персонаж (en)"),
+        ("settlement_ru", "Поселение, в границах которого находится персонаж (ru)"),
+        ("nearby_settlement", "Ближайшее поселение при near_location (en)"),
+        ("nearby_settlement_ru", "Ближайшее поселение при near_location (ru)"),
         ("status_active", "Активные статусы (coma, dead, incapacitated, unconscious), через `; `"),
         ("combat_modes_active", "Включённые боевые режимы, через `; `"),
         ("blood", "Кровь"), ("hunger_raw", "Сытость, сырое значение сохранения"),
@@ -869,21 +876,45 @@ def unique_entities_table(
 
 
 def town_overrides_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
-    rows = [{
-        "replacement_sid": t.get("replacement_sid"),
-        "town": t.get("name").removeprefix("Town state ") if t.get("name") is not None else None,
-        "raw_name": t.get("raw_name").removeprefix("Town state ") if t.get("raw_name") is not None else None,
-        "replacement_name": t.get("replacement_name"), "replacement_name_ru": t.get("replacement_name_ru"),
-        "faction_sid": t.get("faction"), "faction_name": _label(index, t.get("faction")),
-        "factions_here": _join(t.get("factions_here") or []),
-    } for t in (current.get("world_state") or {}).get("town_overrides") or []]
+    from tools import gamedb
+    _, _, by_msgid = gamedb.load_po()
+    rows = []
+    for t in (current.get("world_state") or {}).get("town_overrides") or []:
+        raw_town = t.get("name")
+        clean_name = raw_town
+        if clean_name:
+            for prefix in ("Town state ", "Town State ", "town state "):
+                if clean_name.startswith(prefix):
+                    clean_name = clean_name[len(prefix):].strip()
+                    break
+        town_ru = by_msgid.get(clean_name) if clean_name else None
+        town_label = town_ru or clean_name
+        rep_name = t.get("replacement_name")
+        variant = t.get("variant")
+        if variant is None and rep_name and "(override)" in rep_name:
+            _, marker, variant_tail = rep_name.partition("(override)")
+            variant = variant_tail.strip() if marker and variant_tail.strip() else ("" if marker else None)
+        rows.append({
+            "replacement_sid": t.get("replacement_sid"),
+            "town": town_label,
+            "raw_name": t.get("raw_name"),
+            "variant": variant,
+            "replacement_name": rep_name,
+            "replacement_name_ru": t.get("replacement_name_ru"),
+            "faction_sid": t.get("faction"),
+            "faction_name": _label(index, t.get("faction")),
+            "factions_here": _join(t.get("factions_here") or []),
+        })
     rows.sort(key=lambda r: (str(r["replacement_sid"]), str(r["town"])))
     columns = [
-        ("replacement_sid", "sid записи-замены города (override)"), ("town", "Название города в сохранении"),
-        ("raw_name", "Исходное имя записи состояния города"),
-        ("replacement_name", "Название записи-замены (en), в нём вариант: destroyed, half destroyed..."),
-        ("replacement_name_ru", "Название записи-замены (ru)"),
-        ("faction_sid", "sid фракции города после замены"), ("faction_name", "Название фракции из данных игры"),
+        ("replacement_sid", "sid записи-замены города (override)"),
+        ("town", "Русское название города из локализации"),
+        ("raw_name", "Исходное имя записи состояния города из сейва (Town state ...)"),
+        ("variant", "Исходный вариант состояния после (override)"),
+        ("replacement_name", "Название записи-замены в данных игры (en)"),
+        ("replacement_name_ru", "Название записи-замены из локализации игры (ru)"),
+        ("faction_sid", "sid фракции города после замены"),
+        ("faction_name", "Название фракции из данных игры"),
         ("factions_here", "sid фракций, присутствующих в городе, через `; `"),
     ]
     return Table("town_overrides.csv", "replacement_sid, town", "Города, заменённые записями override", columns, rows)

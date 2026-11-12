@@ -52,7 +52,8 @@ class LocationRegistryTests(unittest.TestCase):
         validate_registry(registry, self.manifest, world)
         rows = {row["instance_id"]: row for row in registry["locations"]}
         self.assertEqual(set(rows), set(ids))
-        self.assertTrue(all(row["region"] == "Зелёный пляж" for row in rows.values()))
+        self.assertTrue(all(row["region"] == "Greenbeach" for row in rows.values()))
+        self.assertTrue(all(row["region_ru"] == "Зелёный пляж" for row in rows.values()))
         self.assertTrue(all(row["region"] == "Greenbeach" for row in world["locations"]))
         self.assertTrue(rows["known"]["discovered"])
         self.assertFalse(rows["unknown"]["discovered"])
@@ -64,7 +65,7 @@ class LocationRegistryTests(unittest.TestCase):
             ("чужой выпуск", lambda r: r.update(snapshot_id="other"), "другому выпуску"),
             ("неполный набор", lambda r: r["locations"].pop(), "не все локации"),
             ("статика", lambda r: r["locations"][0].update(kind="ruins"), "Статические поля"),
-            ("английский регион", lambda r: r["locations"][0].update(region="Greenbeach"), "Статические поля"),
+            ("неверный region_ru", lambda r: r["locations"][0].update(region_ru="Неверный"), "region_ru"),
         ]:
             with self.subTest(label):
                 changed = deepcopy(registry)
@@ -74,14 +75,14 @@ class LocationRegistryTests(unittest.TestCase):
 
     def test_region_translation_preserves_values_without_translation(self) -> None:
         cases = [
-            ("The Swamp", [{"name_en": "The Swamp", "name_ru": "Болото"}], "Болото"),
-            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": None}], "Greenbeach"),
-            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": ""}], "Greenbeach"),
-            ("Unknown", [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], "Unknown"),
-            (None, [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], None),
-            ("Greenbeach", None, "Greenbeach"),
+            ("The Swamp", [{"name_en": "The Swamp", "name_ru": "Болото"}], "The Swamp", "Болото"),
+            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": None}], "Greenbeach", None),
+            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": ""}], "Greenbeach", None),
+            ("Unknown", [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], "Unknown", None),
+            (None, [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], None, None),
+            ("Greenbeach", None, "Greenbeach", None),
         ]
-        for region, translations, expected in cases:
+        for region, translations, exp_en, exp_ru in cases:
             with self.subTest(region=region, translations=translations):
                 world = _world(["town"])
                 world["locations"][0]["region"] = region
@@ -90,7 +91,8 @@ class LocationRegistryTests(unittest.TestCase):
                 else:
                     world["regions"] = translations
                 registry = build_registry(self.manifest, world)
-                self.assertEqual(registry["locations"][0]["region"], expected)
+                self.assertEqual(registry["locations"][0]["region"], exp_en)
+                self.assertEqual(registry["locations"][0]["region_ru"], exp_ru)
                 validate_registry(registry, self.manifest, world)
 
     def test_template_factions_translate_by_sid_then_msgid(self) -> None:

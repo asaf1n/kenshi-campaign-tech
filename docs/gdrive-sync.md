@@ -1,0 +1,141 @@
+# Синхронизация с Google Диском
+
+Выгрузка доставляется двумя каналами: GitHub (`deliver-companion`) и Google Диск. Основной путь - GitHub: проекты ChatGPT читают `main` и `published/` через `Kenshi-Compain`. Диск - односторонняя резервная копия `main` и выгрузки в нативных форматах Google (Docs - вставка текста, Sheets - RAW), источники блокнотов Gemini Notebook (NotebookLM) при возврате к Gemini (работа с Gemini приостановлена); не источник истины. Направление одно: `main` и `published/` -> Диск. На Диск попадают только Markdown, CSV и PDF из allowlist двух профилей (раздел «Профили»); JSON и отдельные `.jpg` не копируются.
+
+## Нативные файлы
+
+| Источник | На Диске | Запись |
+|---|---|---|
+| `.md` | один Google Doc, имя файла без расширения | Docs API: текст `.md` вставляется как обычный текст (способ (б)) |
+| `.csv` | один Google Sheet, имя без расширения | Sheets API: `values.clear` + `values.update`, `valueInputOption=RAW` |
+| `.pdf` | PDF | смонтированный Диск, запись на месте |
+
+Пути (каталоги) на Диске совпадают с путями репозитория; каталоги создаются через Drive API. Файл создаётся при первом запуске, затем обновляется на месте с сохранением `file_id`; неизменённое не трогается (сравнение sha256 источника с `tmp/sync-state.json`).
+
+Почему способ (б), а не импорт `text/markdown` (способ (а)): оба способа сохраняют `file_id`, но (а) не обратим без потерь (относительные ссылки превращаются в `http://...`, frontmatter разрушается, смежные строки сливаются; 15 из 27 проверенных файлов), а (б) хранит текст исходника как обычные абзацы и восстанавливается байт в байт. Цена (б): структуры Docs нет (`#`, `**`, `|---|` остаются литералами; заголовки не навигируются). Sheets - `RAW`: значения остаются строками (`001234`, `true`, `1e5`, `=SUM(1,2)` не преобразуются); числовой тип ячеек не создаётся.
+
+## Корень и раскладка
+
+Корень проекта «Kenshi Compain. Docs» ищется через Drive API по имени в «Мой диск»; id сохраняется в `tmp/sync-state.json` (`native_root_id`). Переопределения: `KENSHI_GDRIVE_ROOT_ID` (приоритетнее), `KENSHI_GDRIVE_ROOT_NAME`. Корень не создаётся: при отсутствии или неоднозначности (несколько каталогов) - ошибка.
+
+Смонтированный Диск (`KENSHI_GDRIVE_DIR`; без переменной `G:\Мой диск\Kenshi Compain. Docs`, `G:\Kenshi Compain. Docs`, `G:\My Drive\Kenshi Compain. Docs`) нужен для PDF, `tmp/` и `sync-state`; не найден - `WARNING` в stderr и `status=skipped`, публикация и доставка в GitHub не прерываются. Нативные файлы отображаются на нём ярлыками `.gdoc`/`.gsheet`; они не попадают в `outside_set`.
+
+| Каталог | Содержимое (в пределах allowlist) |
+|---|---|
+| `published/` | `brief`, `changes`, `squad` |
+| `published/tables/` | таблицы `*.csv` и `index` выпуска, кроме семи таблиц справочника юнитов (раздел «Профили») |
+| `published/screenshots/` | `index`, `feed` (при содержательном OCR) - Docs; `screenshots_latest.pdf` - PDF |
+| `Campaign/<кампания>/` | рабочие документы и `archive/` по профилям; копия `main` |
+| `docs/`, `templates/` | руководства, справочники и шаблон сессии по профилям |
+| `tmp/inbox/`, `tmp/checkpoints/`, `tmp/processed/`, `tmp/conflicts/`, `tmp/sync-state.json` | служебные (смонтированный Диск): пакеты `[итог]`, контрольные точки `CP-n.md`, принятые пакеты, копии правок Диска, состояние синхронизации; в наборы не входят, не удаляются |
+
+`extended/`, `locations.json`, `world_reference.json`, `manifest.json`, `changes.json`, `timeline.jsonl`, `screenshots/index.json`, `annotations.jsonl` и кадры `.jpg` на Диск не копируются. Подкаталоги `tmp/` создаются автоматически.
+
+## Профили
+
+Профиль - allowlist (`Profile` в `tools/gdrive_sync.py`: `name`, `include` - пути и маски относительно корня репозитория, `root_dir`, `exclude` - точные пути, исключаемые из совпавших по `include`). `*` действует внутри каталога, `**/` - на любую вложенность. Один файл Диска подключается к обоим блокнотам. Источник файла: `published/` технического репозитория либо клон `Kenshi-Compain` (`HEAD`; в `--dry-run` - `FETCH_HEAD`).
+
+| Профиль | Состав |
+|---|---|
+| `game` - игровой блокнот | `published/`: `brief.md`, `changes.md`, `squad.md`, `tables/*.csv` (без `UNIT_REFERENCE_TABLES`), `tables/index.md`, `screenshots/index.md`, `screenshots/feed.md`, `screenshots/screenshots_latest.pdf`; `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `Kenshi_Текущая_арка.md`, `Kenshi_Архетипы_и_билды.md`; `docs/`: `companion-guide.md`, `session-protocol.md`, `response-formatting.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md`, `reference/*.md` (без `drafts/`); `templates/template-session.md` |
+| `chronicle` - блокнот летописи | `Campaign/<кампания>/`: `Kenshi_Хронология.md`, `archive/sessions/**/*.md`, `archive/Kenshi_Библия.md`, `archive/novel/**/*.md`; `docs/`: `chronicler-guide.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md` |
+
+Из `game` исключены константой `UNIT_REFERENCE_TABLES` семь таблиц справочника юнитов: `unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv` (около 1,15 млн символов; маска `tables/*.csv` их совпала бы). Решение пользователя: пока не входят; включение - осознанное (правка `UNIT_REFERENCE_TABLES` и повторный `sync-drive`). Таблицы остаются в `published/tables/` и доставляются в GitHub.
+
+Не входят ни в один профиль: JSON, отдельные `.jpg`, `README.md`, `prompts/`, `sites/`. `docs/chronicler-guide.md` только в `chronicle`, `archive/` только в `chronicle`.
+
+`squad.md` остаётся в `game`: таблицы `tables/*.csv` не покрывают инвентарь и содержимое рюкзака (`Инвентарь`), пояс, рюкзак как предмет и счётчик «Количество участников» отряда; навыки со значением <= 0 в `squad.md` скрыты, в CSV выгружаются; `Работы (отключены)` есть в `squad.csv` как `jobs_enabled`.
+
+Размер профилей на выпуске Day 133 06:03: `game` - 33 файла, 809 669 символов (без PDF; 17 файлов `published/`, 3 `Campaign/`, 12 `docs/`, 1 `templates/`), `chronicle` - 9 файлов, 127 141 символов; пересечение профилей: `Kenshi_Хронология.md`, `Kenshi_sources.md`, `Kenshi_RU_EN.md` (один файл Диска - один источник в каждом блокноте). Запас до лимита 50 источников: 17 на `game`, 41 на `chronicle`; Doc и Sheet считаются источниками как файлы.
+
+Ориентир - не более 30 файлов на профиль (лимит Gemini Notebook - 50 источников); при превышении отчёт содержит `over_limit` и `WARNING` в stderr, синхронизация не прерывается. Отчёт `sync-drive` выводит по каждому профилю `count`, `files`, `over_limit`, `files_chars` (`{path, chars[, note]}`, по убыванию символов UTF-8; PDF и отсутствующие локально - `chars: null`, вне суммы) и `total_chars`; в stderr - топ-10 по символам. `desktop.ini` и `Thumbs.db` игнорируются полностью. `root_dir` профиля (по умолчанию пусто) позволяет позже разнести профили по каталогам Диска: файлы профиля получают новые `file_id`, их пути перечислены в `relink`.
+
+### Список переподключения источников
+
+При возврате к Gemini Notebook источники подключаются по списку `reconnect` отчёта `sync-drive`: по каждому профилю `{path, name, kind, file_id, url}` нативных файлов (путь на Диске без расширения). Тот же `file_id` хранится в `tmp/sync-state.json`. Файл набора подключается к блокноту один раз и далее обновляется на месте.
+
+## Запись и `file_id`
+
+Нативные файлы обновляются только на месте: Docs - `deleteContentRange` на весь текст (если не пуст) и `insertText` одним `batchUpdate`; Sheets - очистка первого листа (имя листа берётся из метаданных, локализовано) и `values.update` (`RAW`, значения строками, разбор `csv`, UTF-8). Файл не пересоздаётся: пересоздание меняет `file_id` и разрывает источники блокнота. После записи метаданные файла (`files.get`, `id,modifiedTime,headRevisionId,appProperties`) перечитываются до совпадения двух чтений подряд (до 3 чтений с паузой 0,5 с; Drive может сдвинуть `modifiedTime` на ~0,3 с назад уже после ответа на запись); в sync-state сохраняется последнее прочитанное значение, при неустановившемся значении страхует правило «Диск - копия main» (сравнение по содержимому). После записи в `appProperties` файла ставятся `sha256`, `trailing_lf` (дубль данных sync-state на случай его потери) и `kenshi_source` (признак принадлежности, раздел «Диск - копия main»).
+
+PDF и `tmp/` пишутся на смонтированном Диске: `write_in_place` перезаписывает существующий файл открытием на запись и не трогает файл с совпадающими байтами; `os.remove`, `unlink` и `os.replace` создают новый файл и разрывают `file_id`. Запись на месте не атомарна: при обрыве файл может остаться неполным до следующей синхронизации. PDF собирается в `%TEMP%`; если в окне нет кадров, PDF не собирается и на Диске остаётся прежний. Повторный запуск при совпадающем содержимом ничего не пишет. Файл, удалённый или перенесённый в корзину на Диске, создаётся заново (новый `file_id`, имя в `recreated`).
+
+## sync-state
+
+`tmp/sync-state.json` (смонтированный Диск; чужие секции сохраняются):
+
+| Ключ | Содержимое |
+|---|---|
+| `native_root_id` | id каталога «Kenshi Compain. Docs» |
+| `native` | путь файла в репозитории с расширением (`docs/x.md`) -> `file_id`, `kind` (`doc` \| `sheet`), `source_sha256` (после CRLF -> LF), `drive_modified_time` (установившееся время изменения после нашей записи либо последней сверки содержимого), `eol_final`, `trailing_lf` (число хвостовых LF источника), `chars`, при наличии `head_revision_id` |
+| `origin_main`, `files` | SHA `origin/main` и sha256 набора `docs/`, `templates/` |
+| `synced` | файлы смонтированного Диска, записанные прежними синхронизациями (основание для `--prune`) |
+
+Пустой `source_sha256` означает прерванную запись: следующий запуск перепишет файл.
+
+## Пределы
+
+- Google Doc: вставка до 1 500 000 символов (проверено 1,5 млн принято, 2 млн отказ); длиннее - отказ с сообщением в `refused`. Сейчас крупнейший `.md` около 54 тыс. символов.
+- Google Sheet: ячейка до 50 000 символов (50 001 отказ API); ячейка длиннее или запрос больше 12 МБ - отказ в `refused`; остальные файлы продолжают синхронизироваться. Экспорт листа ограничен 10 МБ (`exportSizeLimitExceeded`): таблица, превышающая предел, записывается, но не восстанавливается `gdrive-export`. Экспортируется только первый лист: таблица - один лист.
+- Отказ файла даёт `status=partial` и не блокирует удаление остальных; сам файл не удаляется.
+- Лимит 10 млн ячеек Sheets и точная граница Doc между 1,5 и 2 млн не проверялись.
+
+## Нормализация экспорта и восстановление
+
+Экспорт `text/plain` Google Doc отличается от исходника детерминированно: BOM, CRLF, каждая пустая строка исходника - две пустые строки, финальный LF не выводится. Обратная нормализация (`normalize_doc_export`): снять BOM, CRLF -> LF, серии пустых строк разделить пополам, хвостовые переводы строк снять и вернуть в числе `trailing_lf` (экспорт не различает исходник с финальным LF и без него; число берётся из sync-state, иначе из `appProperties`). Результат побайтно равен исходнику после CRLF -> LF (CRLF-исходник хранится как LF; BOM исходника не сохраняется). Экспорт `text/csv` Sheet (`normalize_csv_export`): CRLF -> LF, хвостовые переводы строк заменить числом `trailing_lf`; перевод строки CRLF внутри ячейки возвращается как LF.
+
+```powershell
+python -m tools.campaign gdrive-export <путь-в-репозитории.md|.csv> [--output файл] [--gdrive-dir <путь>]
+```
+
+Команда находит файл по `file_id` из sync-state, иначе по именам каталогов Диска и `appProperties.kenshi_source`, и пишет восстановленный исходник в `--output` (без него - в stdout). Проверка нормализации - на всех `.md` клона `Kenshi-Compain` и `published/` в `tests/test_gdrive_native.py` (модель прямого преобразования по опытам 2026-11-07).
+
+## Восстановление и проверки
+
+Восстановление исходника из нативной копии - `gdrive-export` (раздел «Нормализация экспорта и восстановление»). Проверено на реальном Диске (2026-11-07):
+
+- байт-в-байт восстановлены три файла: `Kenshi_Хронология`, `S-20261105-1`, `regions_atlas`;
+- повторный запуск `sync-drive`: записано 0, конфликтов 0;
+- запрос `appProperties has { key='kenshi_source' and value='...' }` принят реальным API;
+- сдвиг `modifiedTime` на 0,28-0,30 с назад после записи (15 из 38 файлов после первого повтора, 23 после prune) учитывается перечитыванием метаданных после записи (раздел «Запись и `file_id`»); проверка этого эффекта на реальном Диске после введения перечитывания не выполнялась.
+
+## Команды
+
+```powershell
+python -m tools.campaign pipeline ... --sync-drive           # после публикации и доставки: session + docs + chronicle (Campaign/)
+python -m tools.campaign sync-drive [--scope all|session|docs|chronicle] [--gdrive-dir <путь>] [--dry-run] [--prune]
+python -m tools.campaign gdrive-export <путь> [--output файл]
+```
+
+`--scope all` = `session` + `docs` + `chronicle`. `--dry-run` ничего не пишет и не удаляет (также не создаёт `tmp/`, каталоги и файлы Google и не меняет клон, кроме `fetch`), использует только чтение API и печатает план. `--prune` включает удаление. `pipeline --sync-drive` удаление не выполняет. `Initialize-Pipeline.ps1` (хоткей) передаёт `--sync-drive`. Google API или токен недоступны (нет пакетов, токена, корня) - `status=failed`, `reason=gdrive_api_unavailable`, сообщение в `error` и `WARNING`; автономный `sync-drive` завершается кодом 1, в `pipeline` сбой остаётся предупреждением. Шаг Диска в `pipeline` (по умолчанию в `Initialize-Pipeline.ps1`) не влияет на код возврата: Диск не смонтирован, нет токена или сети, исключение Drive API - предупреждение `WARNING: drive: ...` в stderr и поле `drive` результата (`synced` либо `skipped|failed|partial (причина)`); код 0 при успешной публикации и доставке. Отказом остаются ошибки публикации, доставки (`partial`) и проверки принадлежности сейва. Google отложен, пока хранилище аккаунта переполнено: `403 storageQuotaExceeded` или `documents.batchUpdate: The caller does not have permission` дают `drive: partial|failed`; квота проверяется запросом `about.get` с полем `storageQuota`. `Initialize-Pipeline.ps1` и `Save-Packet.ps1` вызывают python с `2>&1` и `ErrorActionPreference=Continue`: stderr (включая FutureWarning grpcio, подавляемый в `tools/gdrive_api.py` и `PYTHONWARNINGS`) выводится предупреждениями, исход определяет только код возврата. Несостоявшийся push доставки даёт `companion_delivery.status=partial` и код 1, но Диск при этом синхронизируется; автономные `sync-drive` и `ingest-inbox` завершаются кодом 1, если синхронизация неполная или пакет отклонён. Функция `sync_chronicle(companion_dir, root, entries, dry_run, native, now)` вызываема отдельно (синхронизация `Campaign/` после приёма пакета).
+
+## Диск - копия main (Campaign/, docs/, templates/, published/)
+
+Правок Диска в GitHub конвертер не переносит (обратный перенос отменён). Для `Campaign/`, `docs/`, `templates/` и `published/` правило одно. Правка на Диске определяется по содержимому, а не по `modifiedTime`: если `modifiedTime` файла равен `drive_modified_time` из sync-state, экспорт не выполняется; если отличается - это лишь повод экспортировать файл (Doc: `text/plain`, Sheet: `text/csv`), нормализовать его (раздел «Нормализация экспорта») и сравнить с источником.
+
+- Содержимое равно источнику: конфликта нет, файл не перезаписывается, копия не создаётся, в sync-state обновляется только `drive_modified_time` (действие `content-equal-modified`). `files.update` не вызывается, если свойства файла уже верны.
+- Содержимое отличается: правка сохраняется как `.md` (текст документа после нормализации) или `.csv` в `tmp/conflicts/<путь без расширения>-<UTC>.<расширение>`, файл перезаписывается версией из `main` (действие `conflict`). Пустая заготовка прерванного создания правкой не считается.
+
+Опознание своих файлов: в `appProperties` каждого создаваемого или обновляемого нативного файла пишется `kenshi_source` - путь источника с расширением (ключ `native` в sync-state, например `published/brief.md`). Если ключ и значение не умещаются в лимит свойства Drive (124 байта UTF-8, касается длинных кириллических путей), значением служит `sha256:<32 hex>` от пути. Без записи в sync-state файл ищется в каталоге Диска запросом `appProperties has { key='kenshi_source' and value='<путь>' }`, а не по имени, и сверяется по содержимому как описано выше (`adopted: true`). Одноимённый нативный файл без такой метки (или с меткой другого пути) чужой: не читается, не меняется и не усыновляется, перечисляется в `foreign_same_name`, а для пути создаётся собственный файл (на Диске появятся два файла с одним именем; чужой убирает пользователь). Файл, созданный прежним запуском без `kenshi_source`, при поиске без sync-state не считается своим; файл из sync-state по `file_id` остаётся своим и получает метку при ближайшем запуске.
+
+- `Campaign/` на Диске - копия `main`: правки Диска сохраняются в `tmp/conflicts` и в GitHub автоматически не переносятся.
+- Файлы `Campaign/` только на Диске (например, новые `S-*`, созданные Gemini) не трогаются и перечисляются в `only_on_drive` (по `.md` и ярлыкам `.gdoc`). Ничего не удаляется. Файлы клона с незакоммиченными правками пропускаются (`skipped_uncommitted`).
+- Источник `Campaign/` - рабочее дерево клона без незакоммиченных файлов; источник `docs/`, `templates/` - `origin/main` (клон переносится rebase, отставший клон с незакоммиченными правками получает отказ).
+- `prompts/` на Диск не копируется.
+
+## Отчёт и удаление
+
+Отчёт `sync-drive`: `profiles` (число и список файлов профилей), `reconnect`, `summary`: `planned` (только `--dry-run`: `create`/`write`/`delete <путь>`), `written`, `unchanged`, `deleted`, `conflicts` (`{path, copy}`), `refused`, `to_delete` (выпали из набора и не удалены), `legacy_to_delete` (прежние `.md`/`.csv` на смонтированном Диске с созданной нативной копией, не удалены), `legacy_waiting_native` (прежние файлы без нативной копии), `native_outside_set` (нативные файлы sync-state, выпавшие из набора; не удаляются), `outside_set` (на Диске вне набора, не удалены), `only_on_drive`, `missing_in_repo` (точные пути профилей, которых нет ни в выпуске, ни в клоне; для `feed.md` и PDF это норма).
+
+Нативные файлы в `summary`: `native_files[]` - по каждому файлу `{path, action, drive_modified_before, drive_modified_after[, adopted]}`, где `action` - `created` | `updated` | `unchanged` | `conflict` | `content-equal-modified`, а время - `modifiedTime` до (из sync-state) и после запуска (в `--dry-run` не меняется); `native_summary` - `{written, unchanged, content_equal_modified, conflicts, foreign}` (числа; в `--dry-run` `written` - запланированные записи); `foreign_same_name[]` - `{path, name, file_id}` чужих одноимённых файлов. Для повторного запуска ожидается `written: 0`, `conflicts: 0` и равные `drive_modified_before`/`after`.
+
+Удаление выполняется только с `--prune` и без ошибок записи (отказ по лимиту ошибкой не считается). Два вида файлов смонтированного Диска:
+
+- Прежние `.md`/`.csv` из набора профилей (файлы репозитория, в том числе `Campaign/`): удаляются, только если нативная копия этого файла записана в sync-state и существует по API в этом запуске. Файл, нативная копия которого не создана или отклонена, остаётся. Файлы `Campaign/` вне репозитория не удаляются.
+- Выпавшие из набора файлы `published/`, `docs/`, `templates/`: не входят ни в один профиль и известны репозиториям (есть в `published/` технического репозитория, в клоне `Kenshi-Compain` на `HEAD`/`origin/main`, среди кадров `data/screenshots_archive/`, записаны в секции `synced` или в перечне прежних файлов выгрузки: `manifest.json`, `changes.json`, `timeline.jsonl`, `annotations.jsonl`, `screenshots/index.json`). Остальное (`.gdoc` вне sync-state, ручные файлы) только перечисляется в `outside_set`. `Campaign/` как выпавшая область не удаляется никогда. Область без единого файла набора (нет выпуска или клона) не чистится.
+
+Файл удаляется штатно на смонтированном Диске (Drive for desktop переносит его в корзину, не стирает окончательно). Нативные файлы API не удаляет.
+
+## Зависимости
+
+`pip install google-api-python-client google-auth-oauthlib google-auth-httplib2`; разовый вход `python scripts/gdrive_auth.py` (scope `drive`; `drive.file` не видит файлы Drive for desktop). OAuth-клиент: переменные окружения `GOOGLE_CLOUD_OAUTH_CLIENT_ID`/`GOOGLE_CLOUD_OAUTH_CLIENT_SECRET`, реестр пользователя Windows либо `client_secret*.json` в `%LOCALAPPDATA%\kenshi-campaign-tech\`; токен там же (`token.json`), вне репозитория. В Google Cloud включены Drive, Docs и Sheets API. Тесты используют фейковые сервисы и сети не требуют.

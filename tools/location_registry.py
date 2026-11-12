@@ -112,7 +112,7 @@ def build_registry(
         if sid in rows:
             raise ValueError(f"Повтор instance_id в справочнике: {sid}")
         row = {key: source.get(key) for key in STATIC_FIELDS}
-        row["region"] = regions.get(row["region"], row["region"])
+        row["region_ru"] = regions.get(row["region"])
         if discovery and sid in discovery:
             row.update(discovered=discovery[sid], discovered_source=DISCOVERY_SOURCE)
         faction = (factions or {}).get(source["template_sid"])
@@ -233,9 +233,10 @@ def validate_registry(registry: dict[str, Any], manifest: dict[str, Any], world_
             raise ValueError(f"Неизвестный или повторный instance_id реестра: {sid}")
         seen.add(sid)
         expected = {key: world[sid].get(key) for key in STATIC_FIELDS}
-        expected["region"] = regions.get(expected["region"], expected["region"])
         if any(row[key] != expected[key] for key in STATIC_FIELDS):
             raise ValueError(f"Статические поля реестра расходятся со справочником: {sid}")
+        if row.get("region_ru") != regions.get(expected["region"]):
+            raise ValueError(f"Поле region_ru не совпадает с локализацией региона: {sid}")
         if "cleared" in row and not _applies(row["cleared"], registry):
             raise ValueError(f"Отметка зачистки позже времени выпуска: {sid}")
     if seen != set(world):

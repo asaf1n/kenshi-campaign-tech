@@ -41,28 +41,30 @@ class CampaignCheckTests(unittest.TestCase):
         index["campaigns"]["hot-lon"] = {"head_snapshot_id": PARENT}
         (tmp / "index.json").write_text(json.dumps(index), encoding="utf-8")
         argv = ["pipeline", "--source-kind", "save", "--source", str(tmp), "--output", str(snapshots),
-                "--published-dir", str(published), "--campaign-id", "hot-lon", "--deliver-to", str(tmp / "companion"), *extra]
+                "--published-dir", str(published), "--campaign-id", "hot-lon", "--deliver-to", str(tmp / "companion"), "--sync-drive", *extra]
         with mock.patch("tools.pipeline.extract", return_value={"snapshot_id": CHILD}), \
                 mock.patch("tools.pipeline.register_snapshot", return_value={"registration": "new", "is_head": True}), \
                 mock.patch("tools.pipeline.publish", return_value={"manifest": {"validation": {"status": "passed"}}}) as publish, \
                 mock.patch("tools.deliver_companion.deliver_to_companion", return_value={"status": "delivered"}) as deliver, \
+                mock.patch("tools.gdrive_sync.sync_drive", return_value={"status": "synced"}) as sync, \
                 mock.patch("sys.stdout"), mock.patch("sys.stderr"):
             code = campaign.main(argv)
         self.assertEqual((published / "marker.txt").read_text(encoding="utf-8"), "prev")
-        return code, publish, deliver
+        return code, publish, deliver, sync
 
     def test_foreign_save_rejected_before_publish(self) -> None:
-        """Чужой состав: код 1, publish/доставка не вызываются (ловит проверку после публикации)."""
+        """Чужой состав: код 1, publish/доставка/Диск не вызываются (ловит проверку после публикации)."""
         with tempfile.TemporaryDirectory() as tmp:
-            code, publish, deliver = self.run_cli(Path(tmp), [f"ps:x{n}" for n in range(10)], [])
+            code, publish, deliver, sync = self.run_cli(Path(tmp), [f"ps:x{n}" for n in range(10)], [])
         self.assertEqual(code, 1)
         publish.assert_not_called()
         deliver.assert_not_called()
+        sync.assert_not_called()
 
     def test_foreign_save_allowed_explicitly(self) -> None:
         """--allow-new-campaign пропускает проверку (ловит безвыходную блокировку нового старта)."""
         with tempfile.TemporaryDirectory() as tmp:
-            code, publish, _ = self.run_cli(Path(tmp), [f"ps:x{n}" for n in range(10)], ["--allow-new-campaign"])
+            code, publish, _, _ = self.run_cli(Path(tmp), [f"ps:x{n}" for n in range(10)], ["--allow-new-campaign"])
         self.assertEqual(code, 0)
         publish.assert_called_once()
 

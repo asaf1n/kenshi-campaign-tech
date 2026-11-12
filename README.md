@@ -58,4 +58,5 @@ git diff --check
 - [Настройки Kenshi](docs/kenshi-settings.md)
 - [Картография](docs/cartography.md)
 - [Лента скриншотов](docs/screenshots.md)
+- [Синхронизация с Google Диском](docs/gdrive-sync.md)
 - [Интерфейс чат-ИИ](docs/chatgpt-interface.md)

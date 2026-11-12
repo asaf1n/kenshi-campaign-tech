@@ -14,7 +14,7 @@ class LocationRegistryValidationTests(unittest.TestCase):
             "world_ref_id": "world", "game_time": "Day 13 08:00",
             "locations": [{
                 "instance_id": "town", "name_ru": None, "name_en": "Town", "kind": "town",
-                "region": "Зелёный пляж", "x": 0, "z": 0, "is_secret": None, "is_public": None,
+                "region": "Greenbeach", "region_ru": "Зелёный пляж", "x": 0, "z": 0, "is_secret": None, "is_public": None,
                 "unexplored_name": None, "template_faction": {"sid": "faction", "name_en": "Faction"},
             }],
         }

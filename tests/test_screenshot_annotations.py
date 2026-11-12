@@ -335,7 +335,7 @@ class ScreenshotExtractorTests(unittest.TestCase):
                             generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
                 names = sorted(path.name for path in (published / "screenshots").iterdir() if path.suffix != ".jpg")
-                self.assertEqual(names, ["annotations.jsonl", "feed.md", "index.json", "index.md"])
+                self.assertEqual(names, ["annotations.jsonl", "feed.md", "index.json", "index.md", "screenshots_latest.pdf"])
                 artifacts = read_json((published / "manifest.json").read_bytes())["artifacts"]
                 self.assertEqual(artifacts["screenshot_annotations"], "screenshots/annotations.jsonl")
                 self.assertEqual(artifacts["screenshot_feed"], "screenshots/feed.md")

@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from tools.deliver_companion import deliver_to_companion
+from tools.gdrive_sync import ensure_buffer
 from tools.io_utils import canonical, read_json
 from tools.location_registry import PROGRESS_RELATIVE, REGISTRY_FILENAME, build_registry
 from tools.validation import validate_unique_entities_registry
@@ -45,6 +46,9 @@ class GitSyncTests(unittest.TestCase):
         self.published.mkdir()
         (self.published / "manifest.json").write_text(json.dumps({"validation": {"status": "passed"}}), encoding="utf-8")
         (self.published / "brief.md").write_text("новый\n", encoding="utf-8")
+
+        self.drive = self.tmp / "drive"
+        ensure_buffer(self.drive)
 
     def git(self, *args: str, cwd: Path) -> str:
         return subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True, encoding="utf-8").stdout
