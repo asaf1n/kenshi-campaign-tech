@@ -3,24 +3,23 @@ from __future__ import annotations
 
 from collections import defaultdict
 import copy
-import re
 from typing import Any
 
 from tools import gamedb
 from tools.chain_timeline import game_clock
 from tools.io_utils import canonical
-from tools.location_registry import _game_minutes, merge_progress
+from tools.location_registry import merge_progress
 from tools.tables import SQUAD_ROLES, WEAPON_SECTIONS, _names, _refs, _stats
-from tools.validation import validate_event, validate_unique_entities_registry
+from tools.validation import validate_unique_entities_registry
 from tools.world_context import ZONE_KEY_FORMAT, is_valid_strict_handle, storage_rows, zone_settlements
 
 GRADE_SID = "52293-rebirth.mod"
 MANUFACTURER_SID = "52288-rebirth.mod"
-TROPHY_MARKER = re.compile(r"\[base_sid=([a-zA-Z0-9_\-\.]+)\]")
-NPC_MARKER = re.compile(r"\[npc_sid=([a-zA-Z0-9_\-\.]+)\]")
 TOWN_LINKS = {"residents": "resident", "bar squads": "bar_squad", "roaming squads": "roaming"}
 # Подтверждённые заданием боссы. Остальные выводятся из игровых признаков.
 CUSTOM_BOSS_SIDS = frozenset({"50519-rebirth.mod", "96407-rebirth.mod", "96409-rebirth.mod"})
+# Исходы ручного слоя entities_progress, означающие победу/захват босса.
+BOSS_CLEARED_OUTCOMES = frozenset({"dead", "defeated", "captured"})
 
 
 def resolve_primary_location(links: list[dict[str, Any]] | None) -> tuple[str | None, str | None]:
@@ -180,69 +179,56 @@ def _observed(cur: dict[str, Any], world_ref: dict[str, Any],
             for sid, rows in found.items()}
 
 
-def _trophies(timeline_data: dict[str, Any] | None, game_time: Any) -> dict[str, dict[str, Any]]:
-    events = (timeline_data or {}).get("events") or []
-    current_minutes = _game_minutes(game_time)
-    applicable = []
-    for event in events:
-        event_minutes = _game_minutes(event.get("game_time"))
-        day = event.get("game_day")
-        if current_minutes is not None:
-            if event_minutes is not None and event_minutes > current_minutes:
-                continue
-            if day is not None and day > current_minutes // 1440:
-                continue
-        applicable.append(event)
-    superseded = {event["corrects_event_id"] for event in applicable
-                  if event.get("kind") == "correction" and event.get("status") != "inferred"}
-    result = {}
-    for event in sorted(applicable, key=lambda row: row["event_id"]):
-        if event.get("status") != "confirmed" or event["event_id"] in superseded:
-            continue
-        validate_event(event)
-        day = event.get("game_day")
-        for sid in TROPHY_MARKER.findall(event["summary"]):
-            result.setdefault(sid, {"event_id": event["event_id"], "day": day, "summary": event["summary"]})
-    return result
+def _personal_evidence_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    return {"outcome": entry["outcome"], "evidence": entry["evidence"], "game_time": entry.get("game_time")}
 
 
-def _personal_events(timeline_data: dict[str, Any] | None, game_time: Any) -> dict[str, dict[str, Any]]:
-    """Извлекает подтверждённые персональные события с NPC по маркеру [npc_sid=...] из таймлайна."""
-    events = (timeline_data or {}).get("events") or []
-    current_minutes = _game_minutes(game_time)
-    applicable = []
-    for event in events:
-        event_minutes = _game_minutes(event.get("game_time"))
-        day = event.get("game_day")
-        if current_minutes is not None:
-            if event_minutes is not None and event_minutes > current_minutes:
-                continue
-            if day is not None and day > current_minutes // 1440:
-                continue
-        applicable.append(event)
-    superseded = {event["corrects_event_id"] for event in applicable
-                  if event.get("kind") == "correction" and event.get("status") != "inferred"}
-    result = {}
-    for event in sorted(applicable, key=lambda row: row["event_id"]):
-        if event.get("status") != "confirmed" or event["event_id"] in superseded:
-            continue
-        validate_event(event)
-        day = event.get("game_day")
-        for sid in NPC_MARKER.findall(event["summary"]):
-            result.setdefault(sid, {"event_id": event["event_id"], "day": day, "summary": event["summary"]})
-    return result
+def _apply_entities_progress(
+    unique_npcs: list[dict[str, Any]], bosses: list[dict[str, Any]],
+    weapons: list[dict[str, Any]], entities_progress_data: dict[str, Any] | None,
+) -> None:
+    """Пересчитывает personal_evidence NPC/боссов и provenance_status/trophy_evidence Мейто целиком
+    из ручного слоя entities_progress (формат kenshi-entities-progress/1). Отсутствие слоя
+    (entities_progress_data is None) равносильно пустому словарю сущностей: все поля сбрасываются
+    на дефолт (None/"unconfirmed"), что делает повторный вызов идемпотентным.
+
+    Мутирует элементы списков на месте: вызывающая сторона отвечает за изоляцию (свежепостроенные
+    списки в build_unique_entities_registry, глубокая копия в apply_progress_to_unique_entities).
+    """
+    entities = (entities_progress_data or {}).get("entities") or {}
+    for npc in unique_npcs:
+        entry = entities.get(npc["npc_sid"])
+        npc["personal_evidence"] = _personal_evidence_entry(entry) if entry else None
+    for boss in bosses:
+        entry = entities.get(boss["npc_sid"])
+        personal_ev = _personal_evidence_entry(entry) if entry else None
+        boss["personal_evidence"] = personal_ev
+        boss["cleared_evidence"] = (
+            {"location_instance_id": None, "cleared_at": personal_ev.get("game_time") or "",
+             "source": personal_ev["evidence"]}
+            if personal_ev is not None and personal_ev["outcome"] in BOSS_CLEARED_OUTCOMES
+            else None
+        )
+    for weapon in weapons:
+        entry = entities.get(weapon["base_sid"])
+        trophy_ev = _personal_evidence_entry(entry) if entry else None
+        weapon["provenance_status"] = "confirmed_trophy" if trophy_ev else "unconfirmed"
+        weapon["trophy_evidence"] = trophy_ev
 
 
 def build_unique_entities_registry(
     cur: dict[str, Any], world_ref: dict[str, Any], game_records: dict[str, Any],
     game_index: dict[str, list[Any]], progress_data: dict[str, Any] | None = None,
     timeline_data: dict[str, Any] | None = None,
+    entities_progress_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Собирает реестр без чтения файлов и изменения входов.
 
     Вызывающая сторона дополняет current полями snapshot_id, campaign_id и generated_at
     из метаданных выпуска. Для generated_at допустим created_at справочника мира.
-    timeline_data содержит уже отобранную активную цепочку и проверенные файловые источники.
+    entities_progress_data (формат kenshi-entities-progress/1) обогащает personal_evidence
+    боссов/NPC и provenance_status/trophy_evidence оружия Мейто; таймлайн маркеров не содержит.
+    timeline_data принимается для совместимости вызова publisher.py и в сборке не используется.
     """
     game_time = cur.get("game_time")
     if game_time is None:
@@ -290,7 +276,6 @@ def build_unique_entities_registry(
     for sid in states:
         origins.setdefault(sid, "world_state")
 
-    personal_events = _personal_events(timeline_data, game_time)
     marked = merge_progress({**result, "locations": [{"instance_id": row["instance_id"]}
                                                     for row in world_ref.get("locations") or []]}, progress_data)
     marks = {row["instance_id"]: row["cleared"] for row in marked["locations"] if "cleared" in row}
@@ -338,21 +323,13 @@ def build_unique_entities_registry(
         else:
             category = "unique_npc"
 
-        personal_ev = personal_events.get(sid)
         npcs.append({
             "npc_sid": sid, "name_en": name_en, "name_ru": name_ru, "category": category,
             "locations": links, "dynamic": status,
-            "personal_evidence": personal_ev,
+            "personal_evidence": None,
         })
         if sid in origins:
             amount = bounty_amount
-            boss_clearance = None
-            # В поле cleared_evidence у босса не записывать зачистку локации (значение None, если нет персонального подтверждения).
-            if personal_ev is not None:
-                for link in links:
-                    if link.get("cleared_evidence") is not None:
-                        boss_clearance = link["cleared_evidence"]
-                        break
             bosses.append({
                 "npc_sid": sid, "name_en": name_en, "name_ru": name_ru,
                 "category": category,
@@ -362,12 +339,11 @@ def build_unique_entities_registry(
                 "associated_world_states": sorted(_ordered(states.get(sid, [])), key=lambda row: row["state_sid"]),
                 "static_locations": [dict(link) for link in links],
                 "observed_state": {key: status[key] for key in ("state_code", "player_defeat_flag", "captured_by", "squad_status", "character_id")},
-                "cleared_evidence": boss_clearance,
-                "personal_evidence": personal_ev,
+                "cleared_evidence": None,
+                "personal_evidence": None,
             })
 
     observed_weapons = _observed(cur, world_ref, game_index)
-    trophies = _trophies(timeline_data, game_time)
     po_ru, _, po_by_msgid = gamedb.load_po()
     weapons = []
     for sid in sorted(set(holders) | set(observed_weapons)):
@@ -391,9 +367,10 @@ def build_unique_entities_registry(
                 row["npc_sid"], row["town_instance_id"] or "", row["town_name"] or "")),
             "observed_instances": inst_list,
             "observation_status": "observed" if len(inst_list) > 0 else "not_observed",
-            "provenance_status": "confirmed_trophy" if sid in trophies else "unconfirmed",
-            "trophy_evidence": trophies.get(sid),
+            "provenance_status": "unconfirmed",
+            "trophy_evidence": None,
         })
+    _apply_entities_progress(npcs, bosses, weapons, entities_progress_data)
     result.update(unique_npcs=npcs, bosses=bosses, meitou_weapons=weapons)
     validate_unique_entities_registry(result)
     return result
@@ -403,78 +380,73 @@ def apply_progress_to_unique_entities(
     entities: dict[str, Any],
     progress_data: dict[str, Any] | None,
     world_ref: dict[str, Any] | None = None,
+    entities_progress_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Переносит отметки зачистки кампании в локации и боссов реестра; чистая функция без побочных эффектов."""
+    """Переносит отметки зачистки локаций и ручной слой entities_progress в реестр; чистая функция
+    без побочных эффектов. cleared_evidence локаций управляется исключительно progress_data
+    (locations_progress.json); cleared_evidence и personal_evidence боссов, а также
+    provenance_status/trophy_evidence Мейто — исключительно entities_progress_data.
+    """
     result = copy.deepcopy(entities)
     bosses = result.get("bosses", [])
     unique_npcs = result.get("unique_npcs", [])
+    weapons = result.get("meitou_weapons", [])
+
     if progress_data is None:
         for boss in bosses:
-            boss["cleared_evidence"] = None
             for link in boss.get("static_locations") or boss.get("locations") or []:
                 link["cleared_evidence"] = None
         for npc in unique_npcs:
             for link in npc.get("locations", []):
                 link["cleared_evidence"] = None
-        return result
-
-    if world_ref and world_ref.get("locations"):
-        all_locations = [{"instance_id": r["instance_id"]} for r in world_ref.get("locations", [])]
     else:
-        unique_iids: set[str] = set()
-        for b in bosses:
-            for link in b.get("static_locations") or b.get("locations") or []:
+        if world_ref and world_ref.get("locations"):
+            all_locations = [{"instance_id": r["instance_id"]} for r in world_ref.get("locations", [])]
+        else:
+            unique_iids: set[str] = set()
+            for b in bosses:
+                for link in b.get("static_locations") or b.get("locations") or []:
+                    iid = link.get("instance_id")
+                    if iid:
+                        unique_iids.add(iid)
+            for n in unique_npcs:
+                for link in n.get("locations", []):
+                    iid = link.get("instance_id")
+                    if iid:
+                        unique_iids.add(iid)
+            all_locations = [{"instance_id": iid} for iid in sorted(unique_iids)]
+
+        synth_reg = {
+            "campaign_id": entities.get("campaign_id", ""),
+            "game_time": entities.get("game_time", ""),
+            "locations": all_locations,
+        }
+        marked = merge_progress(synth_reg, progress_data)
+        marks = {row["instance_id"]: row["cleared"] for row in marked.get("locations", []) if "cleared" in row}
+
+        for npc in unique_npcs:
+            for link in npc.get("locations", []):
                 iid = link.get("instance_id")
-                if iid:
-                    unique_iids.add(iid)
-        for n in unique_npcs:
-            for link in n.get("locations", []):
+                if iid and iid in marks:
+                    link["cleared_evidence"] = {
+                        "location_instance_id": iid,
+                        "cleared_at": marks[iid].get("game_time", ""),
+                        "source": marks[iid].get("evidence", ""),
+                    }
+                else:
+                    link["cleared_evidence"] = None
+
+        for boss in bosses:
+            for link in boss.get("static_locations") or boss.get("locations") or []:
                 iid = link.get("instance_id")
-                if iid:
-                    unique_iids.add(iid)
-        all_locations = [{"instance_id": iid} for iid in sorted(unique_iids)]
+                if iid and iid in marks:
+                    link["cleared_evidence"] = {
+                        "location_instance_id": iid,
+                        "cleared_at": marks[iid].get("game_time", ""),
+                        "source": marks[iid].get("evidence", ""),
+                    }
+                else:
+                    link["cleared_evidence"] = None
 
-    synth_reg = {
-        "campaign_id": entities.get("campaign_id", ""),
-        "game_time": entities.get("game_time", ""),
-        "locations": all_locations,
-    }
-    marked = merge_progress(synth_reg, progress_data)
-    marks = {row["instance_id"]: row["cleared"] for row in marked.get("locations", []) if "cleared" in row}
-
-    for npc in unique_npcs:
-        for link in npc.get("locations", []):
-            iid = link.get("instance_id")
-            if iid and iid in marks:
-                link["cleared_evidence"] = {
-                    "location_instance_id": iid,
-                    "cleared_at": marks[iid].get("game_time", ""),
-                    "source": marks[iid].get("evidence", ""),
-                }
-            else:
-                link["cleared_evidence"] = None
-
-    for boss in bosses:
-        links = boss.get("static_locations") or boss.get("locations") or []
-        for link in links:
-            iid = link.get("instance_id")
-            if iid and iid in marks:
-                link["cleared_evidence"] = {
-                    "location_instance_id": iid,
-                    "cleared_at": marks[iid].get("game_time", ""),
-                    "source": marks[iid].get("evidence", ""),
-                }
-            else:
-                link["cleared_evidence"] = None
-
-        # В поле cleared_evidence у босса не записывать зачистку локации (значение None, если нет персонального подтверждения).
-        boss_clearance = None
-        personal = boss.get("personal_evidence")
-        if personal is not None:
-            for link in links:
-                if link.get("cleared_evidence") is not None:
-                    boss_clearance = link["cleared_evidence"]
-                    break
-        boss["cleared_evidence"] = boss_clearance
-
+    _apply_entities_progress(unique_npcs, bosses, weapons, entities_progress_data)
     return result

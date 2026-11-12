@@ -126,9 +126,9 @@
       "observation_status": "observed",
       "provenance_status": "confirmed_trophy",
       "trophy_evidence": {
-        "event_id": "example-confirmed-trophy",
-        "day": 136,
-        "summary": "Демонстрационное подтверждённое событие: добыт Крест паладина [base_sid=52299-rebirth.mod]"
+        "outcome": "trophy_claimed",
+        "evidence": "Демонстрационный пример: ручное подтверждение добычи Креста паладина в entities_progress.json",
+        "game_time": "Day 136 20:21"
       }
     }
   ]

@@ -523,7 +523,7 @@
       "required": ["location_instance_id", "cleared_at", "source"],
       "properties": {
         "location_instance_id": {
-          "type": "string"
+          "$ref": "#/$defs/nullable_string"
         },
         "cleared_at": {
           "type": "string"
@@ -536,16 +536,16 @@
     "personal_evidence": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["event_id", "day", "summary"],
+      "required": ["outcome", "evidence", "game_time"],
       "properties": {
-        "event_id": {
+        "outcome": {
           "type": "string"
         },
-        "day": {
-          "type": ["integer", "null"]
-        },
-        "summary": {
+        "evidence": {
           "type": "string"
+        },
+        "game_time": {
+          "$ref": "#/$defs/nullable_string"
         }
       }
     },
@@ -727,16 +727,16 @@
     "trophy_evidence": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["event_id", "day", "summary"],
+      "required": ["outcome", "evidence", "game_time"],
       "properties": {
-        "event_id": {
+        "outcome": {
           "type": "string"
         },
-        "day": {
-          "type": ["integer", "null"]
-        },
-        "summary": {
+        "evidence": {
           "type": "string"
+        },
+        "game_time": {
+          "$ref": "#/$defs/nullable_string"
         }
       }
     }
