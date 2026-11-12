@@ -196,6 +196,39 @@ class TableContentTests(unittest.TestCase):
         self.assertIn("причина-1", text)
         self.assertIn("Справочник игры недоступен", text)
 
+    def test_tables_dictionaries_and_compact_index(self) -> None:
+        """Для всех 24 таблиц строятся dict/<таблица>.md, index.md компактен и валиден по INDEX_ROW_RE."""
+        from tools.tables import INDEX_ROW_RE
+
+        files = build_tables(mini_snapshot(), None, SNAPSHOT_ID, INDEX, RECORDS, world_ref=WORLD_REF)
+        index_bytes = files["index.md"]
+        index_text = index_bytes.decode("utf-8")
+
+        # Размер index.md строго в диапазоне 3–5 КБ (3000–5000 байт/символов)
+        self.assertLessEqual(len(index_bytes), 5000)
+        self.assertGreaterEqual(len(index_bytes), 3000)
+        self.assertNotIn("## Словарь колонок", index_text)
+
+        # Регулярное выражение валидатора находит ровно 24 таблицы
+        matched = dict(INDEX_ROW_RE.findall(index_text))
+        self.assertEqual(len(matched), 24)
+
+        for csv_name in matched:
+            stem = csv_name.removesuffix(".csv")
+            dict_key = f"dict/{stem}.md"
+            self.assertIn(dict_key, files, f"Отсутствует словарь {dict_key}")
+            dict_text = files[dict_key].decode("utf-8")
+            self.assertIn(f"# Словарь колонок таблицы {csv_name}", dict_text)
+            self.assertIn("- Назначение:", dict_text)
+            self.assertIn("- Ключ сортировки:", dict_text)
+            self.assertIn("- Ключи соединения:", dict_text)
+            self.assertIn("## Колонки", dict_text)
+            self.assertIn("| Колонка | Описание / Тип |", dict_text)
+            self.assertIn("[← К оглавлению таблиц](../index.md)", dict_text)
+
+            link = f"[словарь](dict/{stem}.md)"
+            self.assertIn(link, index_text, f"В index.md нет ссылки {link}")
+
 
 # Эталон calc_* по карточкам игры (воронёная кольчуга level 80, катана level 70, нога разведчика level 95);
 # шаблоны - реальные записи справочника. Карточка усекает значения: 42.48 -> 42, 10.13 -> 10 кг.
@@ -416,10 +449,12 @@ class CalcColumnsTests(unittest.TestCase):
                 self.assertEqual({k: by_kind[kind][k] for k in expected}, expected)
         unknown = [r for r in rows if not r["level"]][0]
         self.assertEqual([k for k, v in unknown.items() if k.startswith("calc_") and v and k != "calc_status"], [])
-        text = files["index.md"].decode("utf-8")
-        self.assertIn("| `calc_swimming_mult` |", text)
-        self.assertIn("| `calc_shot_speed_ms` |", text)
-        self.assertIn("unverified_class", text)
+        dict_text = files["dict/equipment.md"].decode("utf-8")
+        self.assertIn("| `calc_swimming_mult` |", dict_text)
+        self.assertIn("| `calc_shot_speed_ms` |", dict_text)
+        self.assertIn("unverified_class", dict_text)
+        index_text = files["index.md"].decode("utf-8")
+        self.assertIn("[словарь](dict/equipment.md)", index_text)
 
 
 def _armour_tpl(**kw: Any) -> list[Any]:
@@ -643,7 +678,9 @@ class TableValidationTests(unittest.TestCase):
                 local = dict(files)
                 mutate(local)
                 for name, data in local.items():
-                    (out / name).write_bytes(data)
+                    target = out / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
                 try:
                     validate_tables(Path(tmp), manifest)
                 except PublicationValidationError as error:
@@ -1012,9 +1049,11 @@ class PublishTablesTests(unittest.TestCase):
                           published_dir=published, generated_at="2026-11-06T00:00:00Z", game_cache_dir=root / "cache")
             with patch("tools.publisher.DEFAULT_INDEX_PATH", root / "index.json"):
                 first = publish(**kwargs)
-                before = {p.name: p.read_bytes() for p in (published / "tables").iterdir()}
+                before = {p.relative_to(published / "tables").as_posix(): p.read_bytes()
+                          for p in (published / "tables").rglob("*") if p.is_file()}
                 publish(**kwargs)
-            after = {p.name: p.read_bytes() for p in (published / "tables").iterdir()}
+            after = {p.relative_to(published / "tables").as_posix(): p.read_bytes()
+                     for p in (published / "tables").rglob("*") if p.is_file()}
             self.assertEqual(before, after)
             self.assertEqual(first["manifest"]["artifacts"]["tables"], "tables/index.md")
             self.assertTrue(any(w.startswith("tables:") for w in first["warnings"]))

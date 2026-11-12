@@ -656,7 +656,9 @@ def publish(
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
             (staging_dir / TABLES_DIR).mkdir(parents=True, exist_ok=True)
             for table_name, table_bytes in table_files.items():
-                (staging_dir / TABLES_DIR / table_name).write_bytes(table_bytes)
+                target_path = staging_dir / TABLES_DIR / table_name
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_bytes(table_bytes)
 
             if screenshots_index_data is not None:
                 sc_staging = staging_dir / "screenshots"
@@ -710,7 +712,8 @@ def publish(
                 if same_files:
                     published_tables = published_dir / TABLES_DIR
                     same_files = published_tables.is_dir() and {
-                        p.name: p.read_bytes() for p in published_tables.iterdir() if p.is_file()
+                        p.relative_to(published_tables).as_posix(): p.read_bytes()
+                        for p in published_tables.rglob("*") if p.is_file()
                     } == table_files
                 if screenshots_index_data is not None and same_files:
                     pub_sc_dir = published_dir / "screenshots"

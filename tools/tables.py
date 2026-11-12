@@ -131,6 +131,7 @@ class Table:
     purpose: str
     columns: list[tuple[str, str]]
     rows: list[dict[str, Any]]
+    join_keys: str = ""
 
 
 def cell(value: Any) -> str:
@@ -266,7 +267,8 @@ def squad_table(current: dict[str, Any], locations: dict[str, Any] | None) -> Ta
     ]
     columns += [(a, f"Атрибут «{SKILL_LABELS.get(a, a)}», базовое значение") for a in attrs]
     columns += [(s, f"Навык «{SKILL_LABELS.get(s, s)}», базовое значение") for s in skills]
-    return Table("squad.csv", "character_id", "Один персонаж отряда игрока в строке", columns, rows)
+    return Table("squad.csv", "character_id", "Состав отряда, статы, здоровье", columns, rows,
+                 join_keys="character_id, squad_id")
 
 
 # --------------------------------------------------------------------------- экипировка
@@ -562,9 +564,9 @@ def equipment_table(current: dict[str, Any], index: dict[str, list[Any]] | None,
         ("tpl_races", "Брони: расы, только которым разрешено её надевать (`races`); пусто - ограничения нет"),
         ("tpl_races_exclude", "Брони: расы, которым запрещено её надевать (`races exclude`)"),
     ]
-    return Table("equipment.csv", "location_kind, character_id / здание, kind, slot, sid, level, quality",
-                 "Все экземпляры оружия, брони и протезов (надетые, запасные у персонажей, на складах): значения шаблона, "
-                 "множители и итоговые `calc_*`", columns, rows)
+    return Table("equipment.csv", "location_kind, character_id, kind, slot, sid, level, quality",
+                 "Снаряжение, оружие, броня", columns, rows,
+                 join_keys="character_id, sid, building_id")
 
 
 # --------------------------------------------------------------------------- инвентарь
@@ -625,7 +627,8 @@ def inventory_table(current: dict[str, Any], index: dict[str, list[Any]] | None)
                    "снимков - (character_id, base_sid, level, slot, dup_no)"),
     ]
     return Table("inventory.csv", "character_id, container, slot, base_sid, level, dup_no",
-                 "Все предметы персонажей отряда поэкземплярно: надетое, пояс, рюкзаки, инвентарь", columns, rows)
+                 "Инвентарь персонажей", columns, rows,
+                 join_keys="character_id, base_sid, item_sid")
 
 
 # --------------------------------------------------------------------------- склады и цены
@@ -673,7 +676,9 @@ def storage_table(current: dict[str, Any], locations: dict[str, Any] | None,
         ("stolen", "true - краденый; пусто - нет"), ("unique", "Признак unique из сейва"),
     ]
     return Table("storage.csv", "location_key, zone, building_id, container, item, item_sid",
-                 "Предметы в хранилищах зданий игрока: строка на запись сейва (стопка), экземпляры разного уровня раздельно", columns, rows)
+                 "Склады поселений",
+                 columns, rows,
+                 join_keys="building_id, item_sid")
 
 
 def item_prices_table(index: dict[str, list[Any]] | None) -> Table:
@@ -697,7 +702,8 @@ def item_prices_table(index: dict[str, list[Any]] | None) -> Table:
         ("value_source", "Файл последнего определения цены"),
         ("value_history", "Определения по файлам в порядке загрузки `файл=значение`, если их несколько"),
     ]
-    return Table("item_prices.csv", "sid", "Базовые цены записей игры без торговых коэффициентов", columns, rows)
+    return Table("item_prices.csv", "sid", "Базовые цены предметов", columns, rows,
+                 join_keys="sid")
 
 
 def trade_modifiers_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -744,7 +750,8 @@ def trade_modifiers_table(records: dict[str, Any] | None, index: dict[str, list[
         ("ref_v2", "Значение ссылки `v[2]` (смысл не установлен)"),
     ]
     return Table("trade_modifiers.csv", "group, record_sid, field, ref_sid",
-                 "Сырые торговые записи игры без вычисленных цен продажи и покупки", columns, rows)
+                 "Торговые коэффициенты", columns, rows,
+                 join_keys="record_sid, ref_sid")
 
 
 # --------------------------------------------------------------------------- состояние мира
@@ -761,7 +768,8 @@ def unique_npcs_table(current: dict[str, Any]) -> Table:
         ("player", "NPC входит в отряд игрока"),
         ("captured_by", "Персонаж отряда, который несёт пленного"),
     ]
-    return Table("unique_npcs.csv", "sid", "Уникальные NPC мира и их состояние", columns, rows)
+    return Table("unique_npcs.csv", "sid", "Уникальные NPC", columns, rows,
+                 join_keys="sid")
 
 
 def unique_entities_table(
@@ -938,7 +946,8 @@ def unique_entities_table(
                 "game_time": trophy.get("game_time"),
             })
         rows.sort(key=lambda r: (0 if r["entity_kind"] == "npc" else 1, str(r.get("sid") or ""), str(r.get("primary_location_instance_id") or "")))
-    return Table("unique_entities.csv", "sid", "Реестр уникальных сущностей Kenshi (NPC, боссы, оружие Мейто)", columns, rows)
+    return Table("unique_entities.csv", "sid", "Реестр NPC и Мейто", columns, rows,
+                 join_keys="sid, primary_location_instance_id, character_id")
 
 
 def town_overrides_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
@@ -983,7 +992,8 @@ def town_overrides_table(current: dict[str, Any], index: dict[str, list[Any]] | 
         ("faction_name", "Название фракции из данных игры"),
         ("factions_here", "sid фракций, присутствующих в городе, через `; `"),
     ]
-    return Table("town_overrides.csv", "replacement_sid, town", "Города, заменённые записями override", columns, rows)
+    return Table("town_overrides.csv", "replacement_sid, town", "Замены городов", columns, rows,
+                 join_keys="replacement_sid, faction_sid")
 
 
 def diplomacy_table(current: dict[str, Any]) -> Table:
@@ -997,7 +1007,8 @@ def diplomacy_table(current: dict[str, Any]) -> Table:
         ("relation", "Отношение фракции к игроку, сырое значение (-100...100)"),
         ("trust", "trust, сырое значение"), ("trust_neg", "trust_neg, сырое значение"),
     ]
-    return Table("diplomacy.csv", "faction_sid", "Отношения фракций с игроком без классификации", columns, rows)
+    return Table("diplomacy.csv", "faction_sid", "Отношения фракций", columns, rows,
+                 join_keys="faction_sid")
 
 
 # --------------------------------------------------------------------------- условия реакций
@@ -1074,8 +1085,9 @@ def world_reactions_table(records: dict[str, Any] | None, index: dict[str, list[
         ("faction_sid", "sid итоговой фракции override (`faction`)"), ("faction_name", "Название фракции"),
     ]
     return Table("world_reactions.csv", "town_sid, override_sid, world_state_sid, condition, subject_sid",
-                 "Условия вариантов городов: одна строка на условие World State", columns,
-                 reaction_rows(records, index))
+                 "Переходы городов", columns,
+                 reaction_rows(records, index),
+                 join_keys="override_sid, town_sid, world_state_sid, subject_sid, faction_sid")
 
 
 def world_reaction_links_table(current: dict[str, Any], records: dict[str, Any] | None,
@@ -1104,8 +1116,9 @@ def world_reaction_links_table(current: dict[str, Any], records: dict[str, Any] 
         ("current_captured_by", "Кто несёт пленного"),
     ]
     return Table("world_reaction_links.csv", "town_sid, override_sid, world_state_sid, condition, npc_sid",
-                 "Условия `NPC is`/`NPC is NOT` с текущим state_code NPC; соответствие условия не вычисляется",
-                 columns, rows)
+                 "Условия и статус NPC",
+                 columns, rows,
+                 join_keys="override_sid, town_sid, world_state_sid, npc_sid")
 
 
 # --------------------------------------------------------------------------- справочник юнитов
@@ -1231,8 +1244,9 @@ def unit_templates_table(records: dict[str, Any] | None, index: dict[str, list[A
         ("stats_sid", "sid записи STATS шаблона; пусто - не задана; stat_* заполнены, только если ссылка одна"),
     ]
     columns += [("stat_" + k.replace(" ", "_"), f"Запись STATS, `{k}`: {ru} [0-100]") for k, ru in STAT_FIELDS]
-    return Table("unit_templates.csv", "sid", "Шаблоны персонажей и животных: раса, уровни и навыки как хранятся",
-                 columns, rows)
+    return Table("unit_templates.csv", "sid", "Шаблоны персонажей",
+                 columns, rows,
+                 join_keys="sid")
 
 
 def unit_template_gear_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1253,7 +1267,8 @@ def unit_template_gear_table(records: dict[str, Any] | None, index: dict[str, li
         ("v0", "Значение ссылки `v[0]`"), ("v1", "Значение ссылки `v[1]`"), ("v2", "Значение ссылки `v[2]`"),
     ]
     return Table("unit_template_gear.csv", "template_sid, category, ref_sid",
-                 "Оружие, арбалеты, уровень оружия, одежда и рюкзаки шаблонов персонажей", columns, rows)
+                 "Экипировка шаблонов", columns, rows,
+                 join_keys="template_sid, ref_sid")
 
 
 def squad_templates_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1290,8 +1305,9 @@ def squad_templates_table(records: dict[str, Any] | None, index: dict[str, list[
         ("num_random_chars", "Минимум персонажей, выбираемых из `choosefrom list`"),
         ("num_random_chars_max", "Максимум персонажей, выбираемых из `choosefrom list`"),
     ]
-    return Table("squad_templates.csv", "sid", "Шаблоны отрядов и патрулей: фракция, условия появления, флаги",
-                 columns, rows)
+    return Table("squad_templates.csv", "sid", "Шаблоны отрядов",
+                 columns, rows,
+                 join_keys="sid")
 
 
 def squad_members_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1312,7 +1328,8 @@ def squad_members_table(records: dict[str, Any] | None, index: dict[str, list[An
         ("v0", "Значение ссылки `v[0]` (смысл зависит от роли)"), ("v1", "Значение ссылки `v[1]`"),
         ("v2", "Значение ссылки `v[2]`"),
     ]
-    return Table("squad_members.csv", "squad_sid, role, member_sid", "Состав шаблонов отрядов по ролям", columns, rows)
+    return Table("squad_members.csv", "squad_sid, role, member_sid", "Состав отрядов", columns, rows,
+                 join_keys="squad_sid, member_sid")
 
 
 def squad_spawns_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1339,8 +1356,8 @@ def squad_spawns_table(records: dict[str, Any] | None, index: dict[str, list[Any
         ("ref_v0", "Значение ссылки `v[0]`: у biome_homeless - относительный шанс появления; у town_roaming смысл не задан"),
     ]
     return Table("squad_spawns.csv", "source, place_sid, squad_sid",
-                 "Где появляются отряды: бездомные отряды групп биомов и бродячие отряды городов; привязки группы биомов "
-                 "к зонам карты в данных нет", columns, rows)
+                 "Спавны отрядов", columns, rows,
+                 join_keys="place_sid, squad_sid")
 
 
 def faction_relations_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1361,7 +1378,8 @@ def faction_relations_table(records: dict[str, Any] | None, index: dict[str, lis
                   "фракции (faction_hostility.csv); симметрия не предполагается"),
     ]
     return Table("faction_relations.csv", "faction_sid, kind, other_sid",
-                 "Заданные в данных отношения фракций между собой без классификации", columns, rows)
+                 "Отношения фракций", columns, rows,
+                 join_keys="faction_sid, other_sid")
 
 
 def faction_hostility_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | None) -> Table:
@@ -1405,8 +1423,8 @@ def faction_hostility_table(records: dict[str, Any] | None, index: dict[str, lis
         ("race_weights", "Доля расы `v[0]` (относительная) по порядку race_sids"),
     ]
     return Table("faction_hostility.csv", "faction_sid",
-                 "Настройки фракций (враждебность, доверие, бегство) и расовый состав; враждебности по расе, полу и "
-                 "протезам в данных нет", columns, rows)
+                 "Враждебность фракций", columns, rows,
+                 join_keys="faction_sid")
 
 
 # --------------------------------------------------------------------------- расы
@@ -1508,8 +1526,8 @@ def races_table(records: dict[str, Any] | None, index: dict[str, list[Any]] | No
     columns += [(col, f"`{field}`: {RACE_FIELD_NOTES[col]}; пусто - поле не хранится (значение по умолчанию fcs.def)")
                 for field, col, _section in RACE_FIELDS]
     columns.append(("overridden_fields", "Поля, чьё значение задано не первым файлом записи: `поле=файл последнего определения`"))
-    return Table("races.csv", "sid", "Расы игры (RACE) с учётом порядка загрузки модов: иммунитет к погоде, естественная броня, "
-                 "скорости, множители, анатомия", columns, rows)
+    return Table("races.csv", "sid", "Расы, защита от погоды", columns, rows,
+                 join_keys="sid")
 
 
 # --------------------------------------------------------------------------- постройки, исследования и ресурсы под форпост
@@ -1706,8 +1724,9 @@ def buildings_table(current: dict[str, Any], locations: dict[str, Any] | None,
     return Table(
         "buildings.csv",
         "location_key, zone, parent_instance_id, instance_id",
-        "Все постройки, интерьерные станки, турели, генераторы, контейнеры и разрабатываемые рудные жилы игрока",
+        "Постройки, крафт, станки",
         columns, rows,
+        join_keys="instance_id, parent_instance_id, template_sid",
     )
 
 
@@ -1864,8 +1883,9 @@ def research_table(current: dict[str, Any], records: dict[str, Any] | None,
     return Table(
         "research.csv",
         "category, level, sid",
-        "Полное дерево технологий игры (RESEARCH) со статусом изучения в кампании, стоимостью, предпосылками и открываемыми объектами",
+        "Технологии и рецепты",
         columns, rows,
+        join_keys="sid",
     )
 
 
@@ -2033,8 +2053,9 @@ def build_catalog_table(current: dict[str, Any], records: dict[str, Any] | None,
     return Table(
         "build_catalog.csv",
         "building_category, sid",
-        "Каталог и смета всех строящихся объектов игры (BUILDING): статус открытия, стройматериалы, энергобаланс, входы/выходы и апгрейды",
+        "Каталог построек, сметы",
         columns, rows,
+        join_keys="sid, upgrades_to",
     )
 
 
@@ -2193,62 +2214,119 @@ def biome_resources_table(current: dict[str, Any], locations: dict[str, Any] | N
     return Table(
         "biome_resources.csv",
         "biome_sid",
-        "Ресурсный, климатический и ветровой профиль регионов (BIOME_GROUP + ENVIRONMENT_RESOURCES + SEASON/WEATHER)",
+        "Ресурсы и климат регионов",
         columns, rows,
+        join_keys="biome_sid",
     )
 
 
-# --------------------------------------------------------------------------- сборка и index.md
+# --------------------------------------------------------------------------- сборка, словари и index.md
+
+def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
+    """Генерация отдельного словаря колонок таблицы tables/dict/<имя>.md."""
+    lines = [
+        f"# Словарь колонок таблицы {table.name}",
+        "",
+        f"- Назначение: {table.purpose}",
+        f"- Ключ сортировки: {table.sort_key}",
+        f"- Ключи соединения: {table.join_keys or 'нет'}",
+    ]
+
+    notes: list[str] = []
+    if table.name == "equipment.csv":
+        notes.append(
+            CALC_NOTE + " Значения шаблона (`tpl_*`), множители производителя и поправки грейда даны отдельными колонками."
+        )
+    elif table.name == "unique_entities.csv":
+        notes.append(
+            "Коды `state_code`: 0 (мертв), 1 (жив и свободен), 2 (в плену) (fcs.def, WORLD_EVENT_STATE, поле `NPC is`)."
+        )
+        notes.append(
+            "Статус зачистки `location_cleared`: `true`, `false`, пусто (без локации / неоднозначно)."
+        )
+        notes.append(
+            "Статус происхождения `provenance_status`: `confirmed_trophy`, `unconfirmed`, пусто (не определен)."
+        )
+        notes.append(
+            "Статус наблюдения `observation_status`: `observed`, `not_observed`."
+        )
+    elif table.name == "races.csv":
+        notes.append(
+            "Поля записей RACE после слияния файлов в порядке загрузки; пустая ячейка - поле не хранится "
+            "(действует значение по умолчанию fcs.def). Расшифровка кодов погоды 1-4 сверена с карточками брони "
+            "(1 песчаная буря, 2 кислотный дождь, 3 жара, 4 газ), прочие не расшифрованы."
+        )
+    elif table.name == "storage.csv":
+        notes.append(
+            "Для зданий без поселения в storage.csv колонка settlement пуста, а location_key содержит «зона N (поселение не определено)»."
+        )
+    elif table.name == "inventory.csv":
+        notes.append(
+            "Предметы персонажей поэкземплярно (контейнеры body, belt, backpack, inventory; ключ сравнения снимков "
+            "(character_id, base_sid, level, slot, dup_no), `item_sid` действует внутри снимка)."
+        )
+        notes.append("Вес экземпляров и параметры рюкзаков в таблицы не входят.")
+    elif table.name == "squad.csv":
+        notes.append("Здоровье по частям тела в таблицы не входит (публикуются blood, ko, lost_limbs, bleeding).")
+    elif table.name == "biome_resources.csv":
+        notes.append("Локальные пятна кнопки «Разведка» в рантайме вычисляются процедурным шумом и в сохранение не записываются.")
+    elif table.name == "faction_hostility.csv":
+        notes.append("Не публикуется: враждебность по расе, полу и протезам (в данных игры такого поля нет).")
+    elif table.name == "squad_spawns.csv":
+        notes.append("Не публикуется: привязка групп биомов к зонам карты (в записях игры её нет).")
+    elif table.name == "unit_templates.csv":
+        notes.append("Не публикуется: имена кодов `NPC class`, `armour grade`, `fundamental type`, `slave` (перечисления не заданы в данных).")
+
+    if notes:
+        lines.append("")
+        lines.append("## Нормативные примечания")
+        lines.append("")
+        for n in notes:
+            lines.append(f"- {n}")
+
+    lines.append("")
+    lines.append("## Колонки")
+    lines.append("")
+    lines.append("| Колонка | Описание / Тип |")
+    lines.append("|---|---|")
+    for name, desc in table.columns:
+        lines.append(f"| `{name}` | {desc.replace('|', '/')} |")
+
+    lines.append("")
+    lines.append("[← К оглавлению таблиц](../index.md)")
+    lines.append("")
+    return "\n".join(lines)
+
 
 def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table], game_mods: list[str] | None,
                  game_notes: Sequence[str]) -> str:
     world = current.get("world") or {}
     game_time = (f"День {world['day']}, {world.get('time')}" if world.get("day") is not None else "не получено")
+    game_ref_line = (f"- Справочник игры: {', '.join(game_mods)}" if game_mods else "- Справочник игры недоступен")
     lines = [
         "# Табличные выгрузки", "",
         f"- snapshot_id: `{snapshot_id}`",
         f"- Игровое время: {game_time}",
-        "- Формат: CSV, UTF-8 без BOM, LF, RFC 4180, разделитель - запятая; первая строка - заголовок.",
-        "- Пустая ячейка - значение отсутствует или не применимо; числа с точкой без разделителей разрядов, "
-        "булевы `true`/`false`; списки в ячейке разделены `; `.",
-        "- Строки отсортированы по ключу; меток времени в таблицах нет; связи между таблицами - по идентификаторам (sid, id), не по именам.",
-        f"- Справочник игры (шаблоны, цены, торговля, реакции): "
-        + (", ".join(game_mods) if game_mods else "недоступен, таблицы на его данных пусты или без колонок шаблона"),
+        "- Формат: CSV, UTF-8, LF, RFC 4180.",
+        "- Пустая ячейка — пусто; числа с точкой; булевы `true`/`false`; списки через `; `.",
+        game_ref_line,
         "", "## Таблицы", "",
-        "| Файл | Строк | Ключ сортировки | Содержание |", "|---|---|---|---|",
+        "| Файл | Строк | Ключ сортировки | Ключи соединения | Словарь | Содержание |",
+        "|---|---|---|---|---|---|",
     ]
     for t in tables:
-        lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.purpose} |")
-    lines += ["", "## Недоступные и неопубликованные поля", ""]
-    lines += [f"- {n}" for n in game_notes]
+        dict_link = f"[словарь](dict/{t.name.removesuffix('.csv')}.md)"
+        lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.join_keys or 'нет'} | {dict_link} | {t.purpose} |")
     lines += [
-        CALC_NOTE + " Значения шаблона (`tpl_*`), множители производителя и поправки грейда даны отдельными колонками.",
-        "- Предметы персонажей поэкземплярно - `inventory.csv` (контейнеры body, belt, backpack, inventory; ключ сравнения снимков "
-        "(character_id, base_sid, level, slot, dup_no), `item_sid` действует внутри снимка). Оружие, броня и протезы "
-        "независимо от места - `equipment.csv` (`location_kind`). Вес экземпляров и параметры рюкзаков, здоровье по частям "
-        "тела в таблицы не входят. Построенные здания, интерьерные станки, очереди крафта и разрабатываемые жилы - `buildings.csv`; "
-        "полное дерево технологий со статусом изучения - `research.csv`; смета стройматериалов и ТТХ всех построек меню "
-        "строительства - `build_catalog.csv`; ресурсно-климатический профиль регионов (плодородие, вода, руды, ветер, кислотность) - "
-        "`biome_resources.csv` (локальные пятна кнопки «Разведка» в рантайме вычисляются процедурным шумом и в сохранение не записываются).",
-        "- `races.csv`: поля записей RACE после слияния файлов в порядке загрузки; пустая ячейка - поле не хранится "
-        "(действует значение по умолчанию fcs.def). Расшифровка кодов погоды 1-4 сверена с карточками брони, прочие не расшифрованы.",
-        "- Смысл `v[1]`, `v[2]` у ссылок `world state`/`NPC is` в документах игры не описан; значения публикуются без трактовки.",
-        "- Справочник юнитов (`unit_templates.csv`, `unit_template_gear.csv`, `squad_templates.csv`, `squad_members.csv`, "
-        "`squad_spawns.csv`, `faction_relations.csv`, `faction_hostility.csv`): значения шаблонов как хранятся в данных набора "
-        "модов снимка, без вычисленных оценок; итоговые навыки персонажа игра получает с разбросом `stats_randomise`. "
-        "Не публикуется: враждебность по расе, полу и протезам (в данных такого поля нет), привязка групп биомов к зонам карты "
-        "(в записях её нет), имена кодов `NPC class`, `armour grade`, `fundamental type`, `slave` (перечисления не заданы в данных).",
-        "- Итоговые цены продажи и покупки в городах не вычисляются: связь город - культура задана записями, "
-        "но остальные множители (отряд-торговец, константы, разброс) не сверены с игрой.",
-        "- Для зданий без поселения в `storage.csv` колонка `settlement` пуста, а `location_key` содержит «зона N (поселение не определено)».",
-        "- `unique_entities.csv`: сводный реестр уникальных сущностей (именованные NPC, боссы, оружие Мейто) со статусом обнаружения, привязкой к локациям и состоянием в отряде.",
-        "", "## Коды state_code уникальных NPC", "",
-        "Факт игры (fcs.def, WORLD_EVENT_STATE, поле `NPC is`): 0 - мёртв, 1 - жив и свободен, 2 - в плену.", "",
-        "## Словарь колонок",
+        "", "## Общие правила и ограничения", "",
+        "- Словари колонок и примечания: `dict/<таблица>.md`.",
+        "- Связи между таблицами — по `sid` и `id`.",
+        "- Ссылки `world state`/`NPC is`: `v[1]`, `v[2]` публикуются без трактовки.",
+        "- Шаблоны юнитов публикуются как в данных модов, без рандомизации.",
+        "- Цены в городах не вычисляются (множители не сверены).",
+        "", "## Недоступные и неопубликованные поля", "",
     ]
-    for t in tables:
-        lines += ["", f"### {t.name}", "", "| Колонка | Значение |", "|---|---|"]
-        lines += [f"| `{name}` | {desc.replace('|', '/')} |" for name, desc in t.columns]
+    lines += [f"- {n}" for n in game_notes]
     lines.append("")
     return "\n".join(lines)
 
@@ -2321,6 +2399,9 @@ def build_tables(
                      "`faction_*.csv` пусты.")
     files = {t.name: csv_bytes(t) for t in tables}
     files[INDEX_NAME] = render_index(current, snapshot_id, tables, mods, notes).encode("utf-8")
+    for t in tables:
+        dict_key = f"dict/{t.name.removesuffix('.csv')}.md"
+        files[dict_key] = render_table_dict(t, notes).encode("utf-8")
     return files
 
 
