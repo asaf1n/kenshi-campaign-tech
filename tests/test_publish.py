@@ -365,26 +365,31 @@ class PublishTests(unittest.TestCase):
         # Баланс
         self.assertIn("77 700 кат.", brief1)
         # Число участников и отрядов
-        self.assertIn("**Всего персонажей:** 2", brief1)
+        self.assertIn("**Всего участников:** 2", brief1)
         self.assertIn("**Всего отрядов:** 1", brief1)
-        # Наличие участников по ID
-        self.assertIn("ps:1", brief1)
-        self.assertIn("ps:2", brief1)
-        self.assertIn("Хот Лон", brief1)
-        self.assertIn("Кан", brief1)
-        # Ссылки на артефакты
+        # Таблицы участников в brief нет (исключена в пользу tables/squad.csv)
+        self.assertNotIn("### Список участников", brief1)
+        # Ссылки на витрины (без тяжелых JSON)
         self.assertNotIn("current/index.json", brief1)
-        self.assertIn("(extended/current.json)", brief1)
-        self.assertIn("[Детальные изменения (changes.json)](changes.json)", brief1)
-        self.assertIn("[Полный состав отряда (squad.md)](squad.md)", brief1)
+        self.assertNotIn("extended/current.json", brief1)
+        self.assertNotIn("world_reference.json", brief1)
+        self.assertNotIn("squad.md", brief1)
+        self.assertIn("[tables/index.md](tables/index.md)", brief1)
+        self.assertIn("[tables/squad.csv](tables/squad.csv)", brief1)
+        self.assertIn("[tables/diplomacy.csv](tables/diplomacy.csv)", brief1)
+        self.assertIn("[tables/storage.csv](tables/storage.csv)", brief1)
+        self.assertIn("[changes.md](changes.md)", brief1)
         # Сведения о местоположении: «не получено» в fallback-режиме без locations
         brief_fallback = render_brief(cur, ch, snap_id)
         self.assertIn("не получено (географические координаты не разрешены)", brief_fallback)
         if loc is not None:
-            self.assertIn("[Пространственное разрешение локаций (locations.json)](locations.json)", brief1)
+            self.assertIn("[locations.json](locations.json)", brief1)
 
-        # 3. Проверка squad.md
+        # 3. Проверка squad.md (поименный состав участников)
+        self.assertIn("ps:1", squad1)
+        self.assertIn("ps:2", squad1)
         self.assertIn("### Хот Лон (`ps:1`)", squad1)
+        self.assertIn("### Кан (`ps:2`)", squad1)
         self.assertIn("**Раса:** Скелет", squad1)
         self.assertIn("strength: 45.0", squad1.lower())
         self.assertIn("тесак", squad1.lower())

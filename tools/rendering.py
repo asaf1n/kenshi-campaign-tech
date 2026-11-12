@@ -9,7 +9,6 @@ from collections import Counter, defaultdict
 import html
 from typing import Any
 
-from tools.tables import cell
 
 
 def game_time_title(day: Any, time: Any) -> str:
@@ -150,13 +149,60 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
     return lines
 
 
+def render_timeline_events(
+    timeline: list[dict[str, Any]],
+    *,
+    projection: bool = False,
+) -> str:
+    """Рендеринг событий хроники (используется для тестов и специализированных витрин)."""
+    from tools.timeline import resolve_timeline
+    from tools.validation import validate_timeline
+
+    validate_timeline(timeline, projection=projection)
+    facts = timeline if projection else resolve_timeline(timeline)
+    lines: list[str] = ["## Хроника событий", ""]
+
+    def event_line(event: dict[str, Any]) -> str:
+        def safe(value: Any) -> str:
+            return (
+                html.escape(str(value))
+                .replace("\n", " ")
+                .replace("\r", " ")
+                .replace("[", "&#91;")
+                .replace("]", "&#93;")
+                .replace("`", "&#96;")
+            )
+
+        sources = "; ".join(
+            f"{safe(e['kind'])}: {safe(e['ref'])}" + (f" ({safe(e['note'])})" if e.get("note") else "")
+            for e in event["evidence"]
+        )
+        corrected = f"; исправляет {safe(event['corrects_event_id'])}" if event.get("corrects_event_id") else ""
+        day = f"день {event['game_day']}" if event.get("game_day") is not None else "игровой день неизвестен"
+        return f"- [{event['status']}] {safe(event['summary'])} ({day}; ID: {safe(event['event_id'])}{corrected}). Источники: {sources}"
+
+    lines.extend(event_line(e) for e in facts)
+    if not facts:
+        lines.append("Подтверждённые события отсутствуют.")
+    hypotheses = (
+        []
+        if projection
+        else [e for e in resolve_timeline(timeline, include_inferred=True) if e["status"] == "inferred"]
+    )
+    if hypotheses:
+        lines.extend(["", "### Неподтверждённые гипотезы (inferred)", ""])
+        lines.extend(event_line(e) for e in hypotheses)
+    return "\n".join(lines)
+
+
 def render_brief(
     current: dict[str, Any],
     changes: dict[str, Any],
     snapshot_id: str,
     locations: dict[str, Any] | None = None,
     timeline: list[dict[str, Any]] | None = None,
-    *, timeline_projection: bool = False,
+    *,
+    timeline_projection: bool = False,
     publication: dict[str, Any] | None = None,
     screenshots_section: str | None = None,
 ) -> str:
@@ -180,10 +226,10 @@ def render_brief(
         *_publication_header(publication, day, time),
         "## Игровой мир",
         f"- **Время:** {day_str}{time_str}",
-        f"- **Баланс:** {money_str}",
+        f"- **Баланс (казна):** {money_str}",
         "",
-        "## Состав отряда",
-        f"- **Всего персонажей:** {len(characters)} (гуманоидов: {len(humanoids)}, животных: {len(animals)})",
+        "## Состав и группы отряда",
+        f"- **Всего участников:** {len(characters)} (гуманоидов: {len(humanoids)}, животных: {len(animals)})",
         f"- **Всего отрядов:** {len(squads)}",
     ]
 
@@ -196,218 +242,17 @@ def render_brief(
         anim_suffix = f" (гуманоидов: {len(m_hum)}, животных: {len(m_anim)})" if m_anim else ""
         lines.append(f"- **Отряд `{sq_id}`** ({sq_name}): {len(members)} участников{anim_suffix}")
 
-    lines.extend([
-        "",
-        "### Список участников",
-        "| ID | Имя | Отряд | Раса |",
-        "|---|---|---|---|",
-    ])
-    for c in sorted(characters, key=lambda ch: (str(ch.get("name") or ""), str(ch.get("id") or ""))):
-        cid = c.get("id") or "не указан"
-        name = c.get("name") or "Без имени"
-        sq = c.get("squad_id") or "—"
-        race = c.get("race") or "—"
-        lines.append(f"| `{cid}` | {name} | `{sq}` | {race} |")
-
-    ws_data = current.get("world_state")
-    if isinstance(ws_data, dict):
-        uniques = [u for u in ws_data.get("unique_npcs", []) if u.get("state_code") == 2 or u.get("captured_by")]
-        town_reps = ws_data.get("town_overrides", [])
-        if uniques or town_reps:
-            lines.extend([
-                "",
-                "## Состояние мира (World States)",
-            ])
-            if uniques:
-                u_parts = []
-                for u in uniques:
-                    u_name = u.get("name_ru") or u.get("name") or u.get("sid")
-                    st_label = f"код {u.get('state_code')}"
-                    if u.get("captured_by"):
-                        st_label += f" — несёт {u['captured_by']}"
-                    u_parts.append(f"{u_name} ({st_label})")
-                lines.append(f"- **Уникальные NPC:** {', '.join(u_parts)}")
-            if town_reps:
-                t_str = ", ".join(f"{t.get('name')} ({t.get('faction')})" for t in town_reps)
-                lines.append(f"- **Переопределённые города:** {t_str}")
-
-    relations = (current.get("diplomacy") or {}).get("relations") or []
-    if relations:
-        # Сырые значения без классификации; trust и trust_neg - в tables/diplomacy.csv.
-        lines.extend(["", "## Отношения с фракциями (relation)"])
-        if publication:
-            lines.append("Значение relation из сохранения; полная таблица - [tables/diplomacy.csv](tables/diplomacy.csv).")
-        for rel in sorted(relations, key=lambda r: (str(r.get("faction_name") or ""), str(r.get("faction_sid") or ""))):
-            lines.append(f"- {rel.get('faction_name') or rel.get('faction_sid')}: {cell(rel.get('relation'))}")
-
-    prop_data = current.get("property")
-    storage_by_loc = prop_data.get("storage_by_location") if isinstance(prop_data, dict) else None
-    if storage_by_loc:
-        lines.extend([
-            "",
-            "## Складской баланс по базам и поселениям",
-        ])
-        for loc_name, info in sorted(storage_by_loc.items()):
-            b_cnt = info.get("buildings_count", 0)
-            it_cnt = info.get("total_items_count", 0)
-            summary_items = info.get("items_summary", [])
-            top_str = ", ".join(f"{it['name']}: {it['quantity']} шт." for it in summary_items[:5])
-            if len(summary_items) > 5:
-                top_str += f" (ещё {len(summary_items) - 5} поз.)"
-            if not top_str:
-                top_str = "склады пусты"
-            lines.append(f"- **{loc_name}** ({b_cnt} зданий, {it_cnt} ед. хранения): {top_str}")
-
-    res_data = current.get("research")
-    raw_buildings = prop_data.get("buildings") if isinstance(prop_data, dict) else None
-    if (isinstance(res_data, dict) and res_data.get("completed") is not None) or raw_buildings:
-        lines.extend(["", "## Исследования и производственная инфраструктура"])
-        if publication:
-            lines.append(
-                "Полные реестры: постройки и станки - [tables/buildings.csv](tables/buildings.csv), "
-                "дерево всех тех. веток - [tables/research.csv](tables/research.csv), "
-                "смета объектов строительства - [tables/build_catalog.csv](tables/build_catalog.csv), "
-                "ресурсы и ветер регионов под форпост - [tables/biome_resources.csv](tables/biome_resources.csv) "
-                "(локальный Prospecting в рантайме процедурный и в сохранение не пишется)."
-            )
-        if isinstance(res_data, dict) and res_data.get("completed") is not None:
-            completed_techs = [
-                e for e in (res_data.get("completed") or [])
-                if not e.get("item_blueprint") and e.get("sid") != "5359-gamedata.base"
-            ]
-            bp_cnt = len(res_data.get("blueprints_completed") or [])
-            t_lvl = res_data.get("tech_level")
-            lines.append(
-                f"- **Технологический уровень:** {t_lvl if t_lvl is not None else 'н/д'} "
-                f"(изучено технологий: {len(completed_techs)}, чертежей: {bp_cnt})"
-            )
-            in_prog = res_data.get("in_progress") or []
-            if in_prog:
-                ip = in_prog[0]
-                ip_name = ip.get("name") or ip.get("sid")
-                ip_prog = f", прогресс {cell(ip.get('progress_raw'))}" if ip.get("progress_raw") is not None else ""
-                lines.append(f"- **Текущее исследование:** {ip_name}{ip_prog}")
-            queue_list = res_data.get("queue") or []
-            if queue_list:
-                q_names = ", ".join(str(q.get("name") or q.get("sid")) for q in queue_list[:6])
-                if len(queue_list) > 6:
-                    q_names += f" (ещё {len(queue_list) - 6})"
-                lines.append(f"- **Очередь исследований ({len(queue_list)}):** {q_names}")
-        if isinstance(raw_buildings, list) and raw_buildings:
-            stations_by_base: dict[str, Counter[str]] = defaultdict(Counter)
-            mining_nodes: list[str] = []
-            for b in raw_buildings:
-                base_label = b.get("town") or f"зона {b.get('zone')}"
-                b_cat = b.get("category")
-                b_name = b.get("name") or b.get("template_name") or b.get("template") or "Объект"
-                if b_cat == "MINING" or (b.get("resource_mult") is not None and not b.get("interior")):
-                    mult_s = f", mult={cell(b.get('resource_mult'))}" if b.get("resource_mult") is not None else ""
-                    mining_nodes.append(f"{b_name} ({base_label}{mult_s})")
-                for sub in b.get("interior") or []:
-                    s_cat = sub.get("category")
-                    if s_cat == "STORAGE":
-                        continue
-                    s_name = sub.get("name") or sub.get("template_name") or sub.get("template") or "Станок"
-                    if sub.get("complete") is False:
-                        s_name += " [недострой]"
-                    stations_by_base[base_label][s_name] += 1
-            for base_label, cnt in sorted(stations_by_base.items()):
-                parts = [f"{name} x{n}" if n > 1 else name for name, n in sorted(cnt.items())]
-                lines.append(f"- **Станки и оборудование ({base_label}):** {', '.join(parts)}")
-            if mining_nodes:
-                lines.append(f"- **Разрабатываемые рудные точки ({len(mining_nodes)}):** {', '.join(sorted(mining_nodes))}")
-
-    lines.extend([
-        "",
-        "## Доступные местоположения",
-    ])
-
     if locations is not None:
-        # 1. Пространственные группы
         spatial_groups = locations.get("spatial_groups", [])
         if spatial_groups:
-            lines.append("### Расположение групп отряда")
+            lines.extend(["", "### Расположение групп отряда"])
             for g in spatial_groups:
                 g_chars = g.get("characters", [])
-                c_names = ", ".join(f"{c['name']} (`{c['id']}`)" for c in g_chars)
-                lines.append(f"- **{g['label']}** (`{g['resolution_status']}`): {len(g_chars)} участников [{c_names}]")
-
-        # 2. Постройки и собственность
-        bldgs = locations.get("buildings", [])
-        if bldgs:
-            lines.extend([
-                "",
-                "### Собственность и базы",
-            ])
-            for b in bldgs:
-                b_key = b["building_key"]
-                st = b["resolution_status"]
-                tname = b.get("save_town_name")
-                if st == "in_location" and b.get("location"):
-                    lname = b["location"].get("name_ru") or b["location"].get("name_en")
-                    dist = b["location"].get("distance", 0.0)
-                    lines.append(f"- `{b_key}`: город **{lname}** (`in_location`, d = {dist:.1f} м)")
-                elif st == "near_location" and b.get("nearby_locations"):
-                    nname = b["nearby_locations"][0].get("name_ru") or b["nearby_locations"][0].get("name_en")
-                    dist = b["nearby_locations"][0].get("distance", 0.0)
-                    t_info = f" (город сейва: {tname})" if tname else ""
-                    lines.append(f"- `{b_key}`: окрестности **{nname}**{t_info} (`near_location`, d = {dist:.1f} м)")
-                elif st == "in_region" and b.get("region"):
-                    rname = b["region"].get("name_ru") or b["region"].get("name_en")
-                    t_info = f" (база: {tname})" if tname else ""
-                    lines.append(f"- `{b_key}`: регион **{rname}**{t_info} (`in_region`)")
-                else:
-                    lines.append(f"- `{b_key}`: неизвестно (`unknown`)")
-
-        # 3. Перемещения между снимками
-        mov = locations.get("movement", {})
-        if mov:
-            lines.extend([
-                "",
-                "### Перемещения между снимками",
-            ])
-            if not mov.get("valid"):
-                lines.append(f"- Базовое сравнение перемещений отсутствует (`valid: false`, {mov.get('reason') or 'нет baseline'}).")
-            else:
-                active_moves = [
-                    m for m in mov.get("characters", [])
-                    if (m.get("distance_2d") and m["distance_2d"] > 0)
-                    or m.get("from_location") != m.get("to_location")
-                    or m.get("from_region") != m.get("to_region")
-                ]
-                if active_moves:
-                    for m in active_moves:
-                        from_p = m.get("from_location") or m.get("from_region") or "неизвестно"
-                        to_p = m.get("to_location") or m.get("to_region") or "неизвестно"
-                        d_str = f"{m['distance_2d']:.1f} м" if m.get("distance_2d") is not None else "н/д"
-                        lines.append(f"- **{m['name']}** (`{m['character_id']}`): {from_p} -> {to_p} (прямолинейное смещение: {d_str})")
-                else:
-                    lines.append("- Все участники оставались на прежних позициях.")
-
-        if not spatial_groups and not bldgs:
-            lines.append("- Сведения о местоположениях отсутствуют в locations.json")
-
-    else:
-        # Fallback без географического разрешения
-        loc_summary: list[str] = []
-        prop = current.get("property")
-        if isinstance(prop, dict):
-            towns = prop.get("towns") or prop.get("player_towns")
-            if isinstance(towns, list) and towns:
-                loc_summary.append(f"Подтверждённые города построек: {', '.join(str(t) for t in sorted(towns))}")
-        positions: list[str] = []
-        for c in characters:
-            pos = c.get("position")
-            if isinstance(pos, (list, tuple)) and len(pos) >= 2:
-                positions.append(f"{c.get('name')}: ({pos[0]:.1f}, {pos[1]:.1f})")
-        if positions:
-            loc_summary.append(f"Сырые координаты: {'; '.join(sorted(positions)[:5])}")
-
-        if loc_summary:
-            for loc_str in loc_summary:
-                lines.append(f"- {loc_str}")
+                lines.append(f"- **{g['label']}** (`{g['resolution_status']}`): {len(g_chars)} участников")
         else:
-            lines.append("- не получено (географические координаты не разрешены)")
+            lines.append("- Сведения о группах отряда отсутствуют в locations.json")
+    else:
+        lines.append("- не получено (географические координаты не разрешены)")
 
     if screenshots_section:
         lines.extend(["", screenshots_section.rstrip()])
@@ -416,17 +261,11 @@ def render_brief(
         "",
         "## Ключевые изменения",
     ])
-
     lines.extend(render_change_lines(changes))
-
-    not_compared = changes.get("not_compared", [])
-    if not_compared:
-        lines.extend([
-            "",
-            "## Несравниваемые категории",
-        ])
-        for nc in sorted(not_compared):
-            lines.append(f"- {nc}")
+    lines.extend([
+        "",
+        "Детальный протокол изменений: [changes.md](changes.md)",
+    ])
 
     warnings = current.get("warnings", [])
     if warnings:
@@ -437,48 +276,24 @@ def render_brief(
         for w in sorted(set(warnings)):
             lines.append(f"- [Неполнота данных] {w}")
 
-    if timeline is not None:
-        from tools.timeline import resolve_timeline
-        from tools.validation import validate_timeline
-        validate_timeline(timeline, projection=timeline_projection)
-        facts = timeline if timeline_projection else resolve_timeline(timeline)
-        lines.extend(["", "## Хроника событий", ""])
-        def event_line(event: dict[str, Any]) -> str:
-            def safe(value: Any) -> str:
-                return html.escape(str(value)).replace("\n", " ").replace("\r", " ").replace("[", "&#91;").replace("]", "&#93;").replace("`", "&#96;")
-            sources = "; ".join(
-                f"{safe(e['kind'])}: {safe(e['ref'])}" + (f" ({safe(e['note'])})" if e.get("note") else "")
-                for e in event["evidence"]
-            )
-            corrected = f"; исправляет {safe(event['corrects_event_id'])}" if event.get("corrects_event_id") else ""
-            day = f"день {event['game_day']}" if event.get("game_day") is not None else "игровой день неизвестен"
-            return f"- [{event['status']}] {safe(event['summary'])} ({day}; ID: {safe(event['event_id'])}{corrected}). Источники: {sources}"
-        lines.extend(event_line(e) for e in facts)
-        if not facts:
-            lines.append("Подтверждённые события отсутствуют.")
-        hypotheses = [] if timeline_projection else [e for e in resolve_timeline(timeline, include_inferred=True) if e["status"] == "inferred"]
-        if hypotheses:
-            lines.extend(["", "### Неподтверждённые гипотезы (inferred)", ""])
-            lines.extend(event_line(e) for e in hypotheses)
-
     lines.extend([
         "",
-        "## Связанные артефакты",
-        "- [Расширенный снимок (extended/current.json)](extended/current.json)",
-        *(["- [Сводка изменений и промежуточных снимков (changes.md)](changes.md)",
-           "- [Индекс скриншотов (screenshots/index.md)](screenshots/index.md)"] if publication else []),
-        "- [Детальные изменения (changes.json)](changes.json)",
-        "- [Полный состав отряда (squad.md)](squad.md)",
-        *(["- [Табличные выгрузки: отряд, экипировка, склады, цены, состояние мира (tables/index.md)](tables/index.md)"]
-          if publication else []),
+        "## Карта витрин и табличные данные",
+        "- [tables/index.md](tables/index.md) — реестр таблиц",
+        "- [tables/squad.csv](tables/squad.csv) — полный состав отряда, характеристики и экипировка",
+        "- [tables/unique_entities.csv](tables/unique_entities.csv) — уникальные сущности (NPC, боссы, оружие Мейто)",
+        "- [tables/diplomacy.csv](tables/diplomacy.csv) — отношения со всеми фракциями мира",
+        "- [tables/storage.csv](tables/storage.csv) — складские запасы баз и поселений",
+        "- [tables/buildings.csv](tables/buildings.csv) — постройки, станки и добывающие узлы",
+        "- [tables/research.csv](tables/research.csv) — технологическое дерево и очередь исследований",
+        "- [tables/biome_resources.csv](tables/biome_resources.csv) — ресурсы биомов под форпосты",
+        "- [tables/town_overrides.csv](tables/town_overrides.csv) — переопределения городов и состояния мира",
+        "- [changes.md](changes.md) — хроника и детальные изменения между снимками",
+        "- [screenshots/index.md](screenshots/index.md) — коллекция игровых скриншотов",
+        "- [locations.json](locations.json) — пространственные координаты и группы",
     ])
     if timeline is not None:
-        lines.append("- [Журнал событий (timeline.jsonl)](timeline.jsonl)")
-    if locations is not None:
-        lines.extend([
-            "- [Пространственное разрешение локаций (locations.json)](locations.json)",
-            "- [Справочник мира и карты (world_reference.json)](world_reference.json)",
-        ])
+        lines.append("- [timeline.jsonl](timeline.jsonl) — журнал событий")
     lines.append("")
 
     return "\n".join(lines)

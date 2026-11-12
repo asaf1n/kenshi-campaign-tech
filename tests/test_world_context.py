@@ -332,9 +332,16 @@ class TestWorldContextAndProduction(unittest.TestCase):
 
         brief = render_brief(current, {}, "test_snap")
         self.assertIn("гуманоидов: 1, животных: 1", brief)
-        self.assertIn("Складской баланс по базам и поселениям", brief)
-        self.assertIn("Ровная Лагуна", brief)
-        self.assertIn("Тень (код 2 — несёт Хот Лон)", brief)
+        self.assertIn("**Баланс (казна):** 50 000 кат.", brief)
+        self.assertIn("Отряд `sq1`", brief)
+        self.assertIn("[tables/storage.csv](tables/storage.csv)", brief)
+        self.assertNotIn("Складской баланс по базам и поселениям", brief)
+
+        # Складские запасы и состояние мира проверяются на уровне структур данных и таблиц
+        self.assertIn("storage_by_location", current["property"])
+        self.assertIn("Ровная Лагуна", current["property"]["storage_by_location"])
+        self.assertEqual(current["property"]["storage_by_location"]["Ровная Лагуна"]["total_items_count"], 100)
+        self.assertEqual(current["world_state"]["unique_npcs"][0]["captured_by"], "Хот Лон")
 
         squad_md = render_squad(current, "test_snap")
         self.assertIn("### Барбос (`c2`) [Животное]", squad_md)

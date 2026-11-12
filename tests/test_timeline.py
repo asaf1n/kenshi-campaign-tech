@@ -17,7 +17,7 @@ from tests.test_publish import _create_sample_snapshot
 from tools.index import empty_index, save_index
 from tools.io_utils import canonical, digest, read_json
 from tools.publisher import publish
-from tools.rendering import render_brief
+from tools.rendering import render_brief, render_timeline_events
 from tools.timeline import (
     _writer_lock, append_event, create_session, filter_events_by_chain, import_events,
     load_sessions, read_timeline, resolve_timeline,
@@ -264,8 +264,8 @@ except OSError:
         self.ingest([hypothesis])
         self.assertEqual(resolve_timeline(read_timeline(self.ledger)), [base])
         self.assertEqual(resolve_timeline(read_timeline(self.ledger), include_inferred=True), [hypothesis])
-        brief = render_brief({}, {"valid": False}, "B", timeline=read_timeline(self.ledger))
-        facts, hypotheses = brief.split("### Неподтверждённые гипотезы (inferred)")
+        rendered = render_timeline_events(read_timeline(self.ledger))
+        facts, hypotheses = rendered.split("### Неподтверждённые гипотезы (inferred)")
         self.assertIn(base["summary"], facts)
         self.assertNotIn(hypothesis["summary"], facts)
         self.assertIn(hypothesis["summary"], hypotheses)
@@ -273,11 +273,11 @@ except OSError:
         self.ingest([confirmed])
         self.assertEqual(resolve_timeline(read_timeline(self.ledger)), [confirmed])
         self.assertTrue(self.ledger.read_bytes().startswith(original))
-        brief = render_brief({}, {"valid": False}, "B", timeline=read_timeline(self.ledger))
-        self.assertIn("исправляет hypothesis", brief)
-        self.assertIn("user_note: sessions/session-main/notes.md", brief)
-        self.assertNotIn(base["summary"], brief)
-        self.assertEqual(brief, render_brief({}, {"valid": False}, "B", timeline=read_timeline(self.ledger)))
+        rendered = render_timeline_events(read_timeline(self.ledger))
+        self.assertIn("исправляет hypothesis", rendered)
+        self.assertIn("user_note: sessions/session-main/notes.md", rendered)
+        self.assertNotIn(base["summary"], rendered)
+        self.assertEqual(rendered, render_timeline_events(read_timeline(self.ledger)))
 
     def test_sessions_and_ancestry_exclude_parallel_or_ambiguous_events(self) -> None:
         """A→B и A→C наследуют A; общая сессия B/C не доказывает принадлежность ни одной цепочке."""
@@ -350,11 +350,15 @@ except OSError:
         projected = read_timeline(self.published / "timeline.jsonl", projection=True)
         self.assertEqual({e["event_id"] for e in projected}, {"corrected", "visible"})
         self.assertEqual(next(e for e in projected if e["event_id"] == "visible")["evidence"][0]["ref"], "extended/current.json")
+        rendered = render_timeline_events(projected, projection=True)
+        self.assertIn("исправляет base", rendered)
+        self.assertIn("Локальный источник; недоступен облачному читателю", rendered)
+        self.assertNotIn("Example", rendered)
+        self.assertNotIn("[inferred]", rendered)
         brief = (self.published / "brief.md").read_text(encoding="utf-8")
-        self.assertIn("исправляет base", brief)
-        self.assertIn("Локальный источник; недоступен облачному читателю", brief)
         self.assertNotIn("Example", brief)
-        self.assertNotIn("[inferred]", brief)
+        self.assertNotIn("## Хроника событий", brief)
+        self.assertIn("[timeline.jsonl](timeline.jsonl)", brief)
         self.assertEqual(self.ledger.read_bytes(), original)
         self.assertEqual(validate_publication(self.published, self.index)["status"], "passed")
         for name, data in self.bundle().items():
@@ -462,8 +466,10 @@ except OSError:
         proj_events = read_timeline(self.published / "timeline.jsonl", projection=True)
         self.assertEqual(len(proj_events), 1)
         self.assertEqual(proj_events[0]["event_id"], "ev-clean-lab")
+        timeline_text = render_timeline_events(proj_events, projection=True)
+        self.assertIn("Зачищена древняя лаборатория в Черной Пустыне", timeline_text)
         brief_text = (self.published / "brief.md").read_text(encoding="utf-8")
-        self.assertIn("Зачищена древняя лаборатория в Черной Пустыне", brief_text)
+        self.assertIn("[timeline.jsonl](timeline.jsonl)", brief_text)
 
         # 3. Вызов period-diff по дням через CLI
         out_diff = self.root / "diff_res.json"
