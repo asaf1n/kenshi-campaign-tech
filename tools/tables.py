@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from tools import itemstats, prosthetics
+from tools.encounters import region_encounters_table
 from tools.world_context import ZONE_KEY_FORMAT, _building_places, _clean_handle_tuple, _settlement, storage_rows, zone_settlements
 
 TABLES_DIR: str = "tables"
@@ -2290,6 +2291,20 @@ def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
         notes.append(
             "Длинный формат истории дипломатических отношений: строка создается при первом упоминании фракции и при каждом последующем изменении отношения."
         )
+    elif table.name == "region_encounters.csv":
+        notes.append(
+            "Боевые навыки юнитов вычисляются по stat_attack или combat_stats (для животных — animal_strength)."
+        )
+        notes.append(
+            "Для рядовых участников отряда рассчитываются members_combat_min, members_combat_median и members_combat_max; "
+            "при их отсутствии значения наследуются от лидера."
+        )
+        notes.append(
+            "Оружие и броня лидера фиксируют экипировку и грейд шаблона лидера; weapons_typical перечисляет типичное оружие рядовых."
+        )
+        notes.append(
+            "Ключ соединения region_name_en связывает витрину с локациями справочника мира и просмотрщиком карты."
+        )
 
     if notes:
         lines.append("")
@@ -2337,6 +2352,7 @@ INDEX_PURPOSES: dict[str, str] = {
     "faction_relations.csv": "Отношения фракций",
     "faction_hostility.csv": "Враждебность",
     "races.csv": "Расы, климат",
+    "region_encounters.csv": "Сводка встреч по регионам, статы отрядов и лидеров",
     "skills_history.csv": "Динамика навыков",
     "campaign_history.csv": "Казна и отряд",
     "relations_history.csv": "Дипломатия по дням",
@@ -2364,13 +2380,13 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.join_keys or 'нет'} | {dict_link} | {purpose} |")
     lines += [
         "", "## Правила и ограничения", "",
-        "- Словари колонок: `dict/<таблица>.md`.",
-        "- Связи между таблицами — по `sid` и `id`.",
+        "- Словари колонок: `dict/<таблица>.md`. Связи — по `sid` и `id`.",
         "- Ссылки `world state`/`NPC is`: `v[1]`, `v[2]` без трактовки.",
-        "- Шаблоны юнитов — как в модах. Цены в городах не вычисляются.",
-        "", "## Недоступные поля", "",
+        "- Шаблоны юнитов — как в модах.",
     ]
-    lines += [f"- {n}" for n in game_notes]
+    if game_notes:
+        lines += ["", "## Недоступные поля", ""]
+        lines += [f"- {n}" for n in game_notes]
     lines.append("")
     return "\n".join(lines)
 
@@ -2415,6 +2431,19 @@ def build_tables(
     relations_history_table = build_relations_history(daily_snapshots)
 
     zone_places = zone_settlements(locations, world_ref)
+
+    unit_tpl_tbl = unit_templates_table(game_records, game_index)
+    unit_gear_tbl = unit_template_gear_table(game_records, game_index)
+    sq_tpl_tbl = squad_templates_table(game_records, game_index)
+    sq_mem_tbl = squad_members_table(game_records, game_index)
+    sq_spwn_tbl = squad_spawns_table(game_records, game_index)
+    f_rel_tbl = faction_relations_table(game_records, game_index)
+    f_host_tbl = faction_hostility_table(game_records, game_index)
+
+    enc_source = [sq_spwn_tbl, sq_tpl_tbl, sq_mem_tbl, unit_tpl_tbl, unit_gear_tbl, f_host_tbl]
+    enc_tables = {t.name.removesuffix(".csv"): t.rows for t in enc_source}
+    enc_table = region_encounters_table(enc_tables)
+
     tables = [
         squad_table(current, locations),
         equipment_table(current, game_index, locations, zone_places),
@@ -2432,14 +2461,15 @@ def build_tables(
         diplomacy_table(current),
         world_reactions_table(game_records, game_index),
         world_reaction_links_table(current, game_records, game_index),
-        unit_templates_table(game_records, game_index),
-        unit_template_gear_table(game_records, game_index),
-        squad_templates_table(game_records, game_index),
-        squad_members_table(game_records, game_index),
-        squad_spawns_table(game_records, game_index),
-        faction_relations_table(game_records, game_index),
-        faction_hostility_table(game_records, game_index),
+        unit_tpl_tbl,
+        unit_gear_tbl,
+        sq_tpl_tbl,
+        sq_mem_tbl,
+        sq_spwn_tbl,
+        f_rel_tbl,
+        f_host_tbl,
         races_table(game_records, game_index),
+        enc_table,
         skills_history_table,
         campaign_history_table,
         relations_history_table,

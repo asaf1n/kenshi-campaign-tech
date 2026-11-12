@@ -38,6 +38,13 @@ GOLDEN_HEADERS: dict[str, list[str]] = {
     "skills_history.csv": ["day", "character_id", "character_name", "skill", "level"],
     "campaign_history.csv": ["day", "game_time", "cats", "squad_size"],
     "relations_history.csv": ["day", "faction_sid", "faction_name", "relation"],
+    "region_encounters.csv": [
+        "region_name_en", "region_name_ru", "place_sid", "source", "town_name", "squad_sid",
+        "squad_name", "faction_sid", "faction_name", "spawn_share", "squad_size_min",
+        "squad_size_max", "members_summary", "leader_template_name", "leader_combat_skill",
+        "leader_weapon", "leader_armour", "members_combat_min", "members_combat_median",
+        "members_combat_max", "weapons_typical", "armour_grade_max", "world_state_conditions",
+    ],
 }
 
 # Единственная локация справочника мира в клетке 14.2 разрешает здание без поселения; клетка 18.34 остаётся неразрешённой.
@@ -200,7 +207,7 @@ class TableContentTests(unittest.TestCase):
         self.assertIn("Справочник игры недоступен", text)
 
     def test_tables_dictionaries_and_compact_index(self) -> None:
-        """Для всех 27 таблиц строятся dict/<таблица>.md, index.md компактен и валиден по INDEX_ROW_RE."""
+        """Для всех 28 таблиц строятся dict/<таблица>.md, index.md компактен и валиден по INDEX_ROW_RE."""
         from tools.tables import INDEX_ROW_RE
 
         files = build_tables(mini_snapshot(), None, SNAPSHOT_ID, INDEX, RECORDS, world_ref=WORLD_REF)
@@ -212,9 +219,9 @@ class TableContentTests(unittest.TestCase):
         self.assertGreaterEqual(len(index_bytes), 3000)
         self.assertNotIn("## Словарь колонок", index_text)
 
-        # Регулярное выражение валидатора находит ровно 27 таблиц
+        # Регулярное выражение валидатора находит ровно 28 таблиц
         matched = dict(INDEX_ROW_RE.findall(index_text))
-        self.assertEqual(len(matched), 27)
+        self.assertEqual(len(matched), 28)
 
         for csv_name in matched:
             stem = csv_name.removesuffix(".csv")

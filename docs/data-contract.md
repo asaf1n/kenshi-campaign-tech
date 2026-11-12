@@ -81,13 +81,13 @@ published/
   location_registry.json
   unique_entities_registry.json
   timeline.jsonl
-  tables/               # CSV и index.md, раздел «Табличные выгрузки»
+  tables/               # CSV и index.md, раздел «Табличные выгрузки» (всего 28 таблиц)
     index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, buildings.csv, research.csv,
     build_catalog.csv, biome_resources.csv, races.csv, item_prices.csv, trade_modifiers.csv,
     unique_npcs.csv, unique_entities.csv, town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
     unit_templates.csv, unit_template_gear.csv, squad_templates.csv, squad_members.csv,
     squad_spawns.csv, faction_relations.csv, faction_hostility.csv,
-    skills_history.csv, campaign_history.csv, relations_history.csv
+    region_encounters.csv, skills_history.csv, campaign_history.csv, relations_history.csv
   screenshots/
     index.json
     index.md
@@ -537,6 +537,7 @@ Publisher читает журнал целиком, проверяет его, �
 | `unit_templates.csv`, `unit_template_gear.csv` | `sid`; `template_sid`, `category`, `ref_sid` | шаблоны персонажей и животных, их снаряжение (справочник юнитов) |
 | `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv` | `sid`; `squad_sid`, `role`, `member_sid`; `source`, `place_sid`, `squad_sid` | шаблоны отрядов, их состав по ролям, места появления отрядов |
 | `faction_relations.csv`, `faction_hostility.csv` | `faction_sid`, `kind`, `other_sid`; `faction_sid` | заданные в данных отношения фракций между собой; настройки фракций и расовый состав |
+| `region_encounters.csv` | `region_name_en, source, squad_name, squad_sid` | плоская аналитическая витрина встреч и бродячих отрядов по регионам и городам: доля появления, состав, боевые навыки и экипировка лидера, диапазон навыков рядовых, типичное оружие и World State |
 | `skills_history.csv` | `day, character_id, skill` | длинный формат дельта-трекинга целочисленных уровней навыков и атрибутов участников отряда по дням кампании (37 характеристик: атрибуты и навыки squad.csv; строка фиксируется при первом появлении персонажа и при изменении целой части уровня в любую сторону) |
 | `campaign_history.csv` | `day` | состояние казны и численности отряда игрока по дням кампании (срез на момент последнего снимка каждого дня) |
 | `relations_history.csv` | `day, faction_sid` | история изменений дипломатических отношений фракций к игроку по дням в длинном формате (начальные значения и фиксация изменений relation) |
@@ -600,6 +601,43 @@ Publisher читает журнал целиком, проверяет его, �
 15. `outcome`: исход взаимодействия из ручного слоя или персонального свидетельства (`outcome` из `personal_evidence` для персонажей; `outcome` из `trophy_evidence` для оружия Мейто; при отсутствии — пусто).
 16. `evidence`: текст подтверждения/свидетельства исхода (`evidence` из `personal_evidence` для персонажей; `evidence` из `trophy_evidence` для оружия Мейто; при отсутствии — пусто).
 17. `game_time`: игровое время подтверждения события (`game_time` из `personal_evidence` для персонажей; `game_time` из `trophy_evidence` для оружия Мейто; при отсутствии — пусто).
+
+### Витрина встреч по регионам `region_encounters.csv`
+
+Таблица `tables/region_encounters.csv` формируется модулем `tools.encounters` (`region_encounters_table`) на основе таблиц справочника юнитов (`squad_spawns.csv`, `squad_templates.csv`, `squad_members.csv`, `unit_templates.csv`, `unit_template_gear.csv`, `faction_hostility.csv`) и служит детерминированной плоской аналитической витриной бродячих и бездомных отрядов мира Kenshi для планирования экспедиций, боевой оценки угроз и маршрутов:
+- **Ключ сортировки**: `region_name_en, source, squad_name, squad_sid` (по возрастанию кортежа).
+- **Ключи соединения**: `region_name_en, squad_sid, faction_sid` (связь с локациями справочника мира `world_reference.json`, просмотрщиком карты, `squad_templates.csv`, `diplomacy.csv`, `faction_relations.csv`).
+- **Нормативные формулы и правила агрегации**:
+  - Боевой навык юнита (`_unit_combat_skill`): для персонажей берётся `stat_attack`, при его отсутствии/нуле — `combat_stats`; для животных — в первую очередь `animal_strength`, затем `stat_attack`/`combat_stats`.
+  - Численность отряда (`squad_size_min`, `squad_size_max`): суммирует размеры участников по ролям (`leader`, `squad`, `squad2`, `animals`, `animals2`) и случайных бойцов (`num_random_chars`, `num_random_chars_max` при наличии роли `choosefrom list`). Заглушки с нулевым количеством (`v0 == 0` и `v1 == 0`) исключаются.
+  - Боевые метрики рядовых (`members_combat_min`, `members_combat_median`, `members_combat_max`): рассчитываются по не-лидерам отряда. Если в отряде только лидер, все три метрики наследуют значение боевого навыка лидера.
+  - Экипировка лидера: оружие (`leader_weapon`) включает название моделей и производителя/уровень; броня (`leader_armour`) включает элементы одежды и строковый грейд качества.
+  - Максимальный грейд брони (`armour_grade_max`): числовой код (0..5: 0 — Прототип, 1 — Низкий, 2 — Стандартный, 3 — Высокий, 4 — Специалист, 5 — Мастерский).
+  - Нормализация локализации (`neutral_gender`): мужская грамматическая форма для гендерных конструкций FCS («Мечни/кца1/» $\to$ «Мечник»).
+- **Колонки** (23 колонки):
+  1. `region_name_en`: каноническое английское название региона/биома (`place_name_en`).
+  2. `region_name_ru`: русскоязычное наименование региона/биома (`place_name_ru` или `place_name_en`).
+  3. `place_sid`: строковый идентификатор биом-группы (FCS `BIOME_GROUP`, тип 95) или поселения/города (FCS `TOWN`, тип 13).
+  4. `source`: источник появления (`biome_homeless` — бездомные отряды биома; `town_roaming` — патрули города).
+  5. `town_name`: наименование поселения/города для источника `town_roaming` (для `biome_homeless` — пусто).
+  6. `squad_sid`: строковый `sid` шаблона отряда (FCS `SQUAD_TEMPLATE`, тип 52).
+  7. `squad_name`: наименование отряда с нормализацией локализации.
+  8. `faction_sid`: строковый `sid` шаблона фракции отряда (FCS `FACTION`, тип 10).
+  9. `faction_name`: локализованное наименование фракции отряда.
+  10. `spawn_share`: процентная доля отряда среди спавнов региона/города (число с 1 десятичным знаком).
+  11. `squad_size_min`: минимальный размер отряда (целое число $\ge 0$).
+  12. `squad_size_max`: максимальный размер отряда (целое число $\ge squad\_size\_min$).
+  13. `members_summary`: краткая текстовая сводка состава отряда по ролям.
+  14. `leader_template_name`: имя шаблона лидера отряда (или пусто при отсутствии лидера).
+  15. `leader_combat_skill`: боевой навык лидера отряда (целое число или пусто).
+  16. `leader_weapon`: оружие лидера с указанием производителя/грейда.
+  17. `leader_armour`: броня лидера с указанием грейда качества.
+  18. `members_combat_min`: минимальный боевой навык среди рядовых бойцов (или навык лидера при их отсутствии).
+  19. `members_combat_median`: медианный боевой навык среди рядовых бойцов (или навык лидера при их отсутствии).
+  20. `members_combat_max`: максимальный боевой навык среди рядовых бойцов (или навык лидера при их отсутствии).
+  21. `weapons_typical`: типичное оружие рядовых участников (список через `; ` по возрастанию).
+  22. `armour_grade_max`: максимальный числовой код грейда брони в отряде (0..5 или пусто).
+  23. `world_state_conditions`: список `sid` условий World State, разделенных `; ` (из шаблона отряда).
 
 ### Значения `state_code` и отношения
 
