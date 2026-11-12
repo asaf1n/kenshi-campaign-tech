@@ -14,4 +14,4 @@
 ## Этапы задачи
 
 1. Исправление `location_cleared` и объединение строк персонажей в `tools/tables.py`; обновление словаря колонок, `docs/data-contract.md` и тестов `tests.test_tables`. Готово: на текущем сейве у Великого шамана `location_cleared = true`; в таблице одна строка на `sid`; тесты и `check-schemas` проходят. Принят 2026-11-12.
-2. `git push origin main`, запуск `Initialize-Pipeline.ps1`, отчёт с форматом `entities_progress.json`. Готово: коммиты в `origin`; выпуск доставлен, `cartography = ok`; в отчёте путь к схеме, пример и значения `outcome`. Не начат.
+2. `git push origin main`, запуск `Initialize-Pipeline.ps1`, отчёт с форматом `entities_progress.json`. Готово: коммиты в `origin`; выпуск доставлен, `cartography = ok`; в отчёте путь к схеме, пример и значения `outcome`. Принят 2026-11-12.
