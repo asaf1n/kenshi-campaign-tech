@@ -11,7 +11,11 @@ from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_EVEN
 from pathlib import Path
 import re
-from typing import Mapping, Sequence
+import statistics
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from tools.tables import Table
 
 Row = Mapping[str, str]
 Tables = Mapping[str, Sequence[Row]]
@@ -20,6 +24,10 @@ Tables = Mapping[str, Sequence[Row]]
 REQUIRED_TABLES: tuple[str, ...] = (
     "squad_spawns", "squad_templates", "squad_members", "faction_relations", "faction_hostility",
 )
+ENCOUNTERS_TABLE_REQUIRED: tuple[str, ...] = (
+    "squad_spawns", "squad_templates", "squad_members", "unit_templates", "unit_template_gear",
+)
+ALL_TABLES: tuple[str, ...] = tuple(dict.fromkeys(REQUIRED_TABLES + ENCOUNTERS_TABLE_REQUIRED))
 OUTPUT_RELATIVE = Path("docs") / "reference" / "encounters.md"
 
 # Отряды региона с долей меньше порога сворачиваются в строку «Прочие (k)».
@@ -61,10 +69,10 @@ _TEXT_RELATIONS = (
 )
 
 
-def load_tables(tables_dir: Path) -> dict[str, list[dict[str, str]]]:
+def load_tables(tables_dir: Path, names: Sequence[str] = ALL_TABLES) -> dict[str, list[dict[str, str]]]:
     """Читает CSV справочника юнитов; отсутствующий файл пропускается (проверяет `missing_tables`)."""
     tables: dict[str, list[dict[str, str]]] = {}
-    for name in REQUIRED_TABLES:
+    for name in names:
         path = tables_dir / f"{name}.csv"
         if path.is_file():
             with path.open(encoding="utf-8", newline="") as handle:
@@ -72,8 +80,8 @@ def load_tables(tables_dir: Path) -> dict[str, list[dict[str, str]]]:
     return tables
 
 
-def missing_tables(tables: Tables) -> list[str]:
-    return [name for name in REQUIRED_TABLES if name not in tables]
+def missing_tables(tables: Tables, required: Sequence[str] = REQUIRED_TABLES) -> list[str]:
+    return [name for name in required if name not in tables]
 
 
 def neutral_gender(text: str) -> str:
@@ -232,3 +240,298 @@ def _signed(value: str, plus: bool) -> str:
 
 def build_encounters_from_dir(tables_dir: Path, game_time: str) -> str:
     return build_encounters(load_tables(tables_dir), game_time)
+
+
+ARMOUR_GRADES: dict[int, str] = {
+    0: "Прототип",
+    1: "Низкий",
+    2: "Стандартный",
+    3: "Высокий",
+    4: "Специалист",
+    5: "Мастерский",
+}
+
+ARMOUR_GRADE_NAME_TO_INT: dict[str, int] = {
+    "прототип": 0, "прото": 0, "prototype": 0,
+    "низкий": 1, "низкое": 1, "shoddy": 1,
+    "стандартный": 2, "стандартное": 2, "standard": 2,
+    "высокий": 3, "высокое": 3, "high": 3,
+    "специалист": 4, "специальный": 4, "specialist": 4,
+    "мастерский": 5, "шедевр": 5, "masterwork": 5,
+}
+
+REGION_ENCOUNTERS_COLUMNS: list[tuple[str, str]] = [
+    ("region_name_en", "Регион/биом (en)"),
+    ("region_name_ru", "Регион/биом (ru)"),
+    ("place_sid", "sid биом-группы или города"),
+    ("source", "Источник появления (biome_homeless или town_roaming)"),
+    ("town_name", "Название города (для town_roaming)"),
+    ("squad_sid", "sid шаблона отряда"),
+    ("squad_name", "Название отряда"),
+    ("faction_sid", "sid фракции отряда"),
+    ("faction_name", "Название фракции"),
+    ("spawn_share", "Доля появления в регионе/городе, %"),
+    ("squad_size_min", "Минимальный размер отряда"),
+    ("squad_size_max", "Максимальный размер отряда"),
+    ("members_summary", "Краткий состав отряда"),
+    ("leader_template_name", "Имя шаблона лидера"),
+    ("leader_combat_skill", "Боевой навык лидера"),
+    ("leader_weapon", "Оружие лидера"),
+    ("leader_armour", "Броня лидера"),
+    ("members_combat_min", "Мин. боевой навык рядовых"),
+    ("members_combat_median", "Медианный боевой навык рядовых"),
+    ("members_combat_max", "Макс. боевой навык рядовых"),
+    ("weapons_typical", "Типичное оружие рядовых"),
+    ("armour_grade_max", "Макс. грейд брони в отряде"),
+    ("world_state_conditions", "Условия World State"),
+]
+
+
+def _unit_combat_skill(unit: Row | None) -> int | None:
+    """Извлекает боевой навык юнита (атака / сила животного / combat_stats)."""
+    if not unit:
+        return None
+    kind = unit.get("kind")
+    if kind == "animal":
+        val = unit.get("animal_strength")
+        if val not in ("", None):
+            return int(_num(val))
+        val = unit.get("stat_attack")
+        if val not in ("", None):
+            return int(_num(val))
+        val = unit.get("combat_stats")
+        if val not in ("", None):
+            return int(_num(val))
+        return None
+    val = unit.get("stat_attack")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    val = unit.get("combat_stats")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    if val not in ("", None):
+        return int(_num(val))
+    val = unit.get("stat_attack")
+    if val not in ("", None):
+        return int(_num(val))
+    return None
+
+
+def _parse_armour_grade(val: Any) -> tuple[int | None, str]:
+    """Разбирает грейд брони в (числовой код 0..5, строковое название)."""
+    if val in ("", None):
+        return None, ""
+    s = str(val).strip()
+    if s.lower() in ARMOUR_GRADE_NAME_TO_INT:
+        code = ARMOUR_GRADE_NAME_TO_INT[s.lower()]
+        return code, ARMOUR_GRADES.get(code, s)
+    try:
+        code = int(_num(s))
+        return code, ARMOUR_GRADES.get(code, s)
+    except Exception:
+        return None, s
+
+
+def _squad_size_range(members: Sequence[Row], template: Row | None) -> tuple[int, int]:
+    """Рассчитывает минимальный и максимальный размер отряда по ролям участников."""
+    min_size = 0
+    max_size = 0
+    has_choose = False
+    for m in members:
+        role = m.get("role")
+        v0 = int(_num(m.get("v0")))
+        v1 = int(_num(m.get("v1")))
+        if role == "leader":
+            min_size += v0
+            max_size += v0
+        elif role in ("squad", "squad2", "animals", "animals2"):
+            if v0 == 0 and v1 == 0:
+                continue
+            low = v0
+            high = v1 if v1 > v0 else v0
+            min_size += low
+            max_size += high
+        elif role == "choosefrom list":
+            has_choose = True
+    if has_choose and template:
+        low = int(_num(template.get("num_random_chars")))
+        high = int(_num(template.get("num_random_chars_max")))
+        if high < low:
+            high = low
+        min_size += low
+        max_size += high
+    return min_size, max_size
+
+
+def build_region_encounters(tables: Tables) -> list[dict[str, Any]]:
+    """Собирает плоскую аналитическую витрину встреч по регионам и городам."""
+    absent = missing_tables(tables, ENCOUNTERS_TABLE_REQUIRED)
+    if absent:
+        raise ValueError("Нет таблиц для витрины встреч: " + ", ".join(absent))
+
+    templates = {row["sid"]: row for row in tables["squad_templates"]}
+    members_by_squad: dict[str, list[Row]] = defaultdict(list)
+    for row in tables["squad_members"]:
+        members_by_squad[row["squad_sid"]].append(row)
+
+    units: dict[str, Row] = {row["sid"]: row for row in tables["unit_templates"]}
+    gear_by_unit: dict[str, list[Row]] = defaultdict(list)
+    for row in tables["unit_template_gear"]:
+        gear_by_unit[row["template_sid"]].append(row)
+
+    faction_names: dict[str, str] = {}
+    if "faction_hostility" in tables:
+        for r in tables["faction_hostility"]:
+            if r.get("faction_sid"):
+                faction_names[r["faction_sid"]] = r.get("faction_name_ru") or r.get("faction_name_en") or ""
+
+    spawns_by_place: dict[tuple[str, str], list[Row]] = defaultdict(list)
+    for r in tables["squad_spawns"]:
+        if r.get("place_name_en") in PLACEHOLDER_REGIONS:
+            continue
+        spawns_by_place[(r.get("source", ""), r.get("place_sid", ""))].append(r)
+
+    rows: list[dict[str, Any]] = []
+    for (source, place_sid), place_spawns in spawns_by_place.items():
+        total_weight = sum((_num(r.get("ref_v0")) for r in place_spawns), Decimal(0))
+        for r in place_spawns:
+            sq_sid = r.get("squad_sid", "")
+            t = templates.get(sq_sid)
+            mems = members_by_squad.get(sq_sid, [])
+            share = _num(r.get("ref_v0")) * 100 / total_weight if total_weight else Decimal(0)
+            spawn_share = _percent(share)
+            size_min, size_max = _squad_size_range(mems, t)
+
+            # Параметры лидера
+            leader = next((m for m in sorted(mems, key=lambda m: (m["role"], m["member_sid"])) if m["role"] == "leader"), None)
+            if leader:
+                l_sid = leader["member_sid"]
+                l_u = units.get(l_sid)
+                l_name = (l_u.get("name_ru") or l_u.get("name_en") or leader.get("member_name") or l_sid) if l_u else (leader.get("member_name") or l_sid)
+                leader_template_name = neutral_gender(l_name)
+                l_skill = _unit_combat_skill(l_u)
+                leader_combat_skill = l_skill if l_skill is not None else ""
+
+                l_gear = gear_by_unit.get(l_sid, [])
+                l_weapons = [neutral_gender(g["ref_name"]) for g in l_gear if g.get("category") in ("weapons", "crossbows", "weapon") and g.get("ref_name")]
+                l_mfgs = [neutral_gender(g["ref_name"]) for g in l_gear if g.get("category") == "weapon level" and g.get("ref_name")]
+                if l_weapons:
+                    w_str = ", ".join(dict.fromkeys(l_weapons))
+                    leader_weapon = f"{w_str} ({l_mfgs[0]})" if l_mfgs else w_str
+                elif l_mfgs:
+                    leader_weapon = f"({l_mfgs[0]})"
+                else:
+                    leader_weapon = ""
+
+                l_clothing = [neutral_gender(g["ref_name"]) for g in l_gear if g.get("category") == "clothing" and g.get("ref_name")]
+                l_ag = l_u.get("armour_grade") if l_u else None
+                _l_code, grade_str = _parse_armour_grade(l_ag)
+                if l_clothing:
+                    c_str = ", ".join(dict.fromkeys(l_clothing))
+                    leader_armour = f"{c_str} ({grade_str})" if grade_str else c_str
+                elif grade_str:
+                    leader_armour = grade_str
+                else:
+                    leader_armour = ""
+            else:
+                leader_template_name = ""
+                leader_combat_skill = ""
+                leader_weapon = ""
+                leader_armour = ""
+
+            # Боевые метрики рядовых участников (без лидера)
+            regular = [m for m in mems if m["role"] != "leader" and not (_num(m.get("v0")) == 0 and _num(m.get("v1")) == 0)]
+            reg_skills = []
+            for m in regular:
+                sk = _unit_combat_skill(units.get(m["member_sid"]))
+                if sk is not None:
+                    reg_skills.append(sk)
+
+            if reg_skills:
+                members_combat_min = min(reg_skills)
+                members_combat_max = max(reg_skills)
+                members_combat_median = int(round(statistics.median(reg_skills)))
+            elif leader_combat_skill != "":
+                members_combat_min = leader_combat_skill
+                members_combat_median = leader_combat_skill
+                members_combat_max = leader_combat_skill
+            else:
+                members_combat_min = ""
+                members_combat_median = ""
+                members_combat_max = ""
+
+            # Типичное оружие рядовых отряда
+            typical_weapons = []
+            for m in regular:
+                for g in gear_by_unit.get(m["member_sid"], []):
+                    if g.get("category") in ("weapons", "crossbows", "weapon") and g.get("ref_name"):
+                        wname = neutral_gender(g["ref_name"])
+                        if wname not in typical_weapons:
+                            typical_weapons.append(wname)
+            weapons_typical = "; ".join(sorted(typical_weapons))
+
+            # Максимальный грейд брони в отряде
+            squad_grade_codes: list[int] = []
+            for m in mems:
+                if _num(m.get("v0")) == 0 and _num(m.get("v1")) == 0 and m.get("role") != "leader":
+                    continue
+                u = units.get(m["member_sid"])
+                if u and u.get("armour_grade") not in ("", None):
+                    code, _ = _parse_armour_grade(u.get("armour_grade"))
+                    if code is not None:
+                        squad_grade_codes.append(code)
+            armour_grade_max = max(squad_grade_codes) if squad_grade_codes else ""
+
+            # Фракция отряда
+            faction_sid = (t or {}).get("faction_sids") or ""
+            faction_name = neutral_gender((t or {}).get("faction_names") or "")
+            if not faction_sid and r.get("place_faction_sid"):
+                faction_sid = r.get("place_faction_sid")
+            if not faction_name and faction_sid in faction_names:
+                faction_name = neutral_gender(faction_names[faction_sid])
+
+            rows.append({
+                "region_name_en": r.get("place_name_en") or "",
+                "region_name_ru": r.get("place_name_ru") or r.get("place_name_en") or "",
+                "place_sid": r.get("place_sid") or "",
+                "source": r.get("source") or "",
+                "town_name": (r.get("place_name_ru") or r.get("place_name_en") or "") if r.get("source") == "town_roaming" else "",
+                "squad_sid": sq_sid,
+                "squad_name": neutral_gender(r.get("squad_name") or sq_sid),
+                "faction_sid": faction_sid,
+                "faction_name": faction_name,
+                "spawn_share": spawn_share,
+                "squad_size_min": size_min,
+                "squad_size_max": size_max,
+                "members_summary": _squad_composition(mems, t),
+                "leader_template_name": leader_template_name,
+                "leader_combat_skill": leader_combat_skill,
+                "leader_weapon": leader_weapon,
+                "leader_armour": leader_armour,
+                "members_combat_min": members_combat_min,
+                "members_combat_median": members_combat_median,
+                "members_combat_max": members_combat_max,
+                "weapons_typical": weapons_typical,
+                "armour_grade_max": armour_grade_max,
+                "world_state_conditions": (t or {}).get("world_state_sids") or "",
+            })
+
+    rows.sort(key=lambda r: (r["region_name_en"], r["source"], r["squad_name"], r["squad_sid"]))
+    return rows
+
+
+build_region_encounters_rows = build_region_encounters
+
+
+def region_encounters_table(tables: Tables) -> Table:
+    """Оборачивает строки витрины в объект Table (tools/tables.py)."""
+    from tools.tables import Table
+    rows = build_region_encounters(tables)
+    return Table(
+        name="region_encounters.csv",
+        sort_key="region_name_en, source, squad_name, squad_sid",
+        purpose="Плоская аналитическая витрина встреч и бродячих отрядов по регионам и городам",
+        columns=REGION_ENCOUNTERS_COLUMNS,
+        rows=rows,
+        join_keys="region_name_en, squad_sid, faction_sid",
+    )
