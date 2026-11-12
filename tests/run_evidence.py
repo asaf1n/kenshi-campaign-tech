@@ -12,10 +12,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_DIR = ROOT / "tests" / ".evidence"
 
-# Реестр допустимых пропусков: тест зависит от внешнего окружения (игра, сохранения, снимки)
-# либо помечен LIVE-SLOT. Любой другой пропуск считается дефектом и роняет evidence.
+# Реестр допустимых пропусков: тест зависит от внешнего окружения (игра, сохранения, снимки).
+# Любой другой пропуск считается дефектом и роняет evidence.
 SKIP_LINE = re.compile(r"\.\.\. skipped (['\"])(.*?)\1")
-ALLOWED_SKIP = re.compile(r"^LIVE-SLOT|не найден|отсутствует")
+ALLOWED_SKIP = re.compile(r"не найден|отсутствует")
 
 # Внешний конвертер упразднён: шаг export зависит от его выгрузки и пропускается, если файла нет.
 EXTERNAL_EXPORT = Path("C:/Users/artem/kenshi-platoon-export/kenshi-session.json")
@@ -199,6 +199,13 @@ def main() -> int:
             ],
             "e2e_real.log",
             "e2e_real-run.json",
+        ),
+        (
+            "live_slots",
+            [sys.executable, "-B", "-m", "unittest", "tests/live/live_slots.py", "-v"],
+            ["python", "-B", "-m", "unittest", "tests/live/live_slots.py", "-v"],
+            "live_slots.log",
+            "live_slots-run.json",
         ),
         (
             "unit",

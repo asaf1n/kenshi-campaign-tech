@@ -122,7 +122,10 @@ def main() -> int:
     cur_pub = read_json((args.published_dir / "extended" / "current.json").read_bytes())
     if cur_pub.get("world", {}).get("day") is not None:
         assert f"День {cur_pub['world']['day']}" in brief_text
-    assert f"**Всего персонажей:** {len(cur_pub['characters'])}" in brief_text
+    assert (
+        f"**Всего участников:** {len(cur_pub['characters'])}" in brief_text
+        or f"**Всего персонажей:** {len(cur_pub['characters'])}" in brief_text
+    )
 
     overall_ended = datetime.now(timezone.utc).isoformat()
     report = {

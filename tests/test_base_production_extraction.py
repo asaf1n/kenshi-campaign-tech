@@ -237,36 +237,6 @@ class TestBaseProductionRealSave(unittest.TestCase):
         self.assertFalse(bench["is_repeat"])
         self.assertGreater(len(bench.get("usage_nodes", [])), 0)
 
-    @unittest.skip("LIVE-SLOT: состояние живого слота сохранения меняется во время игры; сквозная проверка выполняется в check_live.py и check_e2e_real.py")
-    def test_real_save_storage_inventories(self) -> None:
-        prop = read_player_property(self.save_dir, DEFAULT_PLAYER_FACTION)
-        all_buildings = []
-        for b in prop["buildings"]:
-            all_buildings.append(b)
-            all_buildings.extend(b.get("interior", []))
-
-        all_items = [it for b in all_buildings for it in b.get("storage_items", [])]
-        self.assertGreaterEqual(len(all_items), 200)
-
-        # Наличие предметов с handle владельца
-        items_with_owner = [it for it in all_items if it.get("owned_by") is not None]
-        self.assertGreaterEqual(len(items_with_owner), 30)
-
-        # 1. Запасы пеньки (sid: 1965-gamedata.base)
-        hemp_items = [it for it in all_items if it.get("base_data_sid") == "1965-gamedata.base"]
-        total_hemp = sum(it.get("quantity") or 1 for it in hemp_items)
-        self.assertGreaterEqual(total_hemp, 500)
-
-        # 2. Запасы медикаментов (sid: 1359-gamedata.base - Advanced First Aid Kit, 515-gamedata.base - Standard)
-        med_items = [it for it in all_items if it.get("base_data_sid") in ("1359-gamedata.base", "515-gamedata.base")]
-        total_meds = sum(it.get("quantity") or 1 for it in med_items)
-        self.assertGreaterEqual(total_meds, 35)
-
-        # 3. Древние научные книги (sid: 43953-rebirth.mod)
-        ancient_books = [it for it in all_items if it.get("base_data_sid") == "43953-rebirth.mod"]
-        total_books = sum(it.get("quantity") or 1 for it in ancient_books)
-        self.assertGreaterEqual(total_books, 15)
-
 
 if __name__ == "__main__":
     unittest.main()

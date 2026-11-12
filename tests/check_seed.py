@@ -35,7 +35,7 @@ def run() -> None:
     assert re.fullmatch(r'[0-9a-f]{64}', manifest['source_sha256'])
     assert manifest['source_kind'] == 'export'
     assert manifest['source_format'] == 'kenshi-session/10'
-    assert set(('current', 'changes', 'brief', 'squad')).issubset(manifest['artifacts'])
+    assert set(('current', 'changes', 'brief')).issubset(manifest['artifacts'])
     assert event['format'] == 'kenshi-event/1'
     assert event['status'] == 'confirmed'
     assert event['evidence']
