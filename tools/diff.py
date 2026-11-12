@@ -452,7 +452,7 @@ def diff(
     base_not_compared = [
         "research: дерево исследований не сравнивается в kenshi-session-diff/5",
         "property: здания и собственность не сравниваются в kenshi-session-diff/5",
-        "position: географические координаты подключаются профильным артефактом в задаче 02",
+        "position: географические координаты не сравниваются в kenshi-session-diff/5",
     ]
 
     # Non-baseline / первая публикация

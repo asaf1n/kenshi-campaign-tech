@@ -379,7 +379,7 @@ class PublishTests(unittest.TestCase):
         self.assertIn("[Полный состав отряда (squad.md)](squad.md)", brief1)
         # Сведения о местоположении: «не получено» в fallback-режиме без locations
         brief_fallback = render_brief(cur, ch, snap_id)
-        self.assertIn("не получено (географическое разрешение подключается профильным артефактом в задаче 02)", brief_fallback)
+        self.assertIn("не получено (географические координаты не разрешены)", brief_fallback)
         if loc is not None:
             self.assertIn("[Пространственное разрешение локаций (locations.json)](locations.json)", brief1)
 

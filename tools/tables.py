@@ -2094,7 +2094,7 @@ def biome_resources_table(current: dict[str, Any], locations: dict[str, Any] | N
     return Table(
         "biome_resources.csv",
         "biome_sid",
-        "Ресурсный, климатический и ветровой профиль регионов (BIOME_GROUP + ENVIRONMENT_RESOURCES + SEASON/WEATHER) для оценки площадок под форпост",
+        "Ресурсный, климатический и ветровой профиль регионов (BIOME_GROUP + ENVIRONMENT_RESOURCES + SEASON/WEATHER)",
         columns, rows,
     )
 

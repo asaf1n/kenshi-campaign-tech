@@ -407,7 +407,7 @@ def render_brief(
             for loc_str in loc_summary:
                 lines.append(f"- {loc_str}")
         else:
-            lines.append("- не получено (географическое разрешение подключается профильным артефактом в задаче 02)")
+            lines.append("- не получено (географические координаты не разрешены)")
 
     if screenshots_section:
         lines.extend(["", screenshots_section.rstrip()])
@@ -464,7 +464,7 @@ def render_brief(
     lines.extend([
         "",
         "## Связанные артефакты",
-        "- [Расширенный снимок (extended/current.json): читать только выборочно](extended/current.json)",
+        "- [Расширенный снимок (extended/current.json)](extended/current.json)",
         *(["- [Сводка изменений и промежуточных снимков (changes.md)](changes.md)",
            "- [Индекс скриншотов (screenshots/index.md)](screenshots/index.md)"] if publication else []),
         "- [Детальные изменения (changes.json)](changes.json)",
