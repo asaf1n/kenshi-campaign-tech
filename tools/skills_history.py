@@ -117,6 +117,9 @@ def build_skills_history(daily_snapshots: Sequence[tuple[int, dict[str, Any]]]) 
                 except (ValueError, TypeError):
                     continue
 
+                if lvl < 0:
+                    continue
+
                 key = (cid_str, skill_name)
                 if is_new_char or key not in last_seen_levels:
                     rows.append({

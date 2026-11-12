@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from typing import Any
 
-from tools.io_utils import canonical
+from tools.io_utils import canonical, read_json
 from tools.skills_history import (
     TRACKED_SKILLS,
     build_campaign_history,
@@ -473,6 +473,76 @@ class TestSkillsHistory(unittest.TestCase):
 
             res = load_daily_snapshots_from_dir(index_data, "s2", tmp_path)
             self.assertEqual(res, [(1, data_s1), (2, data_s2)])
+
+    def test_skills_history_negative_skills_filtered(self) -> None:
+        """Отрицательные уровни навыков (lvl < 0) отсекаются, а при прокачке (lvl >= 0) корректно фиксируются."""
+        snap_day1 = {
+            "characters": [
+                {
+                    "id": "ps:1",
+                    "name": "Хоббс",
+                    "attributes_base": {"Strength": 10.0},
+                    "skills_base": {
+                        "Armour Smithing": -1.72,
+                        "Crossbows": -3.45,
+                        "Dodge": -2.85,
+                        "Katanas": 5.0,
+                    },
+                }
+            ]
+        }
+        snap_day2 = {
+            "characters": [
+                {
+                    "id": "ps:1",
+                    "name": "Хоббс",
+                    # Crossbows прокачан с -3.45 до 5.2 (int: 5), Armour Smithing остался отрицательным (-1.2)
+                    "attributes_base": {"Strength": 10.0},
+                    "skills_base": {
+                        "Armour Smithing": -1.2,
+                        "Crossbows": 5.2,
+                        "Dodge": -2.85,
+                        "Katanas": 5.0,
+                    },
+                }
+            ]
+        }
+        table = build_skills_history([(1, snap_day1), (2, snap_day2)])
+        rows = table.rows
+
+        # 1. Ни одной строки с level < 0 не попадает в таблицу
+        self.assertTrue(all(r["level"] >= 0 for r in rows))
+
+        # 2. На день 1 присутствуют только положительные навыки/атрибуты (Katanas=5, Strength=10),
+        # а навыки с lvl < 0 (Armour Smithing=-1, Crossbows=-3, Dodge=-2) отфильтрованы
+        day1_rows = [r for r in rows if r["day"] == 1]
+        self.assertEqual([(r["skill"], r["level"]) for r in day1_rows], [
+            ("Katanas", 5),
+            ("Strength", 10),
+        ])
+
+        # 3. На день 2 зафиксирована прокачка ранее отрицательного навыка (Crossbows 5.2 -> 5)
+        day2_rows = [r for r in rows if r["day"] == 2]
+        self.assertEqual(len(day2_rows), 1)
+        self.assertEqual(day2_rows[0]["character_id"], "ps:1")
+        self.assertEqual(day2_rows[0]["skill"], "Crossbows")
+        self.assertEqual(day2_rows[0]["level"], 5)
+
+        # 4. Проверка на реальном снимке кампании из data/index.json (head hot-lon)
+        repo_root = Path(__file__).resolve().parent.parent
+        index_path = repo_root / "data" / "index.json"
+        snapshots_dir = repo_root / "data" / "snapshots"
+        if not index_path.is_file() or not snapshots_dir.is_dir():
+            self.skipTest(f"Каталог данных кампании отсутствует: {index_path}")
+
+        index_data = read_json(index_path.read_bytes())
+        head_sid = index_data["campaigns"]["hot-lon"]["head_snapshot_id"]
+        daily_snaps = load_daily_snapshots_from_dir(index_data, head_sid, snapshots_dir)
+        real_table = build_skills_history(daily_snaps)
+
+        real_negative = [r for r in real_table.rows if r["level"] < 0]
+        self.assertEqual(real_negative, [])
+        self.assertGreater(len(real_table.rows), 0)
 
 
 if __name__ == "__main__":
