@@ -24,9 +24,9 @@ SNAPSHOT_ID = "sha256-mini"
 GOLDEN_HEADERS: dict[str, list[str]] = {
     "unique_npcs.csv": ["sid", "name_en", "name_ru", "state_code", "player", "captured_by"],
     "unique_entities.csv": [
-        "entity_kind", "sid", "name_ru", "name_en", "state_code", "squad_status", "character_id",
-        "primary_location_instance_id", "location_resolution", "meitou_base_sid", "carrier_or_storage",
-        "provenance_status",
+        "entity_kind", "category", "sid", "name_ru", "name_en", "state_code", "squad_status", "character_id",
+        "primary_location_instance_id", "location_resolution", "carrier_or_storage", "observation_status",
+        "provenance_status", "cleared", "outcome", "evidence", "game_time",
     ],
     "diplomacy.csv": ["faction_sid", "faction_name", "relation", "trust", "trust_neg"],
     "town_overrides.csv": ["replacement_sid", "town", "raw_name", "variant", "replacement_name", "replacement_name_ru",
@@ -693,27 +693,51 @@ class TableValidationTests(unittest.TestCase):
         self.assertEqual(kinds, ["boss", "meitou", "npc"])
 
         boss_row = t.rows[0]
+        self.assertEqual(boss_row["entity_kind"], "boss")
+        self.assertEqual(boss_row["category"], "boss")
         self.assertEqual(boss_row["sid"], "boss-1")
         self.assertEqual(boss_row["primary_location_instance_id"], "loc-2")
         self.assertEqual(boss_row["location_resolution"], "ambiguous")
-        self.assertEqual(boss_row["provenance_status"], "session-1")
+        self.assertIsNone(boss_row["carrier_or_storage"])
+        self.assertEqual(boss_row["observation_status"], "observed")
+        self.assertIsNone(boss_row["provenance_status"])
         self.assertEqual(boss_row["state_code"], 0)
+        self.assertTrue(boss_row["cleared"])
+        self.assertIsNone(boss_row["outcome"])
+        self.assertIsNone(boss_row["evidence"])
+        self.assertIsNone(boss_row["game_time"])
 
         meitou_row = t.rows[1]
+        self.assertEqual(meitou_row["entity_kind"], "meitou")
+        self.assertEqual(meitou_row["category"], "meitou")
         self.assertEqual(meitou_row["sid"], "blade-1")
-        self.assertEqual(meitou_row["meitou_base_sid"], "blade-1")
+        self.assertNotIn("meitou_base_sid", meitou_row)
         self.assertIsNone(meitou_row["primary_location_instance_id"])
         self.assertIsNone(meitou_row["location_resolution"])
         self.assertEqual(meitou_row["carrier_or_storage"], "equipped:Хот Лон")
+        self.assertEqual(meitou_row["observation_status"], "observed")
         self.assertEqual(meitou_row["provenance_status"], "confirmed_trophy")
+        self.assertIsNone(meitou_row["cleared"])
+        self.assertIsNone(meitou_row["outcome"])
+        self.assertIsNone(meitou_row["evidence"])
+        self.assertIsNone(meitou_row["game_time"])
         self.assertIsNone(meitou_row["state_code"])
 
         npc_row = t.rows[2]
+        self.assertEqual(npc_row["entity_kind"], "npc")
+        self.assertEqual(npc_row["category"], "recruit")
         self.assertEqual(npc_row["sid"], "npc-1")
         self.assertEqual(npc_row["squad_status"], "confirmed_in_squad")
         self.assertEqual(npc_row["character_id"], "ps:1")
         self.assertEqual(npc_row["primary_location_instance_id"], "loc-1")
         self.assertEqual(npc_row["location_resolution"], "unique")
+        self.assertIsNone(npc_row["carrier_or_storage"])
+        self.assertEqual(npc_row["observation_status"], "observed")
+        self.assertIsNone(npc_row["provenance_status"])
+        self.assertIsNone(npc_row["cleared"])
+        self.assertIsNone(npc_row["outcome"])
+        self.assertIsNone(npc_row["evidence"])
+        self.assertIsNone(npc_row["game_time"])
 
     def test_unique_entities_table_ambiguous_and_boss_sync(self) -> None:
         """Проверяет разрешение неоднозначных локаций и синхронизацию динамических полей босса."""
@@ -762,22 +786,192 @@ class TableValidationTests(unittest.TestCase):
 
         # 1. Хамут: 5 городов -> ambiguous, primary_location_instance_id: None
         hamut_row = rows_by_sid[("npc", "hamut")]
+        self.assertEqual(hamut_row["category"], "recruit")
         self.assertIsNone(hamut_row["primary_location_instance_id"])
         self.assertEqual(hamut_row["location_resolution"], "ambiguous")
+        self.assertEqual(hamut_row["observation_status"], "observed")
+        self.assertIsNone(hamut_row["cleared"])
 
         # 2. Агну (boss): динамические поля (squad_status, character_id) получены согласованно с NPC
         agnu_row = rows_by_sid[("boss", "agnu")]
+        self.assertEqual(agnu_row["category"], "recruit")
         self.assertEqual(agnu_row["state_code"], 1)
         self.assertEqual(agnu_row["squad_status"], "confirmed_in_squad")
         self.assertEqual(agnu_row["character_id"], "ps:agnu")
         self.assertEqual(agnu_row["primary_location_instance_id"], "loc-tower")
+        self.assertEqual(agnu_row["observation_status"], "observed")
         self.assertIsNone(agnu_row["provenance_status"])
+        self.assertFalse(agnu_row["cleared"])
 
         # 3. Мейто Крест паладина: без локации владельца, provenance_status: unconfirmed
         meitou_row = rows_by_sid[("meitou", "paladins_cross")]
+        self.assertEqual(meitou_row["category"], "meitou")
         self.assertIsNone(meitou_row["primary_location_instance_id"])
         self.assertIsNone(meitou_row["location_resolution"])
+        self.assertEqual(meitou_row["observation_status"], "observed")
         self.assertEqual(meitou_row["provenance_status"], "unconfirmed")
+        self.assertIsNone(meitou_row["cleared"])
+
+    def test_unique_entities_table_progress_enrichment(self) -> None:
+        """Проверяет корректность отображения полей observation_status, cleared, outcome, evidence, game_time
+        при вызове с обогащенными через apply_progress_to_unique_entities данными."""
+        from tools.unique_entities_registry import apply_progress_to_unique_entities
+
+        base_entities = {
+            "unique_npcs": [
+                {
+                    "npc_sid": "cat",
+                    "name_en": "Cat",
+                    "name_ru": "Кот",
+                    "category": "recruit",
+                    "locations": [{"instance_id": "loc-dust", "resolution": "unique"}],
+                    "dynamic": {"state_code": 1, "squad_status": "confirmed_in_squad", "character_id": "ps:cat"},
+                },
+                {
+                    "npc_sid": "sadneil",
+                    "name_en": "Sadneil",
+                    "name_ru": "Грустный Нил",
+                    "category": "recruit",
+                    "locations": [{"instance_id": "loc-black-desert", "resolution": "unique"}],
+                    "dynamic": {},
+                },
+            ],
+            "bosses": [
+                {
+                    "npc_sid": "bugmaster",
+                    "name_en": "Bugmaster",
+                    "name_ru": "Хозяин Жуков",
+                    "category": "boss",
+                    "classification_origin": "game_bounty",
+                    "static_locations": [{"instance_id": "loc-crater", "resolution": "unique"}],
+                    "observed_state": {"state_code": 0},
+                    "cleared_evidence": None,
+                    "personal_evidence": None,
+                },
+                {
+                    "npc_sid": "tinfist",
+                    "name_en": "Tinfist",
+                    "name_ru": "ЖестьКулак",
+                    "category": "world_leader",
+                    "classification_origin": "world_state",
+                    "static_locations": [{"instance_id": "loc-spring", "resolution": "unique"}],
+                    "observed_state": {},
+                    "cleared_evidence": None,
+                    "personal_evidence": None,
+                },
+            ],
+            "meitou_weapons": [
+                {
+                    "base_sid": "katana",
+                    "name_en": "Katana",
+                    "name_ru": "Катана",
+                    "static_holders": [{"town_instance_id": "loc-tengu", "npc_sid": "tengu"}],
+                    "observed_instances": [{"storage_type": "storage", "container_name": "Оружейный шкаф"}],
+                    "observation_status": "observed",
+                    "provenance_status": "unconfirmed",
+                    "trophy_evidence": None,
+                },
+                {
+                    "base_sid": "naginata",
+                    "name_en": "Naginata",
+                    "name_ru": "Нагината",
+                    "static_holders": [],
+                    "observed_instances": [],
+                    "observation_status": "not_observed",
+                    "provenance_status": "unconfirmed",
+                    "trophy_evidence": None,
+                },
+            ],
+        }
+
+        entities_progress_data = {
+            "format": "kenshi-entities-progress/1",
+            "entities": {
+                "bugmaster": {
+                    "outcome": "captured",
+                    "evidence": "Взят в плен отрядом Хот Лона",
+                    "game_time": "Day 45 10:00",
+                },
+                "katana": {
+                    "outcome": "obtained",
+                    "evidence": "Трофей из хранилища Тэньгу",
+                    "game_time": "Day 50 14:00",
+                },
+                "cat": {
+                    "outcome": "recruited",
+                    "evidence": "Выкуплен из рабства",
+                    "game_time": "Day 20 08:00",
+                },
+            },
+        }
+
+        enriched = apply_progress_to_unique_entities(
+            base_entities,
+            progress_data=None,
+            entities_progress_data=entities_progress_data,
+        )
+        t = unique_entities_table(enriched)
+        rows_by_sid = {(r["entity_kind"], r["sid"]): r for r in t.rows}
+
+        # 1. Босс с победой (bugmaster)
+        bm = rows_by_sid[("boss", "bugmaster")]
+        self.assertEqual(bm["category"], "boss")
+        self.assertEqual(bm["observation_status"], "observed")
+        self.assertTrue(bm["cleared"])
+        self.assertEqual(bm["outcome"], "captured")
+        self.assertEqual(bm["evidence"], "Взят в плен отрядом Хот Лона")
+        self.assertEqual(bm["game_time"], "Day 45 10:00")
+        self.assertIsNone(bm["provenance_status"])
+
+        # 2. Непобеждённый и ненаблюдаемый босс (tinfist)
+        tf = rows_by_sid[("boss", "tinfist")]
+        self.assertEqual(tf["category"], "world_leader")
+        self.assertEqual(tf["observation_status"], "not_observed")
+        self.assertFalse(tf["cleared"])
+        self.assertIsNone(tf["outcome"])
+        self.assertIsNone(tf["evidence"])
+        self.assertIsNone(tf["game_time"])
+
+        # 3. Оружие Мейто с трофеем (katana)
+        kat = rows_by_sid[("meitou", "katana")]
+        self.assertEqual(kat["category"], "meitou")
+        self.assertEqual(kat["observation_status"], "observed")
+        self.assertEqual(kat["provenance_status"], "confirmed_trophy")
+        self.assertEqual(kat["carrier_or_storage"], "storage:Оружейный шкаф")
+        self.assertIsNone(kat["cleared"])
+        self.assertEqual(kat["outcome"], "obtained")
+        self.assertEqual(kat["evidence"], "Трофей из хранилища Тэньгу")
+        self.assertEqual(kat["game_time"], "Day 50 14:00")
+
+        # 4. Ненаблюдаемое оружие Мейто без трофея (naginata)
+        nag = rows_by_sid[("meitou", "naginata")]
+        self.assertEqual(nag["category"], "meitou")
+        self.assertEqual(nag["observation_status"], "not_observed")
+        self.assertEqual(nag["provenance_status"], "unconfirmed")
+        self.assertIsNone(nag["carrier_or_storage"])
+        self.assertIsNone(nag["cleared"])
+        self.assertIsNone(nag["outcome"])
+        self.assertIsNone(nag["evidence"])
+        self.assertIsNone(nag["game_time"])
+
+        # 5. NPC со свидетельством найма (cat)
+        cat = rows_by_sid[("npc", "cat")]
+        self.assertEqual(cat["category"], "recruit")
+        self.assertEqual(cat["observation_status"], "observed")
+        self.assertIsNone(cat["cleared"])
+        self.assertIsNone(cat["provenance_status"])
+        self.assertEqual(cat["outcome"], "recruited")
+        self.assertEqual(cat["evidence"], "Выкуплен из рабства")
+        self.assertEqual(cat["game_time"], "Day 20 08:00")
+
+        # 6. NPC без свидетельств (sadneil)
+        sn = rows_by_sid[("npc", "sadneil")]
+        self.assertEqual(sn["category"], "recruit")
+        self.assertEqual(sn["observation_status"], "not_observed")
+        self.assertIsNone(sn["cleared"])
+        self.assertIsNone(sn["outcome"])
+        self.assertIsNone(sn["evidence"])
+        self.assertIsNone(sn["game_time"])
 
 
 

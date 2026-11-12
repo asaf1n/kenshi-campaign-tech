@@ -772,6 +772,7 @@ def unique_entities_table(
 
     columns = [
         ("entity_kind", "Категория сущности: npc, boss, meitou"),
+        ("category", "Категория сущности: recruit, world_leader, boss, significant_npc, unique_npc, meitou"),
         ("sid", "sid шаблона (npc_sid для персонажей и боссов, base_sid для оружия Мейто)"),
         ("name_ru", "Имя/название на русском языке"),
         ("name_en", "Имя/название на английском языке"),
@@ -780,9 +781,13 @@ def unique_entities_table(
         ("character_id", "Идентификатор персонажа игрока, если принят в отряд"),
         ("primary_location_instance_id", "Идентификатор основной локации (поселения/города)"),
         ("location_resolution", "Точность привязки к локации: unique, ambiguous, unresolved"),
-        ("meitou_base_sid", "sid базовой модели оружия Мейто"),
         ("carrier_or_storage", "Носитель или хранилище экземпляра (вид:имя)"),
-        ("provenance_status", "Статус происхождения: confirmed_trophy, unconfirmed, либо источник зачистки босса"),
+        ("observation_status", "Статус наблюдения в сохранении: observed или not_observed"),
+        ("provenance_status", "Статус происхождения: confirmed_trophy или unconfirmed"),
+        ("cleared", "Признак зачистки/победы для боссов: True или False"),
+        ("outcome", "Исход взаимодействия из ручного слоя или персонального свидетельства"),
+        ("evidence", "Текст подтверждения/свидетельства исхода"),
+        ("game_time", "Игровое время подтверждения события"),
     ]
     if unique_entities is None:
         rows: list[dict[str, Any]] = []
@@ -797,19 +802,26 @@ def unique_entities_table(
             dyn = npc.get("dynamic") or {}
             locs = npc.get("locations") or []
             primary_iid, resolution = resolve_primary_location(locs)
+            personal = npc.get("personal_evidence") or {}
+            state_code = dyn.get("state_code")
             rows.append({
                 "entity_kind": "npc",
+                "category": npc.get("category") or "unique_npc",
                 "sid": npc.get("npc_sid") or npc.get("sid"),
                 "name_ru": npc.get("name_ru"),
                 "name_en": npc.get("name_en"),
-                "state_code": dyn.get("state_code"),
+                "state_code": state_code,
                 "squad_status": dyn.get("squad_status"),
                 "character_id": dyn.get("character_id"),
                 "primary_location_instance_id": primary_iid,
                 "location_resolution": resolution,
-                "meitou_base_sid": None,
                 "carrier_or_storage": None,
+                "observation_status": "observed" if state_code is not None else "not_observed",
                 "provenance_status": None,
+                "cleared": None,
+                "outcome": personal.get("outcome"),
+                "evidence": personal.get("evidence"),
+                "game_time": personal.get("game_time"),
             })
         for boss in unique_entities.get("bosses") or []:
             sid = boss.get("npc_sid") or boss.get("sid")
@@ -824,11 +836,11 @@ def unique_entities_table(
             locs = boss.get("static_locations") or boss.get("locations") or []
             primary_iid, resolution = resolve_primary_location(locs)
 
-            cleared = boss.get("cleared_evidence")
-            personal = boss.get("personal_evidence")
-            source = cleared.get("source") if cleared else (personal.get("event_id") if personal else None)
+            cleared = True if boss.get("cleared_evidence") else False
+            personal = boss.get("personal_evidence") or {}
             rows.append({
                 "entity_kind": "boss",
+                "category": boss.get("category") or "boss",
                 "sid": sid,
                 "name_ru": boss.get("name_ru"),
                 "name_en": boss.get("name_en"),
@@ -837,9 +849,13 @@ def unique_entities_table(
                 "character_id": character_id,
                 "primary_location_instance_id": primary_iid,
                 "location_resolution": resolution,
-                "meitou_base_sid": None,
                 "carrier_or_storage": None,
-                "provenance_status": source,
+                "observation_status": "observed" if state_code is not None else "not_observed",
+                "provenance_status": None,
+                "cleared": cleared,
+                "outcome": personal.get("outcome"),
+                "evidence": personal.get("evidence"),
+                "game_time": personal.get("game_time"),
             })
         for weapon in unique_entities.get("meitou_weapons") or []:
             base_sid = weapon.get("base_sid") or weapon.get("sid")
@@ -857,8 +873,10 @@ def unique_entities_table(
                     or ""
                 )
                 carrier_or_storage = f"{storage_type}:{target_name}"
+            trophy = weapon.get("trophy_evidence") or {}
             rows.append({
                 "entity_kind": "meitou",
+                "category": "meitou",
                 "sid": base_sid,
                 "name_ru": weapon.get("name_ru"),
                 "name_en": weapon.get("name_en"),
@@ -867,9 +885,13 @@ def unique_entities_table(
                 "character_id": None,
                 "primary_location_instance_id": None,
                 "location_resolution": None,
-                "meitou_base_sid": base_sid,
                 "carrier_or_storage": carrier_or_storage,
-                "provenance_status": weapon.get("provenance_status"),
+                "observation_status": weapon.get("observation_status") or ("observed" if observed else "not_observed"),
+                "provenance_status": weapon.get("provenance_status") or "unconfirmed",
+                "cleared": None,
+                "outcome": trophy.get("outcome"),
+                "evidence": trophy.get("evidence"),
+                "game_time": trophy.get("game_time"),
             })
         rows.sort(key=lambda r: (r["entity_kind"], str(r.get("sid") or ""), str(r.get("primary_location_instance_id") or "")))
     return Table("unique_entities.csv", "sid", "Реестр уникальных сущностей Kenshi (NPC, боссы, оружие Мейто)", columns, rows)
