@@ -2352,7 +2352,7 @@ INDEX_PURPOSES: dict[str, str] = {
     "faction_relations.csv": "Отношения фракций",
     "faction_hostility.csv": "Враждебность",
     "races.csv": "Расы, климат",
-    "region_encounters.csv": "Сводка встреч по регионам, статы отрядов и лидеров",
+    "region_encounters.csv": "Встречи по регионам",
     "skills_history.csv": "Динамика навыков",
     "campaign_history.csv": "Казна и отряд",
     "relations_history.csv": "Дипломатия по дням",
@@ -2368,7 +2368,7 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         "# Табличные выгрузки", "",
         f"- snapshot_id: `{snapshot_id}`",
         f"- Игровое время: {game_time}",
-        "- Формат: CSV, UTF-8, LF, RFC 4180. Булевы `true`/`false`.",
+        "- Формат: CSV, UTF-8, RFC 4180.",
         game_ref_line,
         "", "## Таблицы", "",
         "| Файл | Строк | Ключ сортировки | Ключи соединения | Словарь | Содержание |",
@@ -2379,10 +2379,8 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         purpose = INDEX_PURPOSES.get(t.name, t.purpose)
         lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.join_keys or 'нет'} | {dict_link} | {purpose} |")
     lines += [
-        "", "## Правила и ограничения", "",
+        "", "## Примечания", "",
         "- Словари колонок: `dict/<таблица>.md`. Связи — по `sid` и `id`.",
-        "- Ссылки `world state`/`NPC is`: `v[1]`, `v[2]` без трактовки.",
-        "- Шаблоны юнитов — как в модах.",
     ]
     if game_notes:
         lines += ["", "## Недоступные поля", ""]
