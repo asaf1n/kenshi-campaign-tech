@@ -870,7 +870,9 @@ def unique_entities_table(
 
 def town_overrides_table(current: dict[str, Any], index: dict[str, list[Any]] | None) -> Table:
     rows = [{
-        "replacement_sid": t.get("replacement_sid"), "town": t.get("name"), "raw_name": t.get("raw_name"),
+        "replacement_sid": t.get("replacement_sid"),
+        "town": t.get("name").removeprefix("Town state ") if t.get("name") is not None else None,
+        "raw_name": t.get("raw_name").removeprefix("Town state ") if t.get("raw_name") is not None else None,
         "replacement_name": t.get("replacement_name"), "replacement_name_ru": t.get("replacement_name_ru"),
         "faction_sid": t.get("faction"), "faction_name": _label(index, t.get("faction")),
         "factions_here": _join(t.get("factions_here") or []),

@@ -12,6 +12,7 @@ from tools.save_reader import (
     DEFAULT_PLAYER_FACTION,
     SaveReadError,
     check_save_inputs,
+    extract_world_state,
     read_all_platoons,
     read_player_property,
     read_quick_save,
@@ -96,6 +97,65 @@ def _make_file(records: list[bytes]) -> bytes:
     """Оборачивает список бинарных записей в файл с заголовком 15."""
     header = struct.pack("<3i", 15, len(records) + 1, len(records))
     return header + b"".join(records)
+
+
+class TestTownOverrides(unittest.TestCase):
+    def test_localizes_override_variants_and_cleans_names(self) -> None:
+        """Ловит сырые префиксы, непереведённые варианты и смешение похожих суффиксов."""
+        variants = [
+            ("half destroyed", "полуразрушен"),
+            ("destroyed", "разрушен"),
+            ("all ded", "все мертвы"),
+            ("all dead", "все мертвы"),
+            ("Deadhive", "Мёртвый улей"),
+            ("deadhive", "Мёртвый улей"),
+            ("empty", "пуст"),
+            ("takeover", "захвачен"),
+            ("malnourished", "истощён"),
+            ("prosperous", "процветает"),
+            ("slaver takeover", "захват рабовладельцами"),
+            ("", "переопределение"),
+        ]
+        for variant, variant_ru in variants:
+            rep_name = f"Shark (override) {variant}".strip()
+            for translated in (None, rep_name, f"Акула (override) {variant}"):
+                for name in ("Town state Акула", "Акула"):
+                    with self.subTest(variant=variant, translated=translated, name=name):
+                        records = [{"type": 94, "name": name, "string": {
+                            "replacementTown": "override-sid", "faction": "faction-sid",
+                            "factions here0": "present-faction",
+                        }}]
+                        state = extract_world_state(records, {"override-sid": [rep_name, translated]})
+                        town = state["town_overrides"][0]
+                        self.assertEqual((town["name"], town["raw_name"]), ("Акула", "Акула"))
+                        self.assertEqual(town["replacement_name_ru"], f"Акула ({variant_ru})")
+                        self.assertEqual(town["replacement_name"], rep_name)
+                        self.assertEqual(town["replacement_sid"], "override-sid")
+                        self.assertEqual(town["faction"], "faction-sid")
+                        self.assertEqual(town["factions_here"], ["present-faction"])
+                        self.assertEqual(records[0]["name"], name)
+
+    def test_preserves_translations_unknown_variants_and_missing_data(self) -> None:
+        """Не позволяет заменить готовый перевод или выдумать неизвестное состояние."""
+        cases = [
+            ({"override-sid": ["Shark (override) destroyed", "Разрушенная Акула"]}, "Разрушенная Акула"),
+            ({"override-sid": ["Shark (override) unknown", None]}, "Shark (override) unknown"),
+            ({"override-sid": ["Shark", None]}, "Shark"),
+            (None, "override-sid"),
+        ]
+        records = [
+            {"type": 94, "name": "Town state Акула", "string": {"replacementTown": "override-sid"}},
+            {"type": 94, "name": "Town state Без замены"},
+        ]
+        for gamedb, expected in cases:
+            with self.subTest(gamedb=gamedb):
+                state = extract_world_state(records, gamedb)
+                self.assertEqual(len(state["town_overrides"]), 1)
+                town = state["town_overrides"][0]
+                self.assertEqual((town["name"], town["raw_name"]), ("Акула", "Акула"))
+                self.assertEqual(town["replacement_name_ru"], expected)
+                self.assertEqual(state["summary"]["total_towns"], 2)
+                self.assertEqual(state["summary"]["overridden_towns_count"], 1)
 
 
 class TestSaveReader(unittest.TestCase):

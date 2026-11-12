@@ -367,10 +367,27 @@ def extract_world_state(
         rep_entry = gdb.get(rep) if (gdb and rep in gdb) else None
         rep_name = rep_entry[0] if rep_entry else rep
         rep_name_ru = rep_entry[1] if rep_entry and len(rep_entry) > 1 and rep_entry[1] else rep_name
+        if rep_name_ru == rep_name or "(override)" in rep_name_ru.casefold():
+            _, marker, variant = rep_name.casefold().partition("(override)")
+            variant_ru = {
+                "half destroyed": "полуразрушен",
+                "destroyed": "разрушен",
+                "all ded": "все мертвы",
+                "all dead": "все мертвы",
+                "deadhive": "Мёртвый улей",
+                "empty": "пуст",
+                "takeover": "захвачен",
+                "malnourished": "истощён",
+                "prosperous": "процветает",
+                "slaver takeover": "захват рабовладельцами",
+                "": "переопределение",
+            }.get(variant.strip())
+            if marker and variant_ru is not None:
+                rep_name_ru = f"{clean_name} ({variant_ru})"
 
         towns_list.append({
             "name": clean_name,
-            "raw_name": name,
+            "raw_name": clean_name,
             "replacement_sid": rep,
             "replacement_name": rep_name,
             "replacement_name_ru": rep_name_ru,

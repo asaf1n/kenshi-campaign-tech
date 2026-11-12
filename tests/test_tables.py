@@ -121,6 +121,29 @@ def parse(files: dict[str, bytes], name: str) -> list[dict[str, str]]:
 
 
 class TableContentTests(unittest.TestCase):
+    def test_town_overrides_clean_prefixes_and_keep_localization(self) -> None:
+        """Ловит префиксы в CSV старых снимков и потерю локализованного имени замены."""
+        cases = [
+            ("Town state Акула", "Town state Shark", "Акула", "Shark"),
+            ("Акула", "Shark", "Акула", "Shark"),
+            (None, None, "", ""),
+            ("", "", "", ""),
+            ("Акула Town state Shark", "Shark Town state Акула", "Акула Town state Shark", "Shark Town state Акула"),
+        ]
+        for name, raw_name, expected_name, expected_raw in cases:
+            with self.subTest(name=name, raw_name=raw_name):
+                cur = mini_snapshot()
+                town = {"name": name, "raw_name": raw_name, "replacement_sid": "override-sid",
+                        "replacement_name": "Shark (override) all ded", "replacement_name_ru": "Акула (все мертвы)"}
+                cur["world_state"]["town_overrides"] = [town]
+                files = build_tables(cur, None, SNAPSHOT_ID, INDEX, RECORDS, world_ref=WORLD_REF)
+                row = parse(files, "town_overrides.csv")[0]
+                self.assertEqual((row["town"], row["raw_name"]), (expected_name, expected_raw))
+                self.assertEqual(row["replacement_name_ru"], "Акула (все мертвы)")
+                self.assertEqual(row["replacement_name"], "Shark (override) all ded")
+                self.assertEqual(row["replacement_sid"], "override-sid")
+                self.assertEqual((town["name"], town["raw_name"]), (name, raw_name))
+
     def test_schema_order_and_values(self) -> None:
         """Ловит дрейф колонок, недетерминизм порядка строк (вход перемешан) и потерю сырых значений."""
         cur = mini_snapshot()
