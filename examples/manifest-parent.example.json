@@ -12,7 +12,6 @@
     "current": "extended/current.json",
     "changes": "changes.json",
     "brief": "brief.md",
-    "squad": "squad.md",
     "locations": "locations.json",
     "world_reference": "world-reference.json"
   },

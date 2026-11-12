@@ -4,7 +4,7 @@
 1. Захват файловой блокировки.
 2. Проверка и самовосстановление после предыдущих сбоев (backup -> published).
 3. Пространственное разрешение локаций (kenshi-locations/1) и подготовка world_reference.
-4. Рендеринг русскоязычных Markdown (brief.md, squad.md, changes.md, screenshots/index.md).
+4. Рендеринг русскоязычных Markdown (brief.md, changes.md, screenshots/index.md).
 5. Подготовка пакета в staging на том же томе.
 6. Валидация пакета до переключения (validate_publication).
 7. Переключение: published -> backup -> staging -> published.
@@ -27,7 +27,7 @@ from tools.index import DEFAULT_INDEX_PATH, load_index, reload_of
 from tools.io_utils import canonical, digest, linked, outside, read_json
 from tools.location_registry import REGISTRY_FILENAME, build_registry, read_discovery_save, registry_bytes, resolve_template_factions
 from tools.locator import resolve_locations
-from tools.rendering import render_brief, render_squad
+from tools.rendering import render_brief
 from tools.tables import INDEX_ARTIFACT, TABLES_DIR, build_tables, load_game_data
 from tools.timeline import filter_events_by_chain, load_sessions, project_timeline, read_timeline
 from tools.unique_entities_registry import build_unique_entities_registry
@@ -377,7 +377,6 @@ def publish(
     # 3. Рендеринг русскоязычных Markdown; brief.md собирается после разметки скриншотов
     from tools.changes_render import render_changes_md
 
-    squad_md = render_squad(cur, snapshot_id, locations=locations_data)
     manifest_generated_at = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     unique_entities_payload = build_unique_entities_registry(
         cur=dict(cur, snapshot_id=snapshot_id, campaign_id=effective_campaign,
@@ -410,7 +409,6 @@ def publish(
             "changes": "changes.json",
             "changes_md": "changes.md",
             "brief": "brief.md",
-            "squad": "squad.md",
             "locations": "locations.json",
             "world_reference": "world_reference.json",
             "location_registry": REGISTRY_FILENAME,
@@ -656,7 +654,6 @@ def publish(
             (staging_dir / UNIQUE_ENTITIES_FILENAME).write_bytes(canonical(unique_entities_payload))
             (staging_dir / "timeline.jsonl").write_bytes(timeline_bytes)
             (staging_dir / "brief.md").write_text(brief_md, encoding="utf-8")
-            (staging_dir / "squad.md").write_text(squad_md, encoding="utf-8")
             (staging_dir / TABLES_DIR).mkdir(parents=True, exist_ok=True)
             for table_name, table_bytes in table_files.items():
                 (staging_dir / TABLES_DIR / table_name).write_bytes(table_bytes)

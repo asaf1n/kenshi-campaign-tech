@@ -414,13 +414,13 @@ class NativeFilesTests(unittest.TestCase):
         """Ловит запись сверх лимитов Google (Doc 1,5 млн символов, ячейка 50 000) и остановку остальных файлов."""
         (self.published / "brief.md").write_text("x" * (DOC_CHAR_LIMIT + 1), encoding="utf-8")
         (self.published / "tables/wide.csv").write_text("a,b\n1," + "y" * (CELL_CHAR_LIMIT + 1) + "\n", encoding="utf-8")
-        (self.published / "squad.md").write_text("ok\n", encoding="utf-8")
+        (self.published / "changes.md").write_text("ok\n", encoding="utf-8")
         report = self.run_sync()
         self.assertEqual(report["status"], "partial")
         self.assertEqual(len(report["summary"]["refused"]), 2)
         self.assertIn("1500000", report["summary"]["refused"][0] + report["summary"]["refused"][1])
         self.assertIn("2:2", "".join(report["summary"]["refused"]))
-        self.assertEqual(self.fake.tree(), {"published/squad": DOC_MIME})
+        self.assertEqual(self.fake.tree(), {"published/changes": DOC_MIME})
         # Граница: ровно лимит проходит.
         prepare("a.md", "doc", ("x" * DOC_CHAR_LIMIT).encode())
         prepare("a.csv", "sheet", ("y" * CELL_CHAR_LIMIT).encode())
@@ -462,16 +462,16 @@ class NativeFilesTests(unittest.TestCase):
     def test_gdrive_export_restores_synced_sources(self) -> None:
         """Ловит потерю trailing_lf в sync-state/appProperties и выбор не того файла при восстановлении из Google."""
         (self.published / "brief.md").write_bytes(b"# A\r\n\r\n\r\ntext")
-        (self.published / "squad.md").write_bytes(b"a\n\nb\n\n")
+        (self.published / "changes.md").write_bytes(b"a\n\nb\n\n")
         (self.published / "tables/a.csv").write_bytes(b"a,b\n\"x\ny\",2\n")
         self.run_sync()
-        for name, expected in (("brief.md", b"# A\n\n\ntext"), ("squad.md", b"a\n\nb\n\n"), ("tables/a.csv", b"a,b\n\"x\ny\",2\n")):
+        for name, expected in (("brief.md", b"# A\n\n\ntext"), ("changes.md", b"a\n\nb\n\n"), ("tables/a.csv", b"a,b\n\"x\ny\",2\n")):
             data, info = gdrive_export(f"published/{name}", self.root, self.fake.api())
             self.assertEqual(data, expected)
             self.assertEqual(info["bytes"], len(expected))
         # Без sync-state: по именам каталогов и appProperties.
         (self.root / "tmp/sync-state.json").unlink()
-        self.assertEqual(gdrive_export("published/squad.md", self.root, self.fake.api())[0], b"a\n\nb\n\n")
+        self.assertEqual(gdrive_export("published/changes.md", self.root, self.fake.api())[0], b"a\n\nb\n\n")
         with self.assertRaises(OSError):
             gdrive_export("published/absent.md", self.root, self.fake.api())
 

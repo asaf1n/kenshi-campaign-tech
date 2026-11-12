@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import csv
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -212,7 +213,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((self.published_dir / ".gitkeep").read_bytes(), b"")
 
     def test_headers_without_hashes_and_empty_timeline_warning(self) -> None:
-        """Заголовки brief.md и squad.md по игровому времени без sha256; пустой timeline.jsonl даёт warning при status passed."""
+        """Заголовок brief.md по игровому времени без sha256; squad.md не публикуется; пустой timeline.jsonl даёт warning."""
         snap_id = "snap-headers"
         _create_sample_snapshot(self.snapshots_dir, snap_id)
         kwargs = dict(snapshot_id=snap_id, snapshots_dir=self.snapshots_dir, diffs_dir=self.diffs_dir,
@@ -222,17 +223,21 @@ class PublishTests(unittest.TestCase):
         cur = read_json((self.published_dir / "extended" / "current.json").read_bytes())
         when = f"День {cur['world']['day']}, {cur['world']['time']}"
         self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8").splitlines()[0], f"# Краткая сводка: {when}")
-        self.assertEqual((self.published_dir / "squad.md").read_text(encoding="utf-8").splitlines()[0], f"# Состав отряда: {when}")
+        self.assertFalse((self.published_dir / "squad.md").exists())
         manifest_bytes = (self.published_dir / "manifest.json").read_bytes()
         manifest = read_json(manifest_bytes)
+        self.assertNotIn("squad", manifest["artifacts"])
         validation = manifest["validation"]
         self.assertEqual((validation["status"], validation["warnings"]), ("passed", ["artifact:timeline: empty"]))
         self.assertEqual(manifest["artifacts"]["location_registry"], REGISTRY_FILENAME)
+        self.assertEqual(validate_publication(self.published_dir)["status"], "passed")
         registry = (self.published_dir / REGISTRY_FILENAME).read_bytes()
 
         publish(**kwargs)  # предупреждение не нарушает идемпотентность выпуска
         self.assertEqual((self.published_dir / "manifest.json").read_bytes(), manifest_bytes)
         self.assertEqual((self.published_dir / REGISTRY_FILENAME).read_bytes(), registry)
+
+    test_publish_headers_and_timeline_warning = test_headers_without_hashes_and_empty_timeline_warning
 
     def test_publish_does_not_hide_an_unreadable_index(self) -> None:
         snap_id = "snap-broken-index"
@@ -356,7 +361,9 @@ class PublishTests(unittest.TestCase):
         published_brief = render_brief(cur, ch, snap_id, locations=loc, timeline=timeline, timeline_projection=True,
                                        publication=manifest)
         self.assertEqual((self.published_dir / "brief.md").read_text(encoding="utf-8"), published_brief)
-        self.assertEqual((self.published_dir / "squad.md").read_text(encoding="utf-8"), squad1)
+        self.assertFalse((self.published_dir / "squad.md").exists())
+        self.assertNotIn("squad", manifest["artifacts"])
+        self.assertEqual(validate_publication(self.published_dir)["status"], "passed")
 
         # 2. Сверка чисел в brief.md и squad.md с JSON
         # День игры
@@ -455,3 +462,216 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(PublicationValidationError) as ctx_val:
             validate_publication(self.published_dir, index_data=mismatched_index)
         self.assertIn("campaign_id", str(ctx_val.exception))
+
+    test_end_to_end_publish = test_ac10_ac11_privacy_and_deterministic_rendering_reconciliation
+
+    def test_squad_csv_covers_all_squad_md_fields(self) -> None:
+        """Сверка 100% покрытия всех полей персонажей из squad.md таблицей squad.csv и витринами."""
+        snap_id = "snap-squad-cov"
+        snap_dir = self.snapshots_dir / snap_id
+        snap_dir.mkdir(parents=True, exist_ok=True)
+
+        char_main = {
+            "id": "ps:100",
+            "name": "Хот Лон",
+            "squad_id": "sq_main",
+            "race": "Скелет",
+            "is_animal": False,
+            "is_leader": True,
+            "female": False,
+            "position": [-50000.0, 50.0, 20000.0],
+            "status": {"coma": False, "dead": False, "unconscious": True},
+            "combat_modes": {"block": True, "taunt": True, "passive": False},
+            "attributes_base": {
+                "Strength": 45.0,
+                "Dexterity": 30.0,
+                "Toughness": 55.0,
+                "Perception": 25.0,
+            },
+            "skills_base": {
+                "Melee Attack": 52.0,
+                "Athletics": 60.0,
+                "Dodge": 35.0,
+            },
+            "condition": {
+                "blood": 180.0,
+                "hunger_raw": 3.0,
+                "bleeding": 1.5,
+                "KO": True,
+            },
+            "lost_limbs": [{"limb": "left_arm"}],
+            "prosthetics": [
+                {
+                    "limb": "left_arm",
+                    "name": "Эконом-рука скелета",
+                    "sid": "skeleton_arm_l",
+                    "level": 40,
+                    "grade": "standard",
+                }
+            ],
+            "jobs": {
+                "enabled": True,
+                "primary": [{"task_name": "Крафт", "target_name": "Верстак", "task_code": 10}],
+                "temporary": [{"task_code": 42}],
+            },
+            "carrying": {
+                "is_carrying": True,
+                "target_name": "Пленный паладин",
+            },
+            "bounties": {
+                "has_bounty": True,
+                "total_amount": 25000,
+            },
+            "weapons": [{"slot": "weapon_back", "name": "Тесак", "sid": "w_cleaver", "grade": "MK II", "level": 60}],
+            "armour": {"chest": {"name": "Панцирь самурая", "sid": "a_samurai", "level": 70}},
+            "backpack": {"sid": "bp_1", "name": "Большой рюкзак", "contents": [{"name": "Аптечка", "sid": "med_1", "quantity": 2}]},
+            "inventory": [{"name": "Вяленое мясо", "sid": "food_meat", "quantity": 5}],
+            "items": [
+                {"item_sid": "i_meat", "base_data_sid": "food_meat", "container": "inventory", "section": "standard", "quantity": 5},
+                {"item_sid": "i_med", "base_data_sid": "med_1", "container": "inventory>bp_1", "section": "backpack_content", "quantity": 2},
+            ],
+        }
+
+        char_animal = {
+            "id": "ps:101",
+            "name": "Вьючный бык",
+            "squad_id": "sq_main",
+            "race": "Бык",
+            "is_animal": True,
+            "status": {"dead": False},
+            "condition": {"blood": 220.0, "hunger_raw": 2.5},
+            "carrying": {
+                "carried_by": "ps:100",
+                "carried_by_name": "Хот Лон",
+            },
+        }
+
+        current_data = {
+            "format": "kenshi-session/10",
+            "save": {},
+            "world": {"day": 50, "time": "12:00", "money": 99000},
+            "characters": [char_main, char_animal],
+            "squads": [{"squad_id": "sq_main", "squad_name": "Штурмовики", "members": ["Хот Лон", "Вьючный бык"]}],
+            "supplies": {},
+            "warnings": [],
+            "meta": {},
+        }
+        (snap_dir / "current.json").write_bytes(canonical(current_data))
+        (snap_dir / "provenance.json").write_bytes(canonical({
+            "format": "kenshi-snapshot/2",
+            "snapshot_id": snap_id,
+            "source_kind": "save",
+            "source_format": "kenshi-session/10",
+            "source_sha256": SAMPLE_SHA,
+            "created_at": "2026-11-01T12:00:00Z",
+            "pipeline": "test",
+        }))
+
+        publish(
+            snapshot_id=snap_id,
+            snapshots_dir=self.snapshots_dir,
+            diffs_dir=self.diffs_dir,
+            published_dir=self.published_dir,
+        )
+
+        # 1. squad.md отсутствует на диске и в манифесте; публикация валидна
+        self.assertFalse((self.published_dir / "squad.md").exists())
+        manifest = read_json((self.published_dir / "manifest.json").read_bytes())
+        self.assertNotIn("squad", manifest["artifacts"])
+        self.assertEqual(validate_publication(self.published_dir)["status"], "passed")
+
+        # 2. Чтение tables/squad.csv
+        squad_csv_path = self.published_dir / "tables" / "squad.csv"
+        self.assertTrue(squad_csv_path.is_file())
+        with squad_csv_path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            columns = list(reader.fieldnames or [])
+            rows = {r["character_id"]: r for r in reader}
+
+        # 3. Сверка столбцов по спецификации
+        spec_fields = [
+            "character_id", "name", "race", "is_animal", "squad_id", "squad_name",
+            "zone", "resolution_status", "region", "region_ru", "settlement", "settlement_ru", "nearby_settlement", "nearby_settlement_ru",
+            "blood", "hunger_raw", "bleeding", "ko", "lost_limbs", "prosthetics",
+            "status_active", "combat_modes_active",
+            "jobs_enabled", "jobs_primary", "jobs_temporary",
+            "carrying_target", "carried_by", "bounty_total",
+        ]
+        for field in spec_fields:
+            self.assertIn(field, columns, f"Столбец '{field}' отсутствует в tables/squad.csv")
+
+        # Базовые 4 атрибута (Strength, Dexterity, Toughness, Perception)
+        columns_lower = {c.lower(): c for c in columns}
+        for attr in ("strength", "dexterity", "toughness", "perception"):
+            self.assertIn(attr, columns_lower, f"Атрибут '{attr}' отсутствует в tables/squad.csv")
+
+        # Все навыки из skills_base
+        for skill in ("Melee Attack", "Athletics", "Dodge"):
+            self.assertIn(skill, columns, f"Навык '{skill}' отсутствует в tables/squad.csv")
+
+        # 4. Проверка полноты значений для основного персонажа ps:100
+        r_main = rows["ps:100"]
+        self.assertEqual(r_main["name"], "Хот Лон")
+        self.assertEqual(r_main["race"], "Скелет")
+        self.assertEqual(r_main["is_animal"].lower(), "false")
+        self.assertEqual(r_main["squad_id"], "sq_main")
+        self.assertEqual(r_main["squad_name"], "Штурмовики")
+        self.assertEqual(float(r_main["blood"]), 180.0)
+        self.assertEqual(float(r_main["hunger_raw"]), 3.0)
+        self.assertEqual(float(r_main["bleeding"]), 1.5)
+        self.assertEqual(r_main["ko"].lower(), "true")
+        self.assertIn("left_arm", r_main["lost_limbs"])
+        self.assertIn("left_arm: Эконом-рука скелета", r_main["prosthetics"])
+        self.assertEqual(r_main["status_active"], "unconscious")
+        self.assertIn("block", r_main["combat_modes_active"])
+        self.assertIn("taunt", r_main["combat_modes_active"])
+        self.assertEqual(r_main["jobs_enabled"].lower(), "true")
+        self.assertIn("Крафт [Верстак]", r_main["jobs_primary"])
+        self.assertIn("42", r_main["jobs_temporary"])
+        self.assertEqual(r_main["carrying_target"], "Пленный паладин")
+        self.assertEqual(int(r_main["bounty_total"]), 25000)
+        self.assertEqual(float(r_main[columns_lower["strength"]]), 45.0)
+        self.assertEqual(float(r_main[columns_lower["dexterity"]]), 30.0)
+        self.assertEqual(float(r_main[columns_lower["toughness"]]), 55.0)
+        self.assertEqual(float(r_main[columns_lower["perception"]]), 25.0)
+        self.assertEqual(float(r_main["Melee Attack"]), 52.0)
+        self.assertEqual(float(r_main["Athletics"]), 60.0)
+        self.assertEqual(float(r_main["Dodge"]), 35.0)
+
+        # 5. Проверка животного ps:101
+        r_anim = rows["ps:101"]
+        self.assertEqual(r_anim["name"], "Вьючный бык")
+        self.assertEqual(r_anim["is_animal"].lower(), "true")
+        self.assertEqual(r_anim["carried_by"], "Хот Лон")
+
+        # 6. Проверка витрин equipment.csv и inventory.csv для детального снаряжения
+        eq_csv_path = self.published_dir / "tables" / "equipment.csv"
+        self.assertTrue(eq_csv_path.is_file())
+        with eq_csv_path.open("r", encoding="utf-8") as f:
+            eq_sids = {r["sid"] for r in csv.DictReader(f) if r["character_id"] == "ps:100"}
+        self.assertIn("w_cleaver", eq_sids)
+        self.assertIn("a_samurai", eq_sids)
+        self.assertIn("skeleton_arm_l", eq_sids)
+
+        inv_csv_path = self.published_dir / "tables" / "inventory.csv"
+        self.assertTrue(inv_csv_path.is_file())
+        with inv_csv_path.open("r", encoding="utf-8") as f:
+            inv_sids = {r["base_sid"] for r in csv.DictReader(f) if r["character_id"] == "ps:100"}
+        self.assertIn("food_meat", inv_sids)
+        self.assertIn("med_1", inv_sids)
+
+        # 7. Сверка с семантическим рендером render_squad
+        loc_data = read_json((self.published_dir / "locations.json").read_bytes())
+        squad_text = render_squad(current_data, snap_id, locations=loc_data)
+        self.assertIn("Хот Лон", squad_text)
+        self.assertIn("ps:100", squad_text)
+        self.assertIn("Скелет", squad_text)
+        self.assertIn("кровь 180.0", squad_text)
+        self.assertIn("сытость 3.0", squad_text)
+        self.assertIn("unconscious", squad_text)
+        self.assertIn("block", squad_text)
+        self.assertIn("Крафт [Верстак]", squad_text)
+        self.assertIn("несёт Пленный паладин", squad_text)
+        self.assertIn("25 000 кат.", squad_text)
+        self.assertIn("Strength: 45.0", squad_text)
+        self.assertIn("Melee Attack: 52.0", squad_text)

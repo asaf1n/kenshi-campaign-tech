@@ -65,7 +65,7 @@ class GDriveSyncTests(unittest.TestCase):
         shipped = sorted(p.relative_to(self.root / "published").as_posix() for p in (self.root / "published").rglob("*") if p.is_file())
         self.assertEqual(shipped, ["screenshots/screenshots_latest.pdf"])
         self.assertEqual(sorted(fake.tree()), ["published/brief", "published/changes", "published/screenshots/index",
-                                               "published/squad", "published/tables/a", "published/tables/index"])
+                                               "published/tables/a", "published/tables/index"])
         self.assertEqual(sync_session(published, self.root, native=native)["written"], 0)
 
         self.assertEqual(sync_drive(self.tmp / "absent", published, None)["status"], "skipped")
@@ -103,7 +103,7 @@ class GDriveSyncTests(unittest.TestCase):
         published = self.tmp / "published"
         (published / "screenshots").mkdir(parents=True)
         (published / "brief.md").write_text("абв", encoding="utf-8")
-        (published / "squad.md").write_text("a" * 10, encoding="utf-8")
+        (published / "changes.md").write_text("a" * 10, encoding="utf-8")
         (published / "desktop.ini").write_text("junk", encoding="utf-8")
         (published / "screenshots" / "screenshots_latest.pdf").write_bytes(b"%PDF")
         (self.root / "published").mkdir()
@@ -113,7 +113,7 @@ class GDriveSyncTests(unittest.TestCase):
         plan = build_plan(published, None, self.root)
         game = plan["profiles"]["game"]
         self.assertEqual([(i["path"], i["chars"]) for i in game["files_chars"]],
-                         [("published/squad.md", 10), ("published/brief.md", 3),
+                         [("published/changes.md", 10), ("published/brief.md", 3),
                           ("published/screenshots/screenshots_latest.pdf", None)])
         self.assertEqual(game["total_chars"], 13)
         self.assertNotIn("published/desktop.ini", game["files"])
@@ -331,7 +331,7 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertTrue(all((self.root / p).is_file() for p in [*fell_out, *legacy]))
         self.assertEqual(sorted(fake.tree()), sorted([
             "Campaign/К/Kenshi_Хронология", "Campaign/К/archive/sessions/S-1", "docs/chronicler-guide", "docs/companion-guide",
-            "published/brief", "published/changes", "published/squad", "published/screenshots/index", "published/tables/a",
+            "published/brief", "published/changes", "published/screenshots/index", "published/tables/a",
             "published/tables/index"]))
         self.assertFalse((self.root / "prompts").exists())
         self.assertEqual(plain["profiles"]["chronicle"]["files"], [
@@ -359,11 +359,11 @@ class GDriveSyncTests(unittest.TestCase):
         self.assertEqual(tree(), settled)
 
         # Отказ записи нативной копии (лимит Doc) оставляет прежний файл даже с --prune.
-        (published / "squad.md").write_text("x" * 1_500_001, encoding="utf-8")
-        put("published/squad.md", b"old")
+        (published / "changes.md").write_text("x" * 1_500_001, encoding="utf-8")
+        put("published/changes.md", b"old")
         refused = run(prune=True)
         self.assertEqual((refused["status"], refused["summary"]["deleted"]), ("partial", []))
-        self.assertEqual((self.root / "published/squad.md").read_bytes(), b"old")
+        self.assertEqual((self.root / "published/changes.md").read_bytes(), b"old")
 
 
 class _NoDrive:

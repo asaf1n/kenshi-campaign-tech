@@ -50,7 +50,7 @@ class PipelineE2ETests(unittest.TestCase):
             self.assertTrue((published_dir / "extended" / "current.json").is_file())
             self.assertTrue((published_dir / "changes.json").is_file())
             self.assertTrue((published_dir / "brief.md").is_file())
-            self.assertTrue((published_dir / "squad.md").is_file())
+            self.assertFalse((published_dir / "squad.md").exists())
             self.assertTrue((published_dir / ".gitkeep").is_file())
 
             # Валидация опубликованного пакета

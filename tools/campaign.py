@@ -14,7 +14,7 @@ from tools.locator import resolve_locations
 from tools.normalization import scrub
 from tools.pipeline import run_pipeline
 from tools.publisher import publish
-from tools.rendering import render_brief, render_squad
+from tools.rendering import render_brief
 from tools.world_reference import load_world_reference
 
 
@@ -64,11 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     locate_parser.add_argument("--output", type=Path, help="Файл для сохранения результата")
 
     # 5. render
-    render_parser = commands.add_parser("render", help="Генерация Markdown (brief.md, squad.md)")
+    render_parser = commands.add_parser("render", help="Генерация Markdown (brief.md)")
     render_parser.add_argument("--current", type=Path, required=True, help="Путь к current.json")
     render_parser.add_argument("--changes", type=Path, required=True, help="Путь к changes.json")
     render_parser.add_argument("--locations", type=Path, help="Путь к locations.json")
-    render_parser.add_argument("--output-dir", type=Path, required=True, help="Каталог для записи brief.md и squad.md")
+    render_parser.add_argument("--output-dir", type=Path, required=True, help="Каталог для записи brief.md")
     render_parser.add_argument("--snapshot-id", default="snapshot")
     render_parser.add_argument("--timeline", type=Path, help="Опубликованная проекция timeline.jsonl")
 
@@ -330,13 +330,10 @@ def main(argv: list[str] | None = None) -> int:
                                      timeline=timeline, timeline_projection=True)
             if timeline is not None:
                 (args.output_dir / "timeline.jsonl").write_bytes(b"".join(canonical(e) for e in timeline))
-            squad_text = render_squad(cur, args.snapshot_id, locations=loc)
             (args.output_dir / "brief.md").write_text(brief_text, encoding="utf-8")
-            (args.output_dir / "squad.md").write_text(squad_text, encoding="utf-8")
             result = {
                 "rendered": [
                     str((args.output_dir / "brief.md").resolve()),
-                    str((args.output_dir / "squad.md").resolve()),
                 ]
             }
 

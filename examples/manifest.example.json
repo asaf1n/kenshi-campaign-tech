@@ -12,8 +12,7 @@
   "artifacts": {
     "current": "extended/current.json",
     "changes": "changes.json",
-    "brief": "brief.md",
-    "squad": "squad.md"
+    "brief": "brief.md"
   },
   "validation": {
     "status": "passed",

@@ -45,8 +45,7 @@
       "required": [
         "current",
         "changes",
-        "brief",
-        "squad"
+        "brief"
       ],
       "properties": {
         "current": {
@@ -64,7 +63,9 @@
           "$ref": "#/$defs/relativePath"
         },
         "squad": {
-          "$ref": "#/$defs/relativePath"
+          "$ref": "#/$defs/relativePath",
+          "deprecated": true,
+          "description": "Устарел: монолитный squad.md снят с публикации; полный состав отряда доступен в tables/squad.csv."
         },
         "timeline": {
           "$ref": "#/$defs/relativePath"

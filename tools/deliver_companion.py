@@ -29,7 +29,7 @@ SYNCED_DIRS = ("screenshots", "extended", "tables")
 # Каталоги прежних выпусков: удаляются в целевом репозитории целиком (ссылки и junction не затрагиваются).
 LEGACY_DIRS = ("current",)
 # Корневые файлы прежних выпусков: удаляются в целевом репозитории, если в публикации их больше нет.
-LEGACY_ARTIFACTS = ("current.json",)
+LEGACY_ARTIFACTS = ("current.json", "squad.md")
 
 # Локальные артефакты, исключаемые из публикации в репозиторий.
 LOCAL_ONLY = {Path("screenshots_latest.pdf")}
@@ -42,7 +42,6 @@ REQUIRED_ARTIFACTS = (
     "world_reference.json",
     "timeline.jsonl",
     "brief.md",
-    "squad.md",
 )
 
 

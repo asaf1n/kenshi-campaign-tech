@@ -183,7 +183,6 @@ def test_chatgpt_channel_and_freshness(
         "world_reference.json",
         "timeline.jsonl",
         "brief.md",
-        "squad.md",
     ]
     missing = [f for f in required_bundle if not (published_dir / f).is_file()]
     if missing:
@@ -424,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Проверка Markdown рендеринга
     brief_text = (pub_dir / "brief.md").read_text(encoding="utf-8")
-    squad_text = (pub_dir / "squad.md").read_text(encoding="utf-8")
+    assert not (pub_dir / "squad.md").exists()
     assert f"День {cur1['world']['day']}" in brief_text and cur1["world"]["time"] in brief_text
     assert f"{len(cur1['characters'])}" in brief_text
 

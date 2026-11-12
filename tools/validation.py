@@ -545,21 +545,21 @@ def validate_tables(package_dir: Path, manifest: dict[str, Any]) -> None:
         raise PublicationValidationError(f"Таблицы не перечислены в tables/index.md: {', '.join(extra)}")
 
 
-# Верхний предел текстовых файлов стартового набора (manifest, brief, squad, changes.md), символов.
+# Верхний предел текстовых файлов стартового набора (manifest, brief, changes.md), символов.
 # Полный changes.json в стартовый набор не входит: его объём растёт с промежутком между сейвами.
 START_SET_LIMIT_CHARS = 140_000
 
 
 def validate_start_set_size(package_dir: Path, artifacts: dict[str, str]) -> None:
-    """Стартовый набор (manifest, brief, squad, changes.md) укладывается в START_SET_LIMIT_CHARS."""
+    """Стартовый набор (manifest, brief, changes.md) укладывается в START_SET_LIMIT_CHARS."""
     total = 0
-    for name in ("manifest.json", artifacts.get("brief"), artifacts.get("squad"), artifacts.get("changes_md")):
+    for name in ("manifest.json", artifacts.get("brief"), artifacts.get("changes_md")):
         path = package_dir / name if name else None
         if path is not None and path.is_file():
             total += len(path.read_text(encoding="utf-8"))
     if total > START_SET_LIMIT_CHARS:
         raise PublicationValidationError(
-            f"Стартовый набор (manifest, brief, squad, changes.md) превышает лимит: {total} > {START_SET_LIMIT_CHARS} символов"
+            f"Стартовый набор (manifest, brief, changes.md) превышает лимит: {total} > {START_SET_LIMIT_CHARS} символов"
         )
 
 
@@ -609,7 +609,7 @@ def validate_publication(package_dir: Path, index_data: dict[str, Any] | None = 
 
     # 1. Проверка артефактов
     artifacts = manifest.get("artifacts", {})
-    required_artifacts = {"current", "changes", "brief", "squad"}
+    required_artifacts = {"current", "changes", "brief"}
     if not required_artifacts.issubset(artifacts.keys()):
         missing = required_artifacts - set(artifacts.keys())
         raise PublicationValidationError(f"В artifacts отсутствуют обязательные файлы: {missing}")

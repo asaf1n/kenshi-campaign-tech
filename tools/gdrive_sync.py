@@ -75,7 +75,7 @@ UNIT_REFERENCE_TABLES: tuple[str, ...] = tuple(f"published/tables/{name}.csv" fo
 PROFILE_GAME = Profile(
     "game", "Игровой блокнот",
     (
-        "published/brief.md", "published/changes.md", "published/squad.md",
+        "published/brief.md", "published/changes.md",
         "published/tables/*.csv", "published/tables/index.md",
         "published/screenshots/index.md", "published/screenshots/feed.md", f"published/screenshots/{PDF_NAME}",
         "Campaign/*/Kenshi_Хронология.md", "Campaign/*/Kenshi_Текущая_арка.md", "Campaign/*/Kenshi_Архетипы_и_билды.md",

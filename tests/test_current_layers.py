@@ -49,7 +49,7 @@ class CurrentLayersTests(unittest.TestCase):
         self.assertIn("raw", SNAPSHOT["characters"][0]["items"][0])  # исходные данные не изменяются
 
     def test_start_set_limit(self) -> None:
-        """Превышение лимита стартового набора (manifest, brief, squad, changes.md) даёт ошибку публикации."""
+        """Превышение лимита стартового набора (manifest, brief, changes.md) даёт ошибку публикации."""
         with tempfile.TemporaryDirectory() as tmp:
             package = Path(tmp)
             (package / "manifest.json").write_text("{}", encoding="utf-8")
@@ -73,11 +73,13 @@ class CurrentLayersTests(unittest.TestCase):
                 validate_start_set_size(package, artifacts)
 
     def test_manifest_schema_current_index_is_optional_and_deprecated(self) -> None:
-        """Манифест без current_index валиден; манифест прежнего выпуска с current_index остаётся валидным."""
+        """Манифест без current_index и squad валиден; манифест прежнего выпуска с ними остаётся валидным."""
         schema = json.loads((ROOT / "contracts/manifest.schema.json").read_text(encoding="utf-8"))
         artifacts = schema["properties"]["artifacts"]
         self.assertNotIn("current_index", artifacts["required"])
         self.assertTrue(artifacts["properties"]["current_index"]["deprecated"])
+        self.assertNotIn("squad", artifacts["required"])
+        self.assertTrue(artifacts["properties"]["squad"]["deprecated"])
         Draft202012Validator.check_schema(schema)
 
     def test_delivery_removes_legacy_current_dir_and_keeps_rest(self) -> None:
