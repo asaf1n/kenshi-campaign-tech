@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tools.deliver_companion import deliver_to_companion
+from tools.deliver_companion import ENTITIES_PROGRESS_RELATIVE, deliver_to_companion
 from tools.gdrive_sync import ensure_buffer
 from tools.io_utils import canonical, read_json
 from tools.location_registry import PROGRESS_RELATIVE, REGISTRY_FILENAME, build_registry
@@ -269,23 +269,45 @@ class GitSyncTests(unittest.TestCase):
                 }],
                 "observed_state": {"state_code": 1, "player_defeat_flag": False, "captured_by": None},
                 "cleared_evidence": None,
-                "personal_evidence": {"event_id": "ev-test", "day": 135, "summary": "Победа [npc_sid=boss-test]"},
+                "personal_evidence": {"outcome": "dead", "evidence": "Победа", "game_time": "Day 135 10:00"},
             }],
-            "meitou_weapons": [],
+            "meitou_weapons": [{
+                "base_sid": "meitou-test",
+                "grade_sid": "52293-rebirth.mod",
+                "manufacturer_sid": "52288-rebirth.mod",
+                "name_ru": "Тестовое Мейто",
+                "name_en": "Test Meitou",
+                "weapon_category": "katana",
+                "static_holders": [{
+                    "npc_sid": "boss-test",
+                    "npc_name": "Test Boss",
+                    "town_instance_id": instance,
+                    "town_name": "Location",
+                }],
+                "observed_instances": [],
+                "observation_status": "not_observed",
+                "provenance_status": "unconfirmed",
+                "trophy_evidence": None,
+            }],
         }
         validate_unique_entities_registry(entities)
         source_entities_path = self.published / "unique_entities_registry.json"
         source_entities_path.write_bytes(canonical(entities))
 
-        # 1. Доставка без прогресса: файл скопирован в клон
+        # 1. Доставка без прогресса: файл скопирован в клон, личные отметки сброшены (слой отсутствует)
         res = self._deliver()
         self.assertEqual(res["status"], "delivered")
+        self.assertEqual(res["location_progress"], "absent")
+        self.assertEqual(res["entities_progress"], "absent")
         target_entities_path = self.clone / "published/unique_entities_registry.json"
         self.assertTrue(target_entities_path.is_file())
         delivered = read_json(target_entities_path.read_bytes())
         self.assertIsNone(delivered["bosses"][0]["cleared_evidence"])
+        self.assertIsNone(delivered["bosses"][0]["personal_evidence"])
+        self.assertEqual(delivered["meitou_weapons"][0]["provenance_status"], "unconfirmed")
+        self.assertIsNone(delivered["meitou_weapons"][0]["trophy_evidence"])
 
-        # 2. Появление прогресса в клоне: обогащение JSON и пересборка unique_entities.csv
+        # 2. Появление locations_progress в клоне: обогащение static_locations босса
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         (self.other / PROGRESS_RELATIVE).parent.mkdir(parents=True, exist_ok=True)
         progress = {
@@ -297,44 +319,143 @@ class GitSyncTests(unittest.TestCase):
 
         res2 = self._deliver()
         self.assertEqual(res2["status"], "delivered")
+        self.assertEqual(res2["location_progress"], "ok")
+        self.assertEqual(res2["entities_progress"], "absent")
         delivered2 = read_json(target_entities_path.read_bytes())
         validate_unique_entities_registry(delivered2)
         boss = delivered2["bosses"][0]
-        self.assertIsNotNone(boss["cleared_evidence"])
-        self.assertEqual(boss["cleared_evidence"]["location_instance_id"], instance)
-        self.assertEqual(boss["cleared_evidence"]["source"], "session-boss-cleared")
-        self.assertEqual(boss["cleared_evidence"]["cleared_at"], "Day 135 10:00")
+        self.assertIsNotNone(boss["static_locations"][0]["cleared_evidence"])
+        self.assertEqual(boss["static_locations"][0]["cleared_evidence"]["location_instance_id"], instance)
+        self.assertEqual(boss["static_locations"][0]["cleared_evidence"]["source"], "session-boss-cleared")
+        self.assertEqual(boss["static_locations"][0]["cleared_evidence"]["cleared_at"], "Day 135 10:00")
+
+        # 3. Появление entities_progress.json: подтверждение трофея Мейто и personal_evidence босса
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        entities_progress = {
+            "format": "kenshi-entities-progress/1",
+            "campaign_id": "hot-lon",
+            "world_ref_id": world_ref_id,
+            "entities": {
+                "boss-test": {"outcome": "dead", "evidence": "Победа над боссом", "game_time": "Day 135 10:00"},
+                "meitou-test": {"outcome": "trophy_claimed", "evidence": "Взят в инвентарь", "game_time": "Day 135 10:05"},
+            },
+        }
+        self._remote_commit(ENTITIES_PROGRESS_RELATIVE.as_posix(), canonical(entities_progress).decode("utf-8"))
+
+        res3 = self._deliver()
+        self.assertEqual(res3["status"], "delivered")
+        self.assertEqual(res3["location_progress"], "ok")
+        self.assertEqual(res3["entities_progress"], "ok")
+        delivered3 = read_json(target_entities_path.read_bytes())
+        validate_unique_entities_registry(delivered3)
+
+        boss3 = delivered3["bosses"][0]
+        self.assertEqual(boss3["personal_evidence"], {
+            "outcome": "dead", "evidence": "Победа над боссом", "game_time": "Day 135 10:00",
+        })
+        self.assertEqual(boss3["cleared_evidence"], {
+            "location_instance_id": None, "cleared_at": "Day 135 10:00", "source": "Победа над боссом",
+        })
+        weapon3 = delivered3["meitou_weapons"][0]
+        self.assertEqual(weapon3["provenance_status"], "confirmed_trophy")
+        self.assertEqual(weapon3["trophy_evidence"], {
+            "outcome": "trophy_claimed", "evidence": "Взят в инвентарь", "game_time": "Day 135 10:05",
+        })
 
         # Таблица unique_entities.csv пересобрана из обогащённого JSON
         target_csv_path = self.clone / "published/tables/unique_entities.csv"
         self.assertTrue(target_csv_path.is_file())
-        csv_text = target_csv_path.read_text(encoding="utf-8")
-        self.assertIn("boss-test", csv_text)
-        self.assertIn("session-boss-cleared", csv_text)
+        csv_text3 = target_csv_path.read_text(encoding="utf-8")
+        self.assertIn("boss-test", csv_text3)
+        self.assertIn("confirmed_trophy", csv_text3)
+        self.assertIn("Победа над боссом", csv_text3)
 
-        # 3. Защита ручного слоя при ошибке: невалидный прогресс выставляет status: degraded
-        # и блокирует перезапись зависимых файлов (unique_entities_registry.json, unique_entities.csv)
+        # 4. Защита ручного слоя entities_progress при ошибке: невалидный JSON выставляет status: degraded,
+        # entities_progress: invalid и блокирует перезапись зависимых файлов (unique_entities_registry.json, unique_entities.csv)
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(ENTITIES_PROGRESS_RELATIVE.as_posix(), "{")
+        res_deg_ent = self._deliver()
+        self.assertEqual((res_deg_ent["status"], res_deg_ent["entities_progress"]), ("degraded", "invalid"))
+        self.assertEqual(res_deg_ent["location_progress"], "ok")
+        # Зависимые файлы не перезаписаны и сохраняют ранее валидное состояние delivered3
+        self.assertEqual(target_entities_path.read_bytes(), canonical(delivered3))
+        self.assertEqual(target_csv_path.read_text(encoding="utf-8"), csv_text3)
+
+        # Восстановление после исправления entities_progress.json
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(ENTITIES_PROGRESS_RELATIVE.as_posix(), canonical(entities_progress).decode("utf-8"))
+        res_rec_ent = self._deliver()
+        self.assertEqual((res_rec_ent["status"], res_rec_ent["entities_progress"]), ("delivered", "ok"))
+
+        # 5. Защита ручного слоя locations_progress при невалидном файле: status: degraded, location_progress: invalid
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), "{")
-        res_deg = self._deliver()
-        self.assertEqual((res_deg["status"], res_deg["location_progress"]), ("degraded", "invalid"))
-        # Зависимые файлы не перезаписаны и сохраняют ранее валидное состояние
-        self.assertEqual(target_entities_path.read_bytes(), canonical(delivered2))
-        self.assertEqual(target_csv_path.read_text(encoding="utf-8"), csv_text)
+        res_deg_loc = self._deliver()
+        self.assertEqual((res_deg_loc["status"], res_deg_loc["location_progress"]), ("degraded", "invalid"))
+        self.assertEqual(target_entities_path.read_bytes(), canonical(delivered3))
+        self.assertEqual(target_csv_path.read_text(encoding="utf-8"), csv_text3)
 
-        # Восстановление после исправления файла прогресса
+        # Восстановление после исправления файла locations_progress
         self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
         self._remote_commit(PROGRESS_RELATIVE.as_posix(), canonical(progress).decode("utf-8"))
-        res_rec = self._deliver()
-        self.assertEqual((res_rec["status"], res_rec["location_progress"]), ("delivered", "ok"))
+        res_rec_loc = self._deliver()
+        self.assertEqual((res_rec_loc["status"], res_rec_loc["location_progress"]), ("delivered", "ok"))
 
         # Исходный файл в published/ остался без изменений
         self.assertEqual(source_entities_path.read_bytes(), canonical(entities))
 
-        # 4. Удаление реестра из published/: файл удаляется и в клоне
+        # 6. Случай, когда entities_progress.json является каталогом (директорией): status degraded, entities_progress invalid
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        ent_file = self.other / ENTITIES_PROGRESS_RELATIVE
+        self.git("rm", ENTITIES_PROGRESS_RELATIVE.as_posix(), cwd=self.other)
+        ent_file.mkdir(parents=True)
+        (ent_file / ".gitkeep").write_text("", encoding="utf-8")
+        self.git("add", ".", cwd=self.other)
+        self.git("commit", "-m", "dir instead of entities_progress", cwd=self.other)
+        self.git("push", "origin", "main", cwd=self.other)
+
+        res_dir = self._deliver()
+        self.assertEqual((res_dir["status"], res_dir["entities_progress"]), ("degraded", "invalid"))
+        self.assertIn("каталогом", res_dir.get("entities_progress_reason", ""))
+
+        # Восстановление файла
+        (ent_file / ".gitkeep").unlink()
+        ent_file.rmdir()
+        self.git("rm", "-r", (ent_file / ".gitkeep").as_posix(), cwd=self.other)
+        self.git("commit", "-m", "remove dir", cwd=self.other)
+        self.git("push", "origin", "main", cwd=self.other)
+        self._remote_commit(ENTITIES_PROGRESS_RELATIVE.as_posix(), canonical(entities_progress).decode("utf-8"))
+
+        # 7. Изоляция отсутствующего CSV при invalid: если в клоне CSV не было, а в published он есть,
+        # скопированный _sync_dir-ом файл изолируется (удаляется)
+        source_csv_path = self.published / "tables/unique_entities.csv"
+        source_csv_path.parent.mkdir(parents=True, exist_ok=True)
+        source_csv_path.write_text("header\nval\n", encoding="utf-8")
+        self.assertTrue(source_csv_path.is_file())
+
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self.git("rm", "published/tables/unique_entities.csv", cwd=self.other)
+        (self.other / ENTITIES_PROGRESS_RELATIVE).write_text("{", encoding="utf-8")
+        self.git("add", ".", cwd=self.other)
+        self.git("commit", "-m", "remove csv and make invalid progress", cwd=self.other)
+        self.git("push", "origin", "main", cwd=self.other)
+
+        res_deg_nocsv = self._deliver()
+        self.assertEqual(res_deg_nocsv["status"], "degraded")
+        self.assertFalse(target_csv_path.exists())
+        source_csv_path.unlink()
+
+        # Восстановление entities_progress
+        self.git("pull", "--ff-only", "origin", "main", cwd=self.other)
+        self._remote_commit(ENTITIES_PROGRESS_RELATIVE.as_posix(), canonical(entities_progress).decode("utf-8"))
+        res_rec_final = self._deliver()
+        self.assertEqual(res_rec_final["status"], "delivered")
+        self.assertTrue(target_csv_path.is_file())
+
+        # 8. Удаление реестра из published/: файл удаляется и в клоне
         source_entities_path.unlink()
-        res3 = self._deliver()
-        self.assertEqual(res3["status"], "delivered")
+        res_del = self._deliver()
+        self.assertEqual(res_del["status"], "delivered")
         self.assertFalse(target_entities_path.exists())
 
 

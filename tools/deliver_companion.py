@@ -14,14 +14,15 @@ from jsonschema import ValidationError
 from tools import cartography
 from tools.encounters import OUTPUT_RELATIVE, build_encounters, load_tables, missing_tables
 from tools.git_sync import GitSyncError, abort_unfinished, prepare_clone, push_delivery, require_git, run_git
-from tools.io_utils import canonical, linked, read_json
+from tools.io_utils import ExtractionError, canonical, linked, read_json
 from tools.location_registry import (PROGRESS_RELATIVE, REGISTRY_FILENAME, merge_progress, registry_bytes,
                                      validate_progress, validate_registry)
 from tools.unique_entities_registry import apply_progress_to_unique_entities
-from tools.validation import load_location_registry, validate_world_reference
+from tools.validation import load_entities_progress, load_location_registry, validate_world_reference
 
 DEFAULT_COMPANION_DIR = Path(r"C:\Users\artem\Kenshi Compain")
 DEFAULT_PUBLISHED_DIR = Path(__file__).resolve().parents[1] / "published"
+ENTITIES_PROGRESS_RELATIVE = Path("Campaign/Хроники Хот Лон/entities_progress.json")
 
 # Каталоги выпуска, которые синхронизируются целиком (устаревшие файлы внутри удаляются).
 SYNCED_DIRS = ("screenshots", "extended", "tables")
@@ -200,6 +201,36 @@ def _read_progress(
     return progress, validate_progress(progress, campaign_id, world_ref, previous=baseline)
 
 
+def _read_entities_progress(
+    target_repo: Path, campaign_id: str | None,
+) -> tuple[dict[str, Any] | None, str, str | None]:
+    """Безопасно читает и валидирует ручной слой entities_progress.json в клоне."""
+    if campaign_id != "hot-lon":
+        return None, "absent", "Ручной слой entities_progress отсутствует"
+
+    progress_path = target_repo / ENTITIES_PROGRESS_RELATIVE
+    try:
+        if any(linked(target_repo / path) for path in (ENTITIES_PROGRESS_RELATIVE, *ENTITIES_PROGRESS_RELATIVE.parents)):
+            raise ValueError("Путь к ручному слою entities_progress содержит ссылку")
+
+        if not progress_path.exists():
+            return None, "absent", "Ручной слой entities_progress отсутствует"
+        if not progress_path.is_file():
+            raise ValueError(f"Путь к ручному слою {ENTITIES_PROGRESS_RELATIVE.name} занят каталогом")
+
+        progress = load_entities_progress(progress_path.read_bytes())
+        if progress.get("campaign_id") != campaign_id:
+            raise ValueError(
+                f"Ручной слой entities_progress относится к кампании {progress.get('campaign_id')}, ожидается {campaign_id}"
+            )
+        return progress, "ok", None
+    except ValidationError as exc:
+        field = ".".join(map(str, exc.absolute_path)) or "корень файла"
+        return None, "invalid", f"Нарушение схемы ручного слоя entities_progress в {field} ({exc.validator})"
+    except (ExtractionError, ValueError, OSError) as exc:
+        return None, "invalid", str(exc)
+
+
 def _read_release_world(pub_path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     path = pub_path / "world_reference.json"
     if manifest.get("artifacts", {}).get("world_reference") != path.name or linked(path):
@@ -231,6 +262,7 @@ def _write_release(
     unique_entities: bytes | None = None,
     unique_entities_csv: bytes | None = None,
     progress_status: str = "ok",
+    entities_progress_status: str = "absent",
 ) -> tuple[str, str, list[str]]:
     """Записывает published/, encounters.md и картографические артефакты в клон; идемпотентно.
 
@@ -255,13 +287,19 @@ def _write_release(
         if not (pub_path / legacy).is_file():
             (target_published / legacy).unlink(missing_ok=True)
     if progress_status == "invalid":
-        # При невалидном ручном слое блокируем перезапись зависимых файлов (location_registry.json, unique_entities_registry.json)
+        # При невалидном ручном слое локаций блокируем перезапись location_registry.json
         pass
     else:
         if registry is None:
             registry_target.unlink(missing_ok=True)
         else:
             registry_target.write_bytes(registry)
+
+    block_entities = (progress_status == "invalid" or entities_progress_status == "invalid")
+    if block_entities:
+        # При невалидном ручном слое блокируем перезапись unique_entities_registry.json
+        pass
+    else:
         if unique_entities is None:
             target_entities.unlink(missing_ok=True)
         else:
@@ -273,15 +311,17 @@ def _write_release(
 
     # 2. Каталоги выпуска; удаление устаревших файлов строго внутри этих каталогов
     csv_target = target_published / "tables" / "unique_entities.csv"
-    saved_csv = csv_target.read_bytes() if (progress_status == "invalid" and csv_target.is_file()) else None
+    saved_csv = csv_target.read_bytes() if (block_entities and csv_target.is_file()) else None
 
     for name in SYNCED_DIRS:
         if (pub_path / name).is_dir():
             _sync_dir(pub_path / name, target_published / name)
 
-    if progress_status == "invalid":
+    if block_entities:
         if saved_csv is not None:
             csv_target.write_bytes(saved_csv)
+        else:
+            csv_target.unlink(missing_ok=True)
     elif unique_entities_csv is not None:
         csv_target.parent.mkdir(parents=True, exist_ok=True)
         csv_target.write_bytes(unique_entities_csv)
@@ -359,16 +399,20 @@ def deliver_to_companion(
     carto, carto_errors = "skipped", ["картография не выполнялась: сбой подготовки или записи выпуска"]
     progress_status = "absent"
     progress_reason: str | None = "Проверка ручного слоя не выполнена"
+    entities_progress_status = "absent"
+    entities_progress_reason: str | None = "Проверка ручного слоя entities_progress не выполнена"
     unmatched: list[str] = []
 
     def write_release() -> tuple[str, str, list[str]]:
-        nonlocal progress_status, progress_reason, unmatched
+        nonlocal progress_status, progress_reason, unmatched, entities_progress_status, entities_progress_reason
         progress_status, progress_reason, unmatched = "absent", "Проверка ручного слоя не выполнена", []
+        entities_progress_status, entities_progress_reason = "absent", "Проверка ручного слоя entities_progress не выполнена"
         registry_data = None
         unique_entities_bytes = None
         unique_entities_csv_bytes = None
         world_ref = None
         progress = None
+        entities_progress = None
 
         if "world_reference" in manifest.get("artifacts", {}) and (pub_path / "world_reference.json").is_file():
             try:
@@ -393,6 +437,10 @@ def deliver_to_companion(
             except (OSError, ValueError, GitSyncError, RecursionError) as exc:
                 progress_status, progress_reason = "invalid", str(exc)
 
+        entities_progress, entities_progress_status, entities_progress_reason = _read_entities_progress(
+            target_repo, manifest.get("campaign_id")
+        )
+
         if has_loc_registry:
             if world_ref is None:
                 world_ref = _read_release_world(pub_path, manifest)
@@ -412,16 +460,18 @@ def deliver_to_companion(
                 registry_data = registry_bytes(merge_progress(registry, None))
 
         if has_entities_registry:
-            if progress_status != "invalid":
+            if progress_status != "invalid" and entities_progress_status != "invalid":
                 entities = read_json((pub_path / "unique_entities_registry.json").read_bytes())
-                entities = apply_progress_to_unique_entities(entities, progress, world_ref)
+                entities = apply_progress_to_unique_entities(
+                    entities, progress, world_ref, entities_progress_data=entities_progress
+                )
                 unique_entities_bytes = canonical(entities)
                 from tools.tables import csv_bytes, unique_entities_table
                 unique_entities_csv_bytes = csv_bytes(unique_entities_table(entities))
 
         return _write_release(
             pub_path, target_repo, game_time, registry_data, unique_entities_bytes,
-            unique_entities_csv_bytes, progress_status,
+            unique_entities_csv_bytes, progress_status, entities_progress_status,
         )
 
     def commit_release() -> bool:
@@ -464,9 +514,10 @@ def deliver_to_companion(
         if prepared:
             abort_unfinished(target_repo)
 
+    is_degraded = (progress_status == "invalid" or entities_progress_status == "invalid")
     result: dict[str, Any] = {
         # Диагностика ручного слоя и карты отделена от доставки published/.
-        "status": "failed" if git_error or delivery_error is not None else ("degraded" if progress_status == "invalid" else "delivered"),
+        "status": "failed" if git_error or delivery_error is not None else ("degraded" if is_degraded else "delivered"),
         "game_time": game_time,
         "snapshot_id": snapshot_id,
         "target_directory": str(target_published),
@@ -477,6 +528,8 @@ def deliver_to_companion(
         "cartography_changed": carto == "written",
         "location_progress": progress_status,
         "location_progress_reason": progress_reason,
+        "entities_progress": entities_progress_status,
+        "entities_progress_reason": entities_progress_reason,
     }
     if carto in ("incompatible", "skipped"):
         result["cartography_reason"] = "; ".join(carto_errors)
