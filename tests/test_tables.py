@@ -26,7 +26,7 @@ GOLDEN_HEADERS: dict[str, list[str]] = {
     "unique_entities.csv": [
         "entity_kind", "category", "sid", "name_ru", "name_en", "state_code", "squad_status", "character_id",
         "primary_location_instance_id", "location_resolution", "carrier_or_storage", "observation_status",
-        "provenance_status", "cleared", "outcome", "evidence", "game_time",
+        "provenance_status", "location_cleared", "outcome", "evidence", "game_time",
     ],
     "diplomacy.csv": ["faction_sid", "faction_name", "relation", "trust", "trust_neg"],
     "town_overrides.csv": ["replacement_sid", "town", "raw_name", "variant", "replacement_name", "replacement_name_ru",
@@ -673,9 +673,8 @@ class TableValidationTests(unittest.TestCase):
             "bosses": [{
                 "npc_sid": "boss-1", "name_en": "Boss One", "name_ru": "Босс Один",
                 "classification_origin": "game_bounty",
-                "static_locations": [{"instance_id": "loc-2", "resolution": "ambiguous"}],
+                "static_locations": [{"instance_id": "loc-2", "resolution": "unique", "cleared_evidence": {"location_instance_id": "loc-2", "cleared_at": "Day 10 12:00", "source": "session-1"}}],
                 "observed_state": {"state_code": 0},
-                "cleared_evidence": {"location_instance_id": "loc-2", "cleared_at": "Day 10 12:00", "source": "session-1"},
             }],
             "meitou_weapons": [{
                 "base_sid": "blade-1", "name_en": "Meitou Blade", "name_ru": "Клинок Мейто",
@@ -688,42 +687,26 @@ class TableValidationTests(unittest.TestCase):
         }
         t = unique_entities_table(sample_entities)
         self.assertEqual(len(t.rows), 3)
-        # Порядок сортировки: boss, meitou, npc
+        # Порядок сортировки: npc (boss-1, npc-1), meitou (blade-1)
         kinds = [r["entity_kind"] for r in t.rows]
-        self.assertEqual(kinds, ["boss", "meitou", "npc"])
+        self.assertEqual(kinds, ["npc", "npc", "meitou"])
 
         boss_row = t.rows[0]
-        self.assertEqual(boss_row["entity_kind"], "boss")
+        self.assertEqual(boss_row["entity_kind"], "npc")
         self.assertEqual(boss_row["category"], "boss")
         self.assertEqual(boss_row["sid"], "boss-1")
         self.assertEqual(boss_row["primary_location_instance_id"], "loc-2")
-        self.assertEqual(boss_row["location_resolution"], "ambiguous")
+        self.assertEqual(boss_row["location_resolution"], "unique")
         self.assertIsNone(boss_row["carrier_or_storage"])
         self.assertEqual(boss_row["observation_status"], "observed")
         self.assertIsNone(boss_row["provenance_status"])
         self.assertEqual(boss_row["state_code"], 0)
-        self.assertTrue(boss_row["cleared"])
+        self.assertTrue(boss_row["location_cleared"])
         self.assertIsNone(boss_row["outcome"])
         self.assertIsNone(boss_row["evidence"])
         self.assertIsNone(boss_row["game_time"])
 
-        meitou_row = t.rows[1]
-        self.assertEqual(meitou_row["entity_kind"], "meitou")
-        self.assertEqual(meitou_row["category"], "meitou")
-        self.assertEqual(meitou_row["sid"], "blade-1")
-        self.assertNotIn("meitou_base_sid", meitou_row)
-        self.assertIsNone(meitou_row["primary_location_instance_id"])
-        self.assertIsNone(meitou_row["location_resolution"])
-        self.assertEqual(meitou_row["carrier_or_storage"], "equipped:Хот Лон")
-        self.assertEqual(meitou_row["observation_status"], "observed")
-        self.assertEqual(meitou_row["provenance_status"], "confirmed_trophy")
-        self.assertIsNone(meitou_row["cleared"])
-        self.assertIsNone(meitou_row["outcome"])
-        self.assertIsNone(meitou_row["evidence"])
-        self.assertIsNone(meitou_row["game_time"])
-        self.assertIsNone(meitou_row["state_code"])
-
-        npc_row = t.rows[2]
+        npc_row = t.rows[1]
         self.assertEqual(npc_row["entity_kind"], "npc")
         self.assertEqual(npc_row["category"], "recruit")
         self.assertEqual(npc_row["sid"], "npc-1")
@@ -734,10 +717,26 @@ class TableValidationTests(unittest.TestCase):
         self.assertIsNone(npc_row["carrier_or_storage"])
         self.assertEqual(npc_row["observation_status"], "observed")
         self.assertIsNone(npc_row["provenance_status"])
-        self.assertIsNone(npc_row["cleared"])
+        self.assertFalse(npc_row["location_cleared"])
         self.assertIsNone(npc_row["outcome"])
         self.assertIsNone(npc_row["evidence"])
         self.assertIsNone(npc_row["game_time"])
+
+        meitou_row = t.rows[2]
+        self.assertEqual(meitou_row["entity_kind"], "meitou")
+        self.assertEqual(meitou_row["category"], "meitou")
+        self.assertEqual(meitou_row["sid"], "blade-1")
+        self.assertNotIn("meitou_base_sid", meitou_row)
+        self.assertIsNone(meitou_row["primary_location_instance_id"])
+        self.assertIsNone(meitou_row["location_resolution"])
+        self.assertEqual(meitou_row["carrier_or_storage"], "equipped:Хот Лон")
+        self.assertEqual(meitou_row["observation_status"], "observed")
+        self.assertEqual(meitou_row["provenance_status"], "confirmed_trophy")
+        self.assertIsNone(meitou_row["location_cleared"])
+        self.assertIsNone(meitou_row["outcome"])
+        self.assertIsNone(meitou_row["evidence"])
+        self.assertIsNone(meitou_row["game_time"])
+        self.assertIsNone(meitou_row["state_code"])
 
     def test_unique_entities_table_ambiguous_and_boss_sync(self) -> None:
         """Проверяет разрешение неоднозначных локаций и синхронизацию динамических полей босса."""
@@ -782,42 +781,49 @@ class TableValidationTests(unittest.TestCase):
             ],
         }
         t = unique_entities_table(entities)
-        rows_by_sid = {(r["entity_kind"], r["sid"]): r for r in t.rows}
+        self.assertEqual(len(t.rows), 3)
+        rows_by_sid = {r["sid"]: r for r in t.rows}
 
-        # 1. Хамут: 5 городов -> ambiguous, primary_location_instance_id: None
-        hamut_row = rows_by_sid[("npc", "hamut")]
+        # 1. Хамут: 5 городов -> ambiguous, primary_location_instance_id: None, location_cleared: None
+        hamut_row = rows_by_sid["hamut"]
+        self.assertEqual(hamut_row["entity_kind"], "npc")
         self.assertEqual(hamut_row["category"], "recruit")
         self.assertIsNone(hamut_row["primary_location_instance_id"])
         self.assertEqual(hamut_row["location_resolution"], "ambiguous")
         self.assertEqual(hamut_row["observation_status"], "observed")
-        self.assertIsNone(hamut_row["cleared"])
+        self.assertIsNone(hamut_row["location_cleared"])
 
-        # 2. Агну (boss): динамические поля (squad_status, character_id) получены согласованно с NPC
-        agnu_row = rows_by_sid[("boss", "agnu")]
+        # 2. Агну (boss): объединен с NPC в одну строку npc, динамические поля синхронизированы
+        agnu_row = rows_by_sid["agnu"]
+        self.assertEqual(agnu_row["entity_kind"], "npc")
         self.assertEqual(agnu_row["category"], "recruit")
         self.assertEqual(agnu_row["state_code"], 1)
         self.assertEqual(agnu_row["squad_status"], "confirmed_in_squad")
         self.assertEqual(agnu_row["character_id"], "ps:agnu")
         self.assertEqual(agnu_row["primary_location_instance_id"], "loc-tower")
+        self.assertEqual(agnu_row["location_resolution"], "unique")
         self.assertEqual(agnu_row["observation_status"], "observed")
         self.assertIsNone(agnu_row["provenance_status"])
-        self.assertFalse(agnu_row["cleared"])
+        self.assertFalse(agnu_row["location_cleared"])
 
-        # 3. Мейто Крест паладина: без локации владельца, provenance_status: unconfirmed
-        meitou_row = rows_by_sid[("meitou", "paladins_cross")]
+        # 3. Мейто Крест паладина: без локации владельца, provenance_status: unconfirmed, location_cleared: None
+        meitou_row = rows_by_sid["paladins_cross"]
+        self.assertEqual(meitou_row["entity_kind"], "meitou")
         self.assertEqual(meitou_row["category"], "meitou")
         self.assertIsNone(meitou_row["primary_location_instance_id"])
         self.assertIsNone(meitou_row["location_resolution"])
         self.assertEqual(meitou_row["observation_status"], "observed")
         self.assertEqual(meitou_row["provenance_status"], "unconfirmed")
-        self.assertIsNone(meitou_row["cleared"])
+        self.assertIsNone(meitou_row["location_cleared"])
 
     def test_unique_entities_table_progress_enrichment(self) -> None:
-        """Проверяет корректность отображения полей observation_status, cleared, outcome, evidence, game_time
+        """Проверяет корректность отображения полей observation_status, location_cleared, outcome, evidence, game_time
         при вызове с обогащенными через apply_progress_to_unique_entities данными."""
         from tools.unique_entities_registry import apply_progress_to_unique_entities
 
         base_entities = {
+            "campaign_id": "hot-lon",
+            "game_time": "Day 50 14:00",
             "unique_npcs": [
                 {
                     "npc_sid": "cat",
@@ -884,6 +890,18 @@ class TableValidationTests(unittest.TestCase):
             ],
         }
 
+        locations_progress_data = {
+            "format": "kenshi-locations-progress/1",
+            "campaign_id": "hot-lon",
+            "locations": [
+                {
+                    "instance_id": "loc-crater",
+                    "evidence": "Кратер зачищен",
+                    "game_time": "Day 45 10:00",
+                },
+            ],
+        }
+
         entities_progress_data = {
             "format": "kenshi-entities-progress/1",
             "entities": {
@@ -907,68 +925,74 @@ class TableValidationTests(unittest.TestCase):
 
         enriched = apply_progress_to_unique_entities(
             base_entities,
-            progress_data=None,
+            progress_data=locations_progress_data,
             entities_progress_data=entities_progress_data,
         )
         t = unique_entities_table(enriched)
-        rows_by_sid = {(r["entity_kind"], r["sid"]): r for r in t.rows}
+        rows_by_sid = {r["sid"]: r for r in t.rows}
 
-        # 1. Босс с победой (bugmaster)
-        bm = rows_by_sid[("boss", "bugmaster")]
+        # 1. Босс с победой и зачищенной локацией (bugmaster)
+        bm = rows_by_sid["bugmaster"]
+        self.assertEqual(bm["entity_kind"], "npc")
         self.assertEqual(bm["category"], "boss")
         self.assertEqual(bm["observation_status"], "observed")
-        self.assertTrue(bm["cleared"])
+        self.assertTrue(bm["location_cleared"])
         self.assertEqual(bm["outcome"], "captured")
         self.assertEqual(bm["evidence"], "Взят в плен отрядом Хот Лона")
         self.assertEqual(bm["game_time"], "Day 45 10:00")
         self.assertIsNone(bm["provenance_status"])
 
-        # 2. Непобеждённый и ненаблюдаемый босс (tinfist)
-        tf = rows_by_sid[("boss", "tinfist")]
+        # 2. Непобеждённый и ненаблюдаемый босс без зачистки локации (tinfist)
+        tf = rows_by_sid["tinfist"]
+        self.assertEqual(tf["entity_kind"], "npc")
         self.assertEqual(tf["category"], "world_leader")
         self.assertEqual(tf["observation_status"], "not_observed")
-        self.assertFalse(tf["cleared"])
+        self.assertFalse(tf["location_cleared"])
         self.assertIsNone(tf["outcome"])
         self.assertIsNone(tf["evidence"])
         self.assertIsNone(tf["game_time"])
 
         # 3. Оружие Мейто с трофеем (katana)
-        kat = rows_by_sid[("meitou", "katana")]
+        kat = rows_by_sid["katana"]
+        self.assertEqual(kat["entity_kind"], "meitou")
         self.assertEqual(kat["category"], "meitou")
         self.assertEqual(kat["observation_status"], "observed")
         self.assertEqual(kat["provenance_status"], "confirmed_trophy")
         self.assertEqual(kat["carrier_or_storage"], "storage:Оружейный шкаф")
-        self.assertIsNone(kat["cleared"])
+        self.assertIsNone(kat["location_cleared"])
         self.assertEqual(kat["outcome"], "obtained")
         self.assertEqual(kat["evidence"], "Трофей из хранилища Тэньгу")
         self.assertEqual(kat["game_time"], "Day 50 14:00")
 
         # 4. Ненаблюдаемое оружие Мейто без трофея (naginata)
-        nag = rows_by_sid[("meitou", "naginata")]
+        nag = rows_by_sid["naginata"]
+        self.assertEqual(nag["entity_kind"], "meitou")
         self.assertEqual(nag["category"], "meitou")
         self.assertEqual(nag["observation_status"], "not_observed")
         self.assertEqual(nag["provenance_status"], "unconfirmed")
         self.assertIsNone(nag["carrier_or_storage"])
-        self.assertIsNone(nag["cleared"])
+        self.assertIsNone(nag["location_cleared"])
         self.assertIsNone(nag["outcome"])
         self.assertIsNone(nag["evidence"])
         self.assertIsNone(nag["game_time"])
 
-        # 5. NPC со свидетельством найма (cat)
-        cat = rows_by_sid[("npc", "cat")]
+        # 5. NPC со свидетельством найма, локация не зачищена (cat)
+        cat = rows_by_sid["cat"]
+        self.assertEqual(cat["entity_kind"], "npc")
         self.assertEqual(cat["category"], "recruit")
         self.assertEqual(cat["observation_status"], "observed")
-        self.assertIsNone(cat["cleared"])
+        self.assertFalse(cat["location_cleared"])
         self.assertIsNone(cat["provenance_status"])
         self.assertEqual(cat["outcome"], "recruited")
         self.assertEqual(cat["evidence"], "Выкуплен из рабства")
         self.assertEqual(cat["game_time"], "Day 20 08:00")
 
-        # 6. NPC без свидетельств (sadneil)
-        sn = rows_by_sid[("npc", "sadneil")]
+        # 6. NPC без свидетельств, локация не зачищена (sadneil)
+        sn = rows_by_sid["sadneil"]
+        self.assertEqual(sn["entity_kind"], "npc")
         self.assertEqual(sn["category"], "recruit")
         self.assertEqual(sn["observation_status"], "not_observed")
-        self.assertIsNone(sn["cleared"])
+        self.assertFalse(sn["location_cleared"])
         self.assertIsNone(sn["outcome"])
         self.assertIsNone(sn["evidence"])
         self.assertIsNone(sn["game_time"])

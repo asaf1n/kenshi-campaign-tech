@@ -771,7 +771,7 @@ def unique_entities_table(
     from tools.unique_entities_registry import resolve_primary_location
 
     columns = [
-        ("entity_kind", "Категория сущности: npc, boss, meitou"),
+        ("entity_kind", "Вид сущности: npc, meitou"),
         ("category", "Категория сущности: recruit, world_leader, boss, significant_npc, unique_npc, meitou"),
         ("sid", "sid шаблона (npc_sid для персонажей и боссов, base_sid для оружия Мейто)"),
         ("name_ru", "Имя/название на русском языке"),
@@ -784,7 +784,7 @@ def unique_entities_table(
         ("carrier_or_storage", "Носитель или хранилище экземпляра (вид:имя)"),
         ("observation_status", "Статус наблюдения в сохранении: observed или not_observed"),
         ("provenance_status", "Статус происхождения: confirmed_trophy или unconfirmed"),
-        ("cleared", "Признак зачистки/победы для боссов: True или False"),
+        ("location_cleared", "Место персонажа отмечено зачищенным: true, false"),
         ("outcome", "Исход взаимодействия из ручного слоя или персонального свидетельства"),
         ("evidence", "Текст подтверждения/свидетельства исхода"),
         ("game_time", "Игровое время подтверждения события"),
@@ -792,70 +792,114 @@ def unique_entities_table(
     if unique_entities is None:
         rows: list[dict[str, Any]] = []
     else:
-        npc_by_sid = {
-            npc["npc_sid"]: npc
-            for npc in (unique_entities.get("unique_npcs") or [])
-            if npc.get("npc_sid")
+        boss_by_sid = {
+            b.get("npc_sid") or b.get("sid"): b
+            for b in (unique_entities.get("bosses") or [])
+            if b.get("npc_sid") or b.get("sid")
         }
+        seen_sids: set[str] = set()
         rows = []
         for npc in unique_entities.get("unique_npcs") or []:
+            sid = npc.get("npc_sid") or npc.get("sid")
+            if not sid:
+                continue
+            seen_sids.add(sid)
+            boss_entry = boss_by_sid.get(sid)
+            category = npc.get("category") or (boss_entry.get("category") if boss_entry else None) or "unique_npc"
+            name_ru = npc.get("name_ru") or (boss_entry.get("name_ru") if boss_entry else None)
+            name_en = npc.get("name_en") or (boss_entry.get("name_en") if boss_entry else None)
             dyn = npc.get("dynamic") or {}
-            locs = npc.get("locations") or []
+            boss_obs = (boss_entry.get("observed_state") or boss_entry.get("dynamic") if boss_entry else None) or {}
+            state_code = dyn.get("state_code") if dyn.get("state_code") is not None else boss_obs.get("state_code")
+            squad_status = dyn.get("squad_status") or boss_obs.get("squad_status")
+            character_id = dyn.get("character_id") or boss_obs.get("character_id")
+            locs = npc.get("locations") or (boss_entry.get("static_locations") or boss_entry.get("locations") if boss_entry else None) or []
             primary_iid, resolution = resolve_primary_location(locs)
-            personal = npc.get("personal_evidence") or {}
-            state_code = dyn.get("state_code")
+            carrier_or_storage = None
+            observation_status = "observed" if state_code is not None else "not_observed"
+            provenance_status = None
+
+            if resolution == "ambiguous":
+                location_cleared = None
+            elif primary_iid:
+                matching_link = next((lk for lk in locs if lk.get("instance_id") == primary_iid), None)
+                location_cleared = bool(matching_link.get("cleared_evidence")) if matching_link else None
+            else:
+                location_cleared = None
+
+            personal_ev = npc.get("personal_evidence") or (boss_entry.get("personal_evidence") if boss_entry else None)
+            outcome = (personal_ev or {}).get("outcome")
+            evidence = (personal_ev or {}).get("evidence")
+            game_time = (personal_ev or {}).get("game_time")
+
             rows.append({
                 "entity_kind": "npc",
-                "category": npc.get("category") or "unique_npc",
-                "sid": npc.get("npc_sid") or npc.get("sid"),
-                "name_ru": npc.get("name_ru"),
-                "name_en": npc.get("name_en"),
-                "state_code": state_code,
-                "squad_status": dyn.get("squad_status"),
-                "character_id": dyn.get("character_id"),
-                "primary_location_instance_id": primary_iid,
-                "location_resolution": resolution,
-                "carrier_or_storage": None,
-                "observation_status": "observed" if state_code is not None else "not_observed",
-                "provenance_status": None,
-                "cleared": None,
-                "outcome": personal.get("outcome"),
-                "evidence": personal.get("evidence"),
-                "game_time": personal.get("game_time"),
-            })
-        for boss in unique_entities.get("bosses") or []:
-            sid = boss.get("npc_sid") or boss.get("sid")
-            npc_entry = npc_by_sid.get(sid)
-            obs = boss.get("observed_state") or boss.get("dynamic") or {}
-            npc_dyn = (npc_entry.get("dynamic") if npc_entry else {}) or {}
-
-            state_code = obs.get("state_code") if obs.get("state_code") is not None else npc_dyn.get("state_code")
-            squad_status = obs.get("squad_status") or npc_dyn.get("squad_status")
-            character_id = obs.get("character_id") or npc_dyn.get("character_id")
-
-            locs = boss.get("static_locations") or boss.get("locations") or []
-            primary_iid, resolution = resolve_primary_location(locs)
-
-            cleared = True if boss.get("cleared_evidence") else False
-            personal = boss.get("personal_evidence") or {}
-            rows.append({
-                "entity_kind": "boss",
-                "category": boss.get("category") or "boss",
+                "category": category,
                 "sid": sid,
-                "name_ru": boss.get("name_ru"),
-                "name_en": boss.get("name_en"),
+                "name_ru": name_ru,
+                "name_en": name_en,
                 "state_code": state_code,
                 "squad_status": squad_status,
                 "character_id": character_id,
                 "primary_location_instance_id": primary_iid,
                 "location_resolution": resolution,
-                "carrier_or_storage": None,
-                "observation_status": "observed" if state_code is not None else "not_observed",
-                "provenance_status": None,
-                "cleared": cleared,
-                "outcome": personal.get("outcome"),
-                "evidence": personal.get("evidence"),
-                "game_time": personal.get("game_time"),
+                "carrier_or_storage": carrier_or_storage,
+                "observation_status": observation_status,
+                "provenance_status": provenance_status,
+                "location_cleared": location_cleared,
+                "outcome": outcome,
+                "evidence": evidence,
+                "game_time": game_time,
+            })
+        for boss in unique_entities.get("bosses") or []:
+            sid = boss.get("npc_sid") or boss.get("sid")
+            if not sid or sid in seen_sids:
+                continue
+            seen_sids.add(sid)
+            category = boss.get("category") or "boss"
+            name_ru = boss.get("name_ru")
+            name_en = boss.get("name_en")
+            boss_obs = boss.get("observed_state") or boss.get("dynamic") or {}
+            state_code = boss_obs.get("state_code")
+            squad_status = boss_obs.get("squad_status")
+            character_id = boss_obs.get("character_id")
+            locs = boss.get("static_locations") or boss.get("locations") or []
+            primary_iid, resolution = resolve_primary_location(locs)
+            carrier_or_storage = None
+            observation_status = "observed" if state_code is not None else "not_observed"
+            provenance_status = None
+
+            if resolution == "ambiguous":
+                location_cleared = None
+            elif primary_iid:
+                matching_link = next((lk for lk in locs if lk.get("instance_id") == primary_iid), None)
+                location_cleared = bool(matching_link.get("cleared_evidence")) if matching_link else None
+            else:
+                location_cleared = None
+
+            personal_ev = boss.get("personal_evidence")
+            outcome = (personal_ev or {}).get("outcome")
+            evidence = (personal_ev or {}).get("evidence")
+            game_time = (personal_ev or {}).get("game_time")
+
+            rows.append({
+                "entity_kind": "npc",
+                "category": category,
+                "sid": sid,
+                "name_ru": name_ru,
+                "name_en": name_en,
+                "state_code": state_code,
+                "squad_status": squad_status,
+                "character_id": character_id,
+                "primary_location_instance_id": primary_iid,
+                "location_resolution": resolution,
+                "carrier_or_storage": carrier_or_storage,
+                "observation_status": observation_status,
+                "provenance_status": provenance_status,
+                "location_cleared": location_cleared,
+                "outcome": outcome,
+                "evidence": evidence,
+                "game_time": game_time,
             })
         for weapon in unique_entities.get("meitou_weapons") or []:
             base_sid = weapon.get("base_sid") or weapon.get("sid")
@@ -888,12 +932,12 @@ def unique_entities_table(
                 "carrier_or_storage": carrier_or_storage,
                 "observation_status": weapon.get("observation_status") or ("observed" if observed else "not_observed"),
                 "provenance_status": weapon.get("provenance_status") or "unconfirmed",
-                "cleared": None,
+                "location_cleared": None,
                 "outcome": trophy.get("outcome"),
                 "evidence": trophy.get("evidence"),
                 "game_time": trophy.get("game_time"),
             })
-        rows.sort(key=lambda r: (r["entity_kind"], str(r.get("sid") or ""), str(r.get("primary_location_instance_id") or "")))
+        rows.sort(key=lambda r: (0 if r["entity_kind"] == "npc" else 1, str(r.get("sid") or ""), str(r.get("primary_location_instance_id") or "")))
     return Table("unique_entities.csv", "sid", "Реестр уникальных сущностей Kenshi (NPC, боссы, оружие Мейто)", columns, rows)
 
 
