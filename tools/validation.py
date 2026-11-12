@@ -74,7 +74,7 @@ def _validate_evidence_ref(ref: str) -> None:
 
 def validate(value: Any, schema_name: str) -> None:
     if schema_name not in {"manifest", "timeline-event", "world-reference", "locations", "location-registry",
-                           "location-progress", "unique-entities-registry", "index", "session",
+                           "location-progress", "entities-progress", "unique-entities-registry", "index", "session",
                            "screenshots-index", "screenshot-annotations"}:
         raise ValueError(f"Неизвестная проектная схема: {schema_name}")
     schema = read_json((ROOT / "contracts" / f"{schema_name}.schema.json").read_bytes())
@@ -88,6 +88,17 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
 
 def validate_unique_entities_registry(payload: dict[str, Any]) -> None:
     validate(payload, "unique-entities-registry")
+
+
+def validate_entities_progress(data: dict[str, Any]) -> dict[str, Any]:
+    """Проверить ручные свидетельства исходов по контракту кампании."""
+    validate(data, "entities-progress")
+    return data
+
+
+def load_entities_progress(raw: bytes | str) -> dict[str, Any]:
+    """Загрузить ручной слой без повторяющихся ключей и проверить схему."""
+    return validate_entities_progress(read_json(raw.encode("utf-8") if isinstance(raw, str) else raw))
 
 
 def validate_event(event: dict[str, Any], index_data: dict[str, Any] | None = None) -> None:
@@ -431,7 +442,7 @@ def validate_locations(
 
 
 def check_examples() -> int:
-    for name in ("location-registry", "location-progress", "unique-entities-registry"):
+    for name in ("location-registry", "location-progress", "entities-progress", "unique-entities-registry"):
         Draft202012Validator.check_schema(read_json((ROOT / "contracts" / f"{name}.schema.json").read_bytes()))
     count = 0
     for path in sorted((ROOT / "examples").glob("*.json")):
@@ -445,6 +456,8 @@ def check_examples() -> int:
             validate_locations(value)
         elif fmt in ("kenshi-unique-entities-registry/1", "kenshi-unique-entities-registry/2"):
             validate_unique_entities_registry(value)
+        elif fmt == "kenshi-entities-progress/1":
+            validate_entities_progress(value)
         elif fmt == "kenshi-index/2":
             validate_index(value)
         elif fmt in {"kenshi-session/10", "kenshi-session/11"}:

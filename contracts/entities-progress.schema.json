@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/kenshi/entities-progress.schema.json",
+  "title": "Ручные свидетельства исходов для уникальных сущностей кампании",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "campaign_id", "entities"],
+  "properties": {
+    "format": {"const": "kenshi-entities-progress/1"},
+    "campaign_id": {"type": "string", "minLength": 1},
+    "world_ref_id": {"type": "string", "minLength": 1},
+    "entities": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[0-9A-Za-z_\\-\\.]+$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["outcome", "evidence"],
+          "properties": {
+            "outcome": {"type": "string", "minLength": 1},
+            "evidence": {"type": "string", "pattern": "\\S"},
+            "game_time": {"type": "string", "pattern": "^Day [0-9]+ ([01][0-9]|2[0-3]):[0-5][0-9]$"}
+          }
+        }
+      }
+    }
+  }
+}
