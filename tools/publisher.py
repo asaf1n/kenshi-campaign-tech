@@ -387,9 +387,17 @@ def publish(
         progress_data=None,
         timeline_data={"events": timeline_data},
     )
+    from tools.skills_history import load_daily_snapshots_from_dir
+    daily_snaps = None
+    if idx_data and snapshots_dir:
+        try:
+            daily_snaps = load_daily_snapshots_from_dir(idx_data, snapshot_id, snapshots_dir)
+        except Exception:
+            daily_snaps = None
     table_files = build_tables(
         cur, locations_data, snapshot_id, game_index, game_records, game_notes, w_ref,
         unique_entities_registry=unique_entities_payload,
+        daily_snapshots=daily_snaps,
     )
     changes_md = render_changes_md(diff_data, chain_steps)
 

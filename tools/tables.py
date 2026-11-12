@@ -2276,6 +2276,20 @@ def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
         notes.append("Не публикуется: привязка групп биомов к зонам карты (в записях игры её нет).")
     elif table.name == "unit_templates.csv":
         notes.append("Не публикуется: имена кодов `NPC class`, `armour grade`, `fundamental type`, `slave` (перечисления не заданы в данных).")
+    elif table.name == "skills_history.csv":
+        notes.append(
+            "Дельта-трекинг целочисленных уровней по цепочке дней: охватывает 4 базовых атрибута (ATTRIBUTES) "
+            "и 33 навыка (SKILL_LABELS). При первом появлении персонажа фиксируются все непустые атрибуты и навыки, "
+            "далее строка создается только при изменении целой части уровня."
+        )
+    elif table.name == "campaign_history.csv":
+        notes.append(
+            "Фиксация состояния на момент последнего сохранённого снимка каждого игрового дня (день, время, баланс казны, численность отряда)."
+        )
+    elif table.name == "relations_history.csv":
+        notes.append(
+            "Длинный формат истории дипломатических отношений: строка создается при первом упоминании фракции и при каждом последующем изменении отношения."
+        )
 
     if notes:
         lines.append("")
@@ -2298,6 +2312,37 @@ def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
     return "\n".join(lines)
 
 
+INDEX_PURPOSES: dict[str, str] = {
+    "squad.csv": "Отряд, статы",
+    "equipment.csv": "Снаряжение",
+    "inventory.csv": "Инвентарь",
+    "storage.csv": "Склады",
+    "buildings.csv": "Постройки",
+    "research.csv": "Технологии",
+    "build_catalog.csv": "Каталог построек",
+    "biome_resources.csv": "Ресурсы регионов",
+    "item_prices.csv": "Базовые цены",
+    "trade_modifiers.csv": "Торговые наценки",
+    "unique_npcs.csv": "Уникальные NPC",
+    "unique_entities.csv": "NPC и Мейто",
+    "town_overrides.csv": "Замены городов",
+    "diplomacy.csv": "Дипломатия",
+    "world_reactions.csv": "Переходы городов",
+    "world_reaction_links.csv": "Условия NPC",
+    "unit_templates.csv": "Шаблоны NPC",
+    "unit_template_gear.csv": "Экипировка NPC",
+    "squad_templates.csv": "Шаблоны отрядов",
+    "squad_members.csv": "Состав отрядов",
+    "squad_spawns.csv": "Спавны отрядов",
+    "faction_relations.csv": "Отношения фракций",
+    "faction_hostility.csv": "Враждебность",
+    "races.csv": "Расы, климат",
+    "skills_history.csv": "Динамика навыков",
+    "campaign_history.csv": "Казна и отряд",
+    "relations_history.csv": "Дипломатия по дням",
+}
+
+
 def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table], game_mods: list[str] | None,
                  game_notes: Sequence[str]) -> str:
     world = current.get("world") or {}
@@ -2307,8 +2352,7 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
         "# Табличные выгрузки", "",
         f"- snapshot_id: `{snapshot_id}`",
         f"- Игровое время: {game_time}",
-        "- Формат: CSV, UTF-8, LF, RFC 4180.",
-        "- Пустая ячейка — пусто; числа с точкой; булевы `true`/`false`; списки через `; `.",
+        "- Формат: CSV, UTF-8, LF, RFC 4180. Булевы `true`/`false`.",
         game_ref_line,
         "", "## Таблицы", "",
         "| Файл | Строк | Ключ сортировки | Ключи соединения | Словарь | Содержание |",
@@ -2316,15 +2360,15 @@ def render_index(current: dict[str, Any], snapshot_id: str, tables: list[Table],
     ]
     for t in tables:
         dict_link = f"[словарь](dict/{t.name.removesuffix('.csv')}.md)"
-        lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.join_keys or 'нет'} | {dict_link} | {t.purpose} |")
+        purpose = INDEX_PURPOSES.get(t.name, t.purpose)
+        lines.append(f"| `{t.name}` | {len(t.rows)} | {t.sort_key} | {t.join_keys or 'нет'} | {dict_link} | {purpose} |")
     lines += [
-        "", "## Общие правила и ограничения", "",
-        "- Словари колонок и примечания: `dict/<таблица>.md`.",
+        "", "## Правила и ограничения", "",
+        "- Словари колонок: `dict/<таблица>.md`.",
         "- Связи между таблицами — по `sid` и `id`.",
-        "- Ссылки `world state`/`NPC is`: `v[1]`, `v[2]` публикуются без трактовки.",
-        "- Шаблоны юнитов публикуются как в данных модов, без рандомизации.",
-        "- Цены в городах не вычисляются (множители не сверены).",
-        "", "## Недоступные и неопубликованные поля", "",
+        "- Ссылки `world state`/`NPC is`: `v[1]`, `v[2]` без трактовки.",
+        "- Шаблоны юнитов — как в модах. Цены в городах не вычисляются.",
+        "", "## Недоступные поля", "",
     ]
     lines += [f"- {n}" for n in game_notes]
     lines.append("")
@@ -2340,8 +2384,14 @@ def build_tables(
     game_notes: Sequence[str] = (),
     world_ref: dict[str, Any] | None = None,
     unique_entities_registry: dict[str, Any] | None = None,
+    daily_snapshots: Sequence[tuple[int, dict[str, Any]]] | None = None,
 ) -> dict[str, bytes]:
     """Файлы tables/: имя -> содержимое. Без справочника игры колонки шаблонов и таблицы реакций пусты; это названо в index.md."""
+    from tools.skills_history import build_campaign_history, build_relations_history, build_skills_history
+
+    if daily_snapshots is None:
+        daily_snapshots = [(current.get("world", {}).get("day", 1), current)]
+
     if unique_entities_registry is None and current:
         from tools.unique_entities_registry import build_unique_entities_registry
         safe_cur = dict(current)
@@ -2359,6 +2409,10 @@ def build_tables(
             )
         except Exception:
             unique_entities_registry = None
+
+    skills_history_table = build_skills_history(daily_snapshots)
+    campaign_history_table = build_campaign_history(daily_snapshots)
+    relations_history_table = build_relations_history(daily_snapshots)
 
     zone_places = zone_settlements(locations, world_ref)
     tables = [
@@ -2386,6 +2440,9 @@ def build_tables(
         faction_relations_table(game_records, game_index),
         faction_hostility_table(game_records, game_index),
         races_table(game_records, game_index),
+        skills_history_table,
+        campaign_history_table,
+        relations_history_table,
     ]
     mods = ((current.get("meta") or {}).get("game_data") or {}).get("mods") if game_index else None
     notes = list(game_notes)
