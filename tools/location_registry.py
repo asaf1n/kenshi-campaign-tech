@@ -48,7 +48,7 @@ def read_discovery_save(save_dir: Path, expected_sha256: str) -> dict[str, bool]
     return parse_town_discovery(records)
 
 
-def resolve_template_factions(world_ref: dict[str, Any]) -> dict[str, dict[str, str]]:
+def resolve_template_factions(world_ref: dict[str, Any]) -> dict[str, dict[str, str | None]]:
     """Читает TOWN.refs.faction только из файлов, которыми построен справочник мира."""
     hashes = world_ref.get("source_hashes")
     mods = world_ref.get("mods")
@@ -81,6 +81,7 @@ def resolve_template_factions(world_ref: dict[str, Any]) -> dict[str, dict[str, 
     except (OSError, ValueError):
         return {}
 
+    ru, _, by_msgid = gamedb.load_po()
     result = {}
     for sid in {row["template_sid"] for row in world_ref["locations"]}:
         town = records.get(sid, {})
@@ -90,7 +91,8 @@ def resolve_template_factions(world_ref: dict[str, Any]) -> dict[str, dict[str, 
         faction_sid = next(iter(refs))
         faction = records.get(faction_sid, {})
         if faction.get("type_id") == 10 and faction.get("name") and not gamedb._removed(faction):
-            result[sid] = {"sid": faction_sid, "name_en": faction["name"]}
+            result[sid] = {"sid": faction_sid, "name_en": faction["name"],
+                           "name_ru": ru.get(faction_sid) or by_msgid.get(faction["name"])}
     return result
 
 
@@ -99,15 +101,18 @@ def build_registry(
     world_ref: dict[str, Any],
     *,
     discovery: dict[str, bool] | None = None,
-    factions: dict[str, dict[str, str]] | None = None,
+    factions: dict[str, dict[str, str | None]] | None = None,
 ) -> dict[str, Any]:
     """Реестр выпуска: статика справочника и признак обнаружения из сейва; отметки зачистки добавляет доставка."""
+    regions = {region["name_en"]: region["name_ru"] for region in world_ref.get("regions", [])
+               if region.get("name_ru")}
     rows = {}
     for source in world_ref["locations"]:
         sid = source["instance_id"]
         if sid in rows:
             raise ValueError(f"Повтор instance_id в справочнике: {sid}")
         row = {key: source.get(key) for key in STATIC_FIELDS}
+        row["region"] = regions.get(row["region"], row["region"])
         if discovery and sid in discovery:
             row.update(discovered=discovery[sid], discovered_source=DISCOVERY_SOURCE)
         faction = (factions or {}).get(source["template_sid"])
@@ -219,13 +224,17 @@ def validate_registry(registry: dict[str, Any], manifest: dict[str, Any], world_
     if any(registry[key] != manifest.get(key) for key in RELEASE_FIELDS) or registry["world_ref_id"] != world_ref["world_ref_id"]:
         raise ValueError("Реестр локаций относится к другому выпуску")
     world = {row["instance_id"]: row for row in world_ref["locations"]}
+    regions = {region["name_en"]: region["name_ru"] for region in world_ref.get("regions", [])
+               if region.get("name_ru")}
     seen = set()
     for row in registry["locations"]:
         sid = row["instance_id"]
         if sid in seen or sid not in world:
             raise ValueError(f"Неизвестный или повторный instance_id реестра: {sid}")
         seen.add(sid)
-        if any(row[key] != world[sid].get(key) for key in STATIC_FIELDS):
+        expected = {key: world[sid].get(key) for key in STATIC_FIELDS}
+        expected["region"] = regions.get(expected["region"], expected["region"])
+        if any(row[key] != expected[key] for key in STATIC_FIELDS):
             raise ValueError(f"Статические поля реестра расходятся со справочником: {sid}")
         if "cleared" in row and not _applies(row["cleared"], registry):
             raise ValueError(f"Отметка зачистки позже времени выпуска: {sid}")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import os
 import tempfile
 import unittest
 from collections.abc import Iterable
@@ -9,18 +10,20 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools.current_layers import public_projection
-from tools.io_utils import ExtractionError, canonical, digest, tree_hashes
+from tools.io_utils import ExtractionError, canonical, digest, file_hash, tree_hashes
 from tools.location_registry import (
-    build_registry, merge_progress, read_discovery_save, registry_bytes, upgrade_progress, validate_progress,
+    build_registry, merge_progress, read_discovery_save, registry_bytes, resolve_template_factions,
+    upgrade_progress, validate_progress,
     validate_registry,
 )
 from tools.save_reader import extract_world_state
 
 
 def _world(ids: Iterable[str], world_ref_id: str = "world-new") -> dict:
-    return {"world_ref_id": world_ref_id, "locations": [
+    return {"world_ref_id": world_ref_id,
+            "regions": [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], "locations": [
         {"instance_id": sid, "template_sid": f"template-{sid}", "name_en": sid, "name_ru": None,
-         "kind": "town", "x": 0, "z": 0, "region": "region"}
+         "kind": "town", "x": 0, "z": 0, "region": "Greenbeach"}
         for sid in ids
     ]}
 
@@ -49,6 +52,8 @@ class LocationRegistryTests(unittest.TestCase):
         validate_registry(registry, self.manifest, world)
         rows = {row["instance_id"]: row for row in registry["locations"]}
         self.assertEqual(set(rows), set(ids))
+        self.assertTrue(all(row["region"] == "Зелёный пляж" for row in rows.values()))
+        self.assertTrue(all(row["region"] == "Greenbeach" for row in world["locations"]))
         self.assertTrue(rows["known"]["discovered"])
         self.assertFalse(rows["unknown"]["discovered"])
         self.assertNotIn("discovered", rows["absent"])
@@ -59,12 +64,69 @@ class LocationRegistryTests(unittest.TestCase):
             ("чужой выпуск", lambda r: r.update(snapshot_id="other"), "другому выпуску"),
             ("неполный набор", lambda r: r["locations"].pop(), "не все локации"),
             ("статика", lambda r: r["locations"][0].update(kind="ruins"), "Статические поля"),
+            ("английский регион", lambda r: r["locations"][0].update(region="Greenbeach"), "Статические поля"),
         ]:
             with self.subTest(label):
                 changed = deepcopy(registry)
                 mutate(changed)
                 with self.assertRaisesRegex(ValueError, error):
                     validate_registry(changed, self.manifest, world)
+
+    def test_region_translation_preserves_values_without_translation(self) -> None:
+        cases = [
+            ("The Swamp", [{"name_en": "The Swamp", "name_ru": "Болото"}], "Болото"),
+            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": None}], "Greenbeach"),
+            ("Greenbeach", [{"name_en": "Greenbeach", "name_ru": ""}], "Greenbeach"),
+            ("Unknown", [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], "Unknown"),
+            (None, [{"name_en": "Greenbeach", "name_ru": "Зелёный пляж"}], None),
+            ("Greenbeach", None, "Greenbeach"),
+        ]
+        for region, translations, expected in cases:
+            with self.subTest(region=region, translations=translations):
+                world = _world(["town"])
+                world["locations"][0]["region"] = region
+                if translations is None:
+                    world.pop("regions")
+                else:
+                    world["regions"] = translations
+                registry = build_registry(self.manifest, world)
+                self.assertEqual(registry["locations"][0]["region"], expected)
+                validate_registry(registry, self.manifest, world)
+
+    def test_template_factions_translate_by_sid_then_msgid(self) -> None:
+        world = _world(["sid", "msgid", "missing"])
+        records = {}
+        expected = {}
+        for key, name_en, name_ru in [
+            ("sid", "Faction A", "Фракция А"),
+            ("msgid", "Faction B", "Фракция Б"),
+            ("missing", "Faction C", None),
+        ]:
+            faction_sid = f"faction-{key}"
+            records[f"template-{key}"] = {"type_id": 13, "refs": {"faction": {faction_sid: {}}}}
+            records[faction_sid] = {"type_id": 10, "name": name_en}
+            expected[f"template-{key}"] = {"sid": faction_sid, "name_en": name_en, "name_ru": name_ru}
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp)
+            source = game / "gamedata.base"
+            source.write_bytes(b"game database fixture")
+            world.update(mods=["gamedata.base"], source_hashes={"gamedata.base": file_hash(source)})
+            with (
+                patch.dict(os.environ, {"KENSHI_DIR": str(game), "KENSHI_WORKSHOP_DIR": str(game / "workshop")}),
+                patch("tools.location_registry.gamedb.active_files",
+                      return_value={"missing": [], "files": [str(source)]}),
+                patch("tools.location_registry.gamedb.build", return_value={"records": records}),
+                patch("tools.location_registry.gamedb.load_po", return_value=(
+                    {"faction-sid": "Фракция А", "faction-msgid": ""}, {},
+                    {"Faction A": "Другой перевод", "Faction B": "Фракция Б"},
+                )),
+            ):
+                factions = resolve_template_factions(world)
+        self.assertEqual(factions, expected)
+        registry = build_registry(self.manifest, world, factions=factions)
+        validate_registry(registry, self.manifest, world)
+        for row in registry["locations"]:
+            self.assertEqual(row["template_faction"], expected[f"template-{row['instance_id']}"])
 
     def test_progress_transitions_preserve_orphans_and_reject_invalid_changes(self) -> None:
         world = _world(["town"])
