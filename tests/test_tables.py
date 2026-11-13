@@ -50,6 +50,20 @@ GOLDEN_HEADERS: dict[str, list[str]] = {
         "members_toughness_max", "members_stats_randomise", "weapons_typical",
         "armour_grade_max", "world_state_conditions",
     ],
+    "location_garrisons.csv": [
+        "instance_id", "location_name_en", "location_name_ru", "template_sid",
+        "kind", "region_name_en", "region_name_ru", "squad_sid", "squad_name",
+        "faction_sid", "faction_name", "spawn_share", "squad_size_min",
+        "squad_size_max", "members_summary", "leader_template_name",
+        "leader_attack", "leader_defence", "leader_strength", "leader_toughness",
+        "leader_stats_randomise", "leader_weapon", "leader_armour",
+        "members_attack_min", "members_attack_median", "members_attack_max",
+        "members_defence_min", "members_defence_median", "members_defence_max",
+        "members_strength_min", "members_strength_median", "members_strength_max",
+        "members_toughness_min", "members_toughness_median", "members_toughness_max",
+        "members_stats_randomise", "weapons_typical", "armour_grade_max",
+        "world_state_conditions",
+    ],
 }
 
 # Единственная локация справочника мира в клетке 14.2 разрешает здание без поселения; клетка 18.34 остаётся неразрешённой.
@@ -212,7 +226,7 @@ class TableContentTests(unittest.TestCase):
         self.assertIn("Справочник игры недоступен", text)
 
     def test_tables_dictionaries_and_compact_index(self) -> None:
-        """Для всех 28 таблиц строятся dict/<таблица>.md, index.md компактен и валиден по INDEX_ROW_RE."""
+        """Для всех 29 таблиц строятся dict/<таблица>.md, index.md компактен и валиден по INDEX_ROW_RE."""
         from tools.tables import INDEX_ROW_RE
 
         files = build_tables(mini_snapshot(), None, SNAPSHOT_ID, INDEX, RECORDS, world_ref=WORLD_REF)
@@ -224,9 +238,9 @@ class TableContentTests(unittest.TestCase):
         self.assertGreaterEqual(len(index_bytes), 3000)
         self.assertNotIn("## Словарь колонок", index_text)
 
-        # Регулярное выражение валидатора находит ровно 28 таблиц
+        # Регулярное выражение валидатора находит ровно 29 таблиц
         matched = dict(INDEX_ROW_RE.findall(index_text))
-        self.assertEqual(len(matched), 28)
+        self.assertEqual(len(matched), 29)
 
         for csv_name in matched:
             stem = csv_name.removesuffix(".csv")

@@ -17,6 +17,7 @@ from typing import Any, Iterable, Sequence
 
 from tools import itemstats, prosthetics
 from tools.encounters import region_encounters_table
+from tools.location_garrisons import location_garrisons_table
 from tools.world_context import ZONE_KEY_FORMAT, _building_places, _clean_handle_tuple, _settlement, storage_rows, zone_settlements
 
 TABLES_DIR: str = "tables"
@@ -2305,6 +2306,16 @@ def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
         notes.append(
             "Ключ соединения region_name_en связывает витрину с локациями справочника мира и просмотрщиком карты."
         )
+    elif table.name == "location_garrisons.csv":
+        notes.append(
+            "Гарнизоны и постоянные обитатели фиксированных объектов (лаборатории, арсеналы, базы, башни, города)."
+        )
+        notes.append(
+            "Для объектов без заданных резидентов в данных игры строки не создаются."
+        )
+        notes.append(
+            "Боевые параметры лидера и рядовых рассчитываются аналогично region_encounters.csv."
+        )
 
     if notes:
         lines.append("")
@@ -2353,6 +2364,7 @@ INDEX_PURPOSES: dict[str, str] = {
     "faction_hostility.csv": "Враждебность",
     "races.csv": "Расы, климат",
     "region_encounters.csv": "Встречи по регионам",
+    "location_garrisons.csv": "Гарнизоны объектов",
     "skills_history.csv": "Динамика навыков",
     "campaign_history.csv": "Казна и отряд",
     "relations_history.csv": "Дипломатия по дням",
@@ -2441,6 +2453,9 @@ def build_tables(
     enc_source = [sq_spwn_tbl, sq_tpl_tbl, sq_mem_tbl, unit_tpl_tbl, unit_gear_tbl, f_host_tbl]
     enc_tables = {t.name.removesuffix(".csv"): t.rows for t in enc_source}
     enc_table = region_encounters_table(enc_tables)
+    loc_garrisons_table = location_garrisons_table(
+        world_ref, game_records, game_index, enc_tables=enc_tables,
+    )
 
     tables = [
         squad_table(current, locations),
@@ -2468,6 +2483,7 @@ def build_tables(
         f_host_tbl,
         races_table(game_records, game_index),
         enc_table,
+        loc_garrisons_table,
         skills_history_table,
         campaign_history_table,
         relations_history_table,
@@ -2481,7 +2497,7 @@ def build_tables(
         notes.append("Записи реакций, торговли и производства недоступны: `trade_modifiers.csv`, `world_reactions.csv`, "
                      "`world_reaction_links.csv`, `races.csv`, `research.csv`, `build_catalog.csv`, `biome_resources.csv`, "
                      "`unit_*.csv`, `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv`, "
-                     "`faction_*.csv` пусты.")
+                     "`faction_*.csv`, `location_garrisons.csv` пусты.")
     files = {t.name: csv_bytes(t) for t in tables}
     files[INDEX_NAME] = render_index(current, snapshot_id, tables, mods, notes).encode("utf-8")
     for t in tables:

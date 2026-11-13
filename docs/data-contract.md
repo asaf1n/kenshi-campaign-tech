@@ -81,13 +81,13 @@ published/
   location_registry.json
   unique_entities_registry.json
   timeline.jsonl
-  tables/               # CSV и index.md, раздел «Табличные выгрузки» (всего 28 таблиц)
+  tables/               # CSV и index.md, раздел «Табличные выгрузки» (всего 29 таблиц)
     index.md, squad.csv, equipment.csv, inventory.csv, storage.csv, buildings.csv, research.csv,
     build_catalog.csv, biome_resources.csv, races.csv, item_prices.csv, trade_modifiers.csv,
     unique_npcs.csv, unique_entities.csv, town_overrides.csv, diplomacy.csv, world_reactions.csv, world_reaction_links.csv,
     unit_templates.csv, unit_template_gear.csv, squad_templates.csv, squad_members.csv,
     squad_spawns.csv, faction_relations.csv, faction_hostility.csv,
-    region_encounters.csv, skills_history.csv, campaign_history.csv, relations_history.csv
+    region_encounters.csv, location_garrisons.csv, skills_history.csv, campaign_history.csv, relations_history.csv
   screenshots/
     index.json
     index.md
@@ -555,6 +555,7 @@ Publisher читает журнал целиком, проверяет его, �
 | `squad_templates.csv`, `squad_members.csv`, `squad_spawns.csv` | `sid`; `squad_sid`, `role`, `member_sid`; `source`, `place_sid`, `squad_sid` | шаблоны отрядов, их состав по ролям, места появления отрядов |
 | `faction_relations.csv`, `faction_hostility.csv` | `faction_sid`, `kind`, `other_sid`; `faction_sid` | заданные в данных отношения фракций между собой; настройки фракций и расовый состав |
 | `region_encounters.csv` | `region_name_en, source, squad_name, squad_sid` | плоская аналитическая витрина встреч и бродячих отрядов по регионам и городам: доля появления, состав, боевые навыки и экипировка лидера, диапазон навыков рядовых, типичное оружие и World State |
+| `location_garrisons.csv` | `instance_id, squad_name, squad_sid` | плоская аналитическая витрина гарнизонов и постоянных обитателей фиксированных объектов (лаборатории, арсеналы, базы, башни, города): привязка к физическому объекту карты мира, доля в гарнизоне, состав, боевые навыки и экипировка лидера, диапазон навыков рядовых, типичное оружие и World State |
 | `skills_history.csv` | `day, character_id, skill` | длинный формат дельта-трекинга целочисленных уровней навыков и атрибутов участников отряда по дням кампании (37 характеристик: атрибуты и навыки squad.csv; строка фиксируется при первом появлении персонажа и при изменении целой части уровня в любую сторону) |
 | `campaign_history.csv` | `day` | состояние казны и численности отряда игрока по дням кампании (срез на момент последнего снимка каждого дня) |
 | `relations_history.csv` | `day, faction_sid` | история изменений дипломатических отношений фракций к игроку по дням в длинном формате (начальные значения и фиксация изменений relation) |
@@ -693,6 +694,58 @@ Publisher читает журнал целиком, проверяет его, �
   36. `armour_grade_max`: максимальный грейд брони в отряде (код и название, например `3 (Высокий)` или пусто).
   37. `world_state_conditions`: список `sid` условий World State, разделенных `; ` (из шаблона отряда).
 
+### Витрина гарнизонов объектов `location_garrisons.csv`
+
+Таблица `tables/location_garrisons.csv` формируется модулем `tools.location_garrisons` (`location_garrisons_table`) и служит детерминированной плоской аналитической витриной постоянных обитателей и гарнизонов фиксированных объектов мира Kenshi (лабораторий, баз, арсеналов, башен, поселений и городов):
+- **Связь с объектами мира**: привязка выполняется по `instance_id` и `template_sid` к объектам карты мира из `world_reference.json` и их шаблонам `TOWN` (тип 13) в записях игры.
+- **Ограничение отсутствия резидентов**: охватывает исключительно объекты, для которых в шаблоне `TOWN` явно определены отряды-резиденты (`refs.residents`). Для объектов без заданных резидентов в данных игры строки в витрине не создаются (в данных игры постоянные жители заданы не у всех руин и объектов).
+- **Ключ сортировки**: `instance_id, squad_name, squad_sid` (по возрастанию кортежа).
+- **Ключи соединения**: `instance_id, template_sid, squad_sid, faction_sid` (связь с `world_reference.json`, просмотрщиком карты, `squad_templates.csv`, `diplomacy.csv`, `faction_relations.csv`).
+- **Нормативные формулы и правила агрегации**:
+  - Доля в гарнизоне (`spawn_share`): процентный вес отряда среди резидентов объекта на основе `v0` ссылки `residents` (при равенстве или отсутствии весов распределяется равномерно).
+  - Боевые параметры юнита и отряда: рассчитываются аналогично `region_encounters.csv` (раздельные атака, защита, сила, стойкость, разброс; экипировка лидера; типичное оружие и максимальный грейд брони).
+  - Наследование фракции: если в шаблоне отряда `faction_sids` не задана, фракция наследуется от записи объекта `TOWN` (`refs.faction`).
+- **Колонки** (39 колонок):
+  1. `instance_id`: строковый идентификатор физического объекта на карте мира из `world_reference.json` (например, `108-rebirth-INGAME`).
+  2. `location_name_en`: каноническое английское название объекта (`name_en` из `world_reference.json`).
+  3. `location_name_ru`: русскоязычное название объекта (`name_ru` из `world_reference.json`).
+  4. `template_sid`: `sid` шаблона объекта `TOWN` (FCS тип 13).
+  5. `kind`: категория объекта (`ruins`, `town` и т.д.).
+  6. `region_name_en`: каноническое английское наименование региона расположения.
+  7. `region_name_ru`: русскоязычное наименование региона расположения.
+  8. `squad_sid`: строковый `sid` шаблона отряда-резидента (FCS `SQUAD_TEMPLATE`, тип 52).
+  9. `squad_name`: наименование отряда с нормализацией локализации.
+  10. `faction_sid`: строковый `sid` шаблона фракции отряда или объекта.
+  11. `faction_name`: локализованное наименование фракции отряда.
+  12. `spawn_share`: процентная доля отряда среди гарнизонов объекта.
+  13. `squad_size_min`: минимальный размер отряда.
+  14. `squad_size_max`: максимальный размер отряда.
+  15. `members_summary`: краткая сводка состава отряда по ролям.
+  16. `leader_template_name`: имя шаблона лидера отряда (или пусто).
+  17. `leader_attack`: навык атаки лидера.
+  18. `leader_defence`: навык защиты лидера.
+  19. `leader_strength`: показатель силы лидера.
+  20. `leader_toughness`: показатель стойкости лидера.
+  21. `leader_stats_randomise`: разброс характеристик лидера (+/-).
+  22. `leader_weapon`: оружие лидера с указанием производителя/грейда.
+  23. `leader_armour`: броня лидера с указанием грейда качества.
+  24. `members_attack_min`: минимальная атака среди рядовых.
+  25. `members_attack_median`: медианная атака среди рядовых.
+  26. `members_attack_max`: максимальная атака среди рядовых.
+  27. `members_defence_min`: минимальная защита среди рядовых.
+  28. `members_defence_median`: медианная защита среди рядовых.
+  29. `members_defence_max`: максимальная защита среди рядовых.
+  30. `members_strength_min`: минимальная сила среди рядовых.
+  31. `members_strength_median`: медианная сила среди рядовых.
+  32. `members_strength_max`: максимальная сила среди рядовых.
+  33. `members_toughness_min`: минимальная стойкость среди рядовых.
+  34. `members_toughness_median`: медианная стойкость среди рядовых.
+  35. `members_toughness_max`: максимальная стойкость среди рядовых.
+  36. `members_stats_randomise`: разброс характеристик рядовых (диапазон `min–max` или точное число).
+  37. `weapons_typical`: типичное оружие рядовых участников.
+  38. `armour_grade_max`: максимальный грейд брони в отряде (код и наименование).
+  39. `world_state_conditions`: условия World State из шаблона отряда.
+
 ### Значения `state_code` и отношения
 
 `unique_npcs.csv.state_code`: 0 — мёртв, 1 — жив и свободен, 2 — в плену (факт игры: `Kenshi/fcs.def:1884-1885`, поле `NPC is`). `diplomacy.csv` содержит сырые `relation` (−100…100), `trust`, `trust_neg`; классов нет.
@@ -735,7 +788,7 @@ Publisher читает журнал целиком, проверяет его, �
 - **Отсутствие статического лута в gamedb**: в статических файлах игры Kenshi (`gamedata.base`, моды, FCS) конкретный лут контейнеров руин (древние книги, ядра ИИ, инженерные исследования) отсутствует в явном виде.
 - **Содержимое записей руин**: записи руин (`TOWN`, тип 13) содержат только диапазоны ценности пула артефактов (`item artifacts base/min/max value`, `gear artifacts base/min/max value`), вместимость вендоров (`vendors fill total amount`) и охрану (`residents`, `squad`).
 - **Процедурная генерация Artifact Distribution System**: фактическое размещение редкого лута выполняется процедурным алгоритмом Artifact Distribution System движка Kenshi при старте новой игры / импорте по глобальному пулу артефактов, а материализация контейнеров происходит динамически в файлах зон сейва (`zone.*.*.save`) при первом визите отряда в сектор.
-- **Отказ от фиктивной витрины**: отдельная витрина `world_ruins_loot.csv` на основе статических данных игры не формируется во избежание генерации недостоверных/пустых данных (в соответствии с решением задачи 05); информация об охране и опасности руин объективно передается через витрину `region_encounters.csv` (поселения и бродячие патрули).
+- **Отказ от фиктивной витрины**: отдельная витрина `world_ruins_loot.csv` на основе статических данных игры не формируется во избежание генерации недостоверных/пустых данных (в соответствии с решением задачи 05); информация об охране и опасности руин объективно передается через витрины `region_encounters.csv` (поселения и бродячие патрули) и `location_garrisons.csv` (гарнизоны и постоянные обитатели объектов).
 
 ## Проверка принадлежности сейва кампании
 
