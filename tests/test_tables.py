@@ -41,9 +41,14 @@ GOLDEN_HEADERS: dict[str, list[str]] = {
     "region_encounters.csv": [
         "region_name_en", "region_name_ru", "place_sid", "source", "town_name", "squad_sid",
         "squad_name", "faction_sid", "faction_name", "spawn_share", "squad_size_min",
-        "squad_size_max", "members_summary", "leader_template_name", "leader_combat_skill",
-        "leader_weapon", "leader_armour", "members_combat_min", "members_combat_median",
-        "members_combat_max", "weapons_typical", "armour_grade_max", "world_state_conditions",
+        "squad_size_max", "members_summary", "leader_template_name", "leader_attack",
+        "leader_defence", "leader_strength", "leader_toughness", "leader_stats_randomise",
+        "leader_weapon", "leader_armour", "members_attack_min", "members_attack_median",
+        "members_attack_max", "members_defence_min", "members_defence_median",
+        "members_defence_max", "members_strength_min", "members_strength_median",
+        "members_strength_max", "members_toughness_min", "members_toughness_median",
+        "members_toughness_max", "members_stats_randomise", "weapons_typical",
+        "armour_grade_max", "world_state_conditions",
     ],
 }
 

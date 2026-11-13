@@ -35,12 +35,16 @@ def _template(sid: str, faction: str = "Фракция", states: str = "", chars
             "num_random_chars": chars[0], "num_random_chars_max": chars[1]}
 
 
-def _unit(sid: str, name: str = "", kind: str = "character", stat_attack: str = "", combat_stats: str = "",
-          animal_strength: str = "", armour_grade: str = "") -> dict[str, str]:
+def _unit(sid: str, name: str = "", kind: str = "character", stat_attack: str = "", stat_defence: str = "",
+          stat_strength: str = "", strength: str = "", stat_toughness2: str = "", combat_stats: str = "",
+          animal_strength: str = "", stats_randomise: str = "", armour_grade: str = "") -> dict[str, str]:
     return {
         "sid": sid, "kind": kind, "name_en": name or sid, "name_ru": name or sid,
-        "stat_attack": stat_attack, "combat_stats": combat_stats,
-        "animal_strength": animal_strength, "armour_grade": armour_grade,
+        "stat_attack": stat_attack, "stat_defence": stat_defence,
+        "stat_strength": stat_strength, "strength": strength,
+        "stat_toughness2": stat_toughness2, "combat_stats": combat_stats,
+        "animal_strength": animal_strength, "stats_randomise": stats_randomise,
+        "armour_grade": armour_grade,
     }
 
 
@@ -81,21 +85,29 @@ def _showcase_tables() -> dict[str, list[dict[str, str]]]:
         _member("guards", "choosefrom list", "Стражник Б", "1", sid="u_g2"),
     ]
     units = [
-        _unit("u_bandit_leader", "Главарь", stat_attack="45", armour_grade="2"),
-        _unit("u_b1", "Разбойни/кца1/", stat_attack="10", armour_grade="1"),
-        _unit("u_b2", "Головорез", stat_attack="20", armour_grade="1"),
-        _unit("u_b3", "Снайпер", stat_attack="50", armour_grade="3"),
-        _unit("u_stub", "Заглушка", stat_attack="99", armour_grade="5"),
-        _unit("u_boss", "Босс", combat_stats="75", armour_grade="4"),
+        _unit("u_bandit_leader", "Главарь", stat_attack="45", stat_defence="40", stat_strength="50",
+              stat_toughness2="42", stats_randomise="5", armour_grade="2"),
+        _unit("u_b1", "Разбойни/кца1/", stat_attack="10", stat_defence="12", stat_strength="15",
+              stat_toughness2="10", stats_randomise="3", armour_grade="1"),
+        _unit("u_b2", "Головорез", stat_attack="20", stat_defence="18", stat_strength="25",
+              stat_toughness2="20", stats_randomise="4", armour_grade="1"),
+        _unit("u_b3", "Снайпер", stat_attack="50", stat_defence="45", stat_strength="30",
+              stat_toughness2="35", stats_randomise="5", armour_grade="3"),
+        _unit("u_stub", "Заглушка", stat_attack="99", stat_defence="99", stat_strength="99",
+              stat_toughness2="99", stats_randomise="10", armour_grade="5"),
+        _unit("u_boss", "Босс", combat_stats="75", strength="80", stats_randomise="6", armour_grade="4"),
         _unit("u_dog", "Пёс", kind="animal", animal_strength="35"),
-        _unit("u_g1", "Стражник А", stat_attack="30", armour_grade="2"),
-        _unit("u_g2", "Стражник Б", stat_attack="35", armour_grade="2"),
+        _unit("u_g1", "Стражник А", stat_attack="30", stat_defence="32", stat_strength="28",
+              stat_toughness2="30", stats_randomise="4", armour_grade="2"),
+        _unit("u_g2", "Стражник Б", stat_attack="35", stat_defence="38", stat_strength="34",
+              stat_toughness2="36", stats_randomise="4", armour_grade="2"),
     ]
     gear = [
         _gear("u_bandit_leader", "weapons", "Конеруб"),
         _gear("u_bandit_leader", "weapon level", "Скелеты-кузнецы", ref_type="WEAPON_MANUFACTURER"),
         _gear("u_bandit_leader", "clothing", "Кожанка торговца", ref_type="ARMOUR"),
         _gear("u_b1", "weapons", "Палка"),
+        _gear("u_b1", "weapon level", "Катунские мастера", ref_type="WEAPON_MANUFACTURER"),
         _gear("u_b2", "weapons", "Тесак"),
         _gear("u_b3", "crossbows", "Арбалет", ref_type="CROSSBOW"),
         _gear("u_boss", "weapons", "Мейто-катана"),
@@ -176,15 +188,29 @@ class EncountersTests(unittest.TestCase):
         self.assertEqual(b["squad_size_max"], 8)  # 1 leader + 4 b1 + 2 b2 + 1 b3
         self.assertEqual(b["members_summary"], "Главарь ×1; Разбойник 2–4; Головорез 1–2; Снайпер 1")
         self.assertEqual(b["leader_template_name"], "Главарь")
-        self.assertEqual(b["leader_combat_skill"], 45)
+        self.assertEqual(b["leader_attack"], 45)
+        self.assertEqual(b["leader_defence"], 40)
+        self.assertEqual(b["leader_strength"], 50)
+        self.assertEqual(b["leader_toughness"], 42)
+        self.assertEqual(b["leader_stats_randomise"], 5)
         self.assertEqual(b["leader_weapon"], "Конеруб (Скелеты-кузнецы)")
         self.assertEqual(b["leader_armour"], "Кожанка торговца (Стандартный)")
-        # Рядовые: b1(10), b2(20), b3(50); заглушка u_stub (99) отброшена
-        self.assertEqual(b["members_combat_min"], 10)
-        self.assertEqual(b["members_combat_median"], 20)
-        self.assertEqual(b["members_combat_max"], 50)
-        self.assertEqual(b["weapons_typical"], "Арбалет; Палка; Тесак")
-        self.assertEqual(b["armour_grade_max"], 3)  # max of leader(2), b1(1), b2(1), b3(3); stub(5) отброшен
+        # Рядовые: b1(10/12/15/10), b2(20/18/25/20), b3(50/45/30/35); заглушка u_stub отброшена
+        self.assertEqual(b["members_attack_min"], 10)
+        self.assertEqual(b["members_attack_median"], 20)
+        self.assertEqual(b["members_attack_max"], 50)
+        self.assertEqual(b["members_defence_min"], 12)
+        self.assertEqual(b["members_defence_median"], 18)
+        self.assertEqual(b["members_defence_max"], 45)
+        self.assertEqual(b["members_strength_min"], 15)
+        self.assertEqual(b["members_strength_median"], 25)
+        self.assertEqual(b["members_strength_max"], 30)
+        self.assertEqual(b["members_toughness_min"], 10)
+        self.assertEqual(b["members_toughness_median"], 20)
+        self.assertEqual(b["members_toughness_max"], 35)
+        self.assertEqual(b["members_stats_randomise"], "3–5")
+        self.assertEqual(b["weapons_typical"], "Арбалет; Палка (Катунские мастера); Тесак")
+        self.assertEqual(b["armour_grade_max"], "3 (Высокий)")  # max of leader(2), b1(1), b2(1), b3(3); stub(5) отброшен
         self.assertEqual(b["world_state_conditions"], "ws_dust_king")
 
     def test_region_encounters_edge_cases(self) -> None:
@@ -195,26 +221,54 @@ class EncountersTests(unittest.TestCase):
         # Отряд только из лидера: combat_stats рядовых наследуют стат лидера
         boss = rows["boss_solo"]
         self.assertEqual(boss["leader_template_name"], "Босс")
-        self.assertEqual(boss["leader_combat_skill"], 75)
+        self.assertEqual(boss["leader_attack"], 75)
+        self.assertEqual(boss["leader_defence"], 75)
+        self.assertEqual(boss["leader_strength"], 80)
+        self.assertEqual(boss["leader_toughness"], 75)
+        self.assertEqual(boss["leader_stats_randomise"], 6)
         self.assertEqual(boss["leader_weapon"], "Мейто-катана")
         self.assertEqual(boss["leader_armour"], "Латный доспех (Специалист)")
-        self.assertEqual(boss["members_combat_min"], 75)
-        self.assertEqual(boss["members_combat_median"], 75)
-        self.assertEqual(boss["members_combat_max"], 75)
+        self.assertEqual(boss["members_attack_min"], 75)
+        self.assertEqual(boss["members_attack_median"], 75)
+        self.assertEqual(boss["members_attack_max"], 75)
+        self.assertEqual(boss["members_defence_min"], 75)
+        self.assertEqual(boss["members_defence_median"], 75)
+        self.assertEqual(boss["members_defence_max"], 75)
+        self.assertEqual(boss["members_strength_min"], 80)
+        self.assertEqual(boss["members_strength_median"], 80)
+        self.assertEqual(boss["members_strength_max"], 80)
+        self.assertEqual(boss["members_toughness_min"], 75)
+        self.assertEqual(boss["members_toughness_median"], 75)
+        self.assertEqual(boss["members_toughness_max"], 75)
+        self.assertEqual(boss["members_stats_randomise"], "6")
         self.assertEqual(boss["weapons_typical"], "")
-        self.assertEqual(boss["armour_grade_max"], 4)
+        self.assertEqual(boss["armour_grade_max"], "4 (Специалист)")
         self.assertEqual(boss["squad_size_min"], 1)
         self.assertEqual(boss["squad_size_max"], 1)
 
         # Отряд животных: лидера нет, сила берется из animal_strength
         dogs = rows["dogs"]
         self.assertEqual(dogs["leader_template_name"], "")
-        self.assertEqual(dogs["leader_combat_skill"], "")
+        self.assertEqual(dogs["leader_attack"], "")
+        self.assertEqual(dogs["leader_defence"], "")
+        self.assertEqual(dogs["leader_strength"], "")
+        self.assertEqual(dogs["leader_toughness"], "")
+        self.assertEqual(dogs["leader_stats_randomise"], "")
         self.assertEqual(dogs["leader_weapon"], "")
         self.assertEqual(dogs["leader_armour"], "")
-        self.assertEqual(dogs["members_combat_min"], 35)
-        self.assertEqual(dogs["members_combat_median"], 35)
-        self.assertEqual(dogs["members_combat_max"], 35)
+        self.assertEqual(dogs["members_attack_min"], 35)
+        self.assertEqual(dogs["members_attack_median"], 35)
+        self.assertEqual(dogs["members_attack_max"], 35)
+        self.assertEqual(dogs["members_defence_min"], 35)
+        self.assertEqual(dogs["members_defence_median"], 35)
+        self.assertEqual(dogs["members_defence_max"], 35)
+        self.assertEqual(dogs["members_strength_min"], 35)
+        self.assertEqual(dogs["members_strength_median"], 35)
+        self.assertEqual(dogs["members_strength_max"], 35)
+        self.assertEqual(dogs["members_toughness_min"], 35)
+        self.assertEqual(dogs["members_toughness_median"], 35)
+        self.assertEqual(dogs["members_toughness_max"], 35)
+        self.assertEqual(dogs["members_stats_randomise"], "")
         self.assertEqual(dogs["weapons_typical"], "_dog type")
         self.assertEqual(dogs["armour_grade_max"], "")
         self.assertEqual(dogs["squad_size_min"], 3)
@@ -234,9 +288,19 @@ class EncountersTests(unittest.TestCase):
         self.assertEqual(guards["faction_name"], "Стража")
         self.assertEqual(guards["squad_size_min"], 2)
         self.assertEqual(guards["squad_size_max"], 4)
-        self.assertEqual(guards["members_combat_min"], 30)
-        self.assertEqual(guards["members_combat_median"], 32)  # median(30, 35) = 32.5 -> round half even 32
-        self.assertEqual(guards["members_combat_max"], 35)
+        self.assertEqual(guards["members_attack_min"], 30)
+        self.assertEqual(guards["members_attack_median"], 32)  # median(30, 35) = 32.5 -> round half even 32
+        self.assertEqual(guards["members_attack_max"], 35)
+        self.assertEqual(guards["members_defence_min"], 32)
+        self.assertEqual(guards["members_defence_median"], 35)
+        self.assertEqual(guards["members_defence_max"], 38)
+        self.assertEqual(guards["members_strength_min"], 28)
+        self.assertEqual(guards["members_strength_median"], 31)
+        self.assertEqual(guards["members_strength_max"], 34)
+        self.assertEqual(guards["members_toughness_min"], 30)
+        self.assertEqual(guards["members_toughness_median"], 33)
+        self.assertEqual(guards["members_toughness_max"], 36)
+        self.assertEqual(guards["members_stats_randomise"], "4")
 
     def test_region_encounters_determinism_and_sorting(self) -> None:
         """Ловит нарушение порядка сортировки витрины и недетерминированность вывода."""
@@ -256,13 +320,104 @@ class EncountersTests(unittest.TestCase):
         tbl = region_encounters_table(tables)
         self.assertEqual(tbl.name, "region_encounters.csv")
         self.assertEqual(len(tbl.rows), 4)
-        self.assertEqual(len(tbl.columns), 23)
+        self.assertEqual(len(tbl.columns), 37)
         self.assertEqual(tbl.join_keys, "region_name_en, squad_sid, faction_sid")
 
         bad_tables = {k: v for k, v in tables.items() if k != "unit_templates"}
         with self.assertRaises(ValueError) as ctx:
             build_region_encounters(bad_tables)
         self.assertIn("unit_templates", str(ctx.exception))
+
+    def test_cannibal_plains_encounters_split_attack_defence(self) -> None:
+        """Проверяет раздельные значения атаки, защиты, силы, стойкости и разброса для отряда людоедов."""
+        # 1. Проверка на фикстуре с гетерогенным отрядом людоедов (Вождь + Людоед + Тощий людоед)
+        spawns = [_spawn("Cannibal Plains", "cannibal_raid", "14")]
+        templates = [_template("cannibal_raid", faction="Людоеды", faction_sids="fac_cannibals")]
+        members = [
+            _member("cannibal_raid", "leader", "Вождь", "1", sid="u_chief"),
+            _member("cannibal_raid", "squad", "Людоед", "5", "10", sid="u_cannibal"),
+            _member("cannibal_raid", "squad", "Тощий людоед", "10", "20", sid="u_scrawny"),
+        ]
+        units = [
+            _unit("u_chief", "Вождь", stat_attack="35", stat_defence="28", strength="40", combat_stats="30",
+                  stats_randomise="6", armour_grade="2"),
+            _unit("u_cannibal", "Людоед", stat_attack="18", stat_defence="14", strength="20", stat_toughness2="16",
+                  stats_randomise="5", armour_grade="1"),
+            _unit("u_scrawny", "Тощий людоед", stat_attack="10", stat_defence="8", combat_stats="9",
+                  stats_randomise="3"),
+        ]
+        gear = [
+            _gear("u_chief", "weapons", "Тесак для мяса"),
+            _gear("u_chief", "weapon level", "Древние", ref_type="WEAPON_MANUFACTURER"),
+            _gear("u_chief", "clothing", "Лохмотья", ref_type="ARMOUR"),
+            _gear("u_cannibal", "weapons", "Железная дубина"),
+            _gear("u_cannibal", "weapon level", "Древние", ref_type="WEAPON_MANUFACTURER"),
+            _gear("u_scrawny", "weapons", "Палка"),
+        ]
+        tables = {
+            "squad_spawns": spawns,
+            "squad_templates": templates,
+            "squad_members": members,
+            "unit_templates": units,
+            "unit_template_gear": gear,
+            "faction_hostility": [],
+            "faction_relations": [],
+        }
+        rows = {r["squad_sid"]: r for r in build_region_encounters(tables)}
+        self.assertIn("cannibal_raid", rows)
+        c = rows["cannibal_raid"]
+        self.assertEqual(c["region_name_en"], "Cannibal Plains")
+        self.assertEqual(c["leader_template_name"], "Вождь")
+        self.assertEqual(c["leader_attack"], 35)
+        self.assertEqual(c["leader_defence"], 28)
+        self.assertEqual(c["leader_strength"], 40)
+        self.assertEqual(c["leader_toughness"], 30)
+        self.assertEqual(c["leader_stats_randomise"], 6)
+        self.assertEqual(c["leader_weapon"], "Тесак для мяса (Древние)")
+        self.assertEqual(c["leader_armour"], "Лохмотья (Стандартный)")
+        self.assertEqual(c["members_attack_min"], 10)
+        self.assertEqual(c["members_attack_median"], 14)
+        self.assertEqual(c["members_attack_max"], 18)
+        self.assertEqual(c["members_defence_min"], 8)
+        self.assertEqual(c["members_defence_median"], 11)
+        self.assertEqual(c["members_defence_max"], 14)
+        self.assertEqual(c["members_strength_min"], 9)
+        self.assertEqual(c["members_strength_median"], 14)
+        self.assertEqual(c["members_strength_max"], 20)
+        self.assertEqual(c["members_toughness_min"], 9)
+        self.assertEqual(c["members_toughness_median"], 12)
+        self.assertEqual(c["members_toughness_max"], 16)
+        self.assertEqual(c["members_stats_randomise"], "3–5")
+        self.assertEqual(c["weapons_typical"], "Железная дубина (Древние); Палка")
+        self.assertEqual(c["armour_grade_max"], "2 (Стандартный)")
+
+        # 2. Проверка на реальных опубликованных таблицах
+        pub_tables_dir = Path("published/tables")
+        if (pub_tables_dir / "squad_spawns.csv").is_file():
+            from tools.encounters import load_tables
+            real_tables = load_tables(pub_tables_dir)
+            real_rows = build_region_encounters(real_tables)
+            cannibal_rows = [
+                r for r in real_rows
+                if (r["region_name_ru"] == "Равнины людоедов" or r["region_name_en"] == "Cannibal Plains")
+                and r["squad_name"] == "Cannibal raid 1"
+            ]
+            self.assertTrue(len(cannibal_rows) >= 1)
+            cr = cannibal_rows[0]
+            self.assertEqual(cr["leader_template_name"], "Людоед")
+            self.assertIsInstance(cr["leader_attack"], int)
+            self.assertIsInstance(cr["leader_defence"], int)
+            self.assertIsInstance(cr["members_attack_min"], int)
+            self.assertIsInstance(cr["members_defence_min"], int)
+            self.assertEqual(cr["leader_attack"], 17)
+            self.assertEqual(cr["leader_defence"], 17)
+            self.assertEqual(cr["leader_strength"], 17)
+            self.assertEqual(cr["leader_toughness"], 17)
+            self.assertEqual(cr["leader_stats_randomise"], 5)
+            self.assertEqual(cr["members_attack_min"], 17)
+            self.assertEqual(cr["members_defence_min"], 17)
+            self.assertEqual(cr["members_stats_randomise"], "5")
+            self.assertIn(" (Древние)", cr["weapons_typical"])
 
 
 class DeliverEncountersTests(unittest.TestCase):

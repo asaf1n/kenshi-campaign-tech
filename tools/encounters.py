@@ -275,33 +275,35 @@ REGION_ENCOUNTERS_COLUMNS: list[tuple[str, str]] = [
     ("squad_size_max", "Максимальный размер отряда"),
     ("members_summary", "Краткий состав отряда"),
     ("leader_template_name", "Имя шаблона лидера"),
-    ("leader_combat_skill", "Боевой навык лидера"),
+    ("leader_attack", "Атака лидера"),
+    ("leader_defence", "Защита лидера"),
+    ("leader_strength", "Сила лидера"),
+    ("leader_toughness", "Стойкость лидера"),
+    ("leader_stats_randomise", "Разброс характеристик лидера (+/-)"),
     ("leader_weapon", "Оружие лидера"),
     ("leader_armour", "Броня лидера"),
-    ("members_combat_min", "Мин. боевой навык рядовых"),
-    ("members_combat_median", "Медианный боевой навык рядовых"),
-    ("members_combat_max", "Макс. боевой навык рядовых"),
+    ("members_attack_min", "Мин. атака рядовых"),
+    ("members_attack_median", "Медианная атака рядовых"),
+    ("members_attack_max", "Макс. атака рядовых"),
+    ("members_defence_min", "Мин. защита рядовых"),
+    ("members_defence_median", "Медианная защита рядовых"),
+    ("members_defence_max", "Макс. защита рядовых"),
+    ("members_strength_min", "Мин. сила рядовых"),
+    ("members_strength_median", "Медианная сила рядовых"),
+    ("members_strength_max", "Макс. сила рядовых"),
+    ("members_toughness_min", "Мин. стойкость рядовых"),
+    ("members_toughness_median", "Медианная стойкость рядовых"),
+    ("members_toughness_max", "Макс. стойкость рядовых"),
+    ("members_stats_randomise", "Разброс характеристик рядовых (+/-)"),
     ("weapons_typical", "Типичное оружие рядовых"),
     ("armour_grade_max", "Макс. грейд брони в отряде"),
     ("world_state_conditions", "Условия World State"),
 ]
 
 
-def _unit_combat_skill(unit: Row | None) -> int | None:
-    """Извлекает боевой навык юнита (атака / сила животного / combat_stats)."""
+def _unit_stat_attack(unit: Row | None) -> int | None:
+    """Извлекает боевой навык атаки юнита (stat_attack / combat_stats / animal_strength)."""
     if not unit:
-        return None
-    kind = unit.get("kind")
-    if kind == "animal":
-        val = unit.get("animal_strength")
-        if val not in ("", None):
-            return int(_num(val))
-        val = unit.get("stat_attack")
-        if val not in ("", None):
-            return int(_num(val))
-        val = unit.get("combat_stats")
-        if val not in ("", None):
-            return int(_num(val))
         return None
     val = unit.get("stat_attack")
     if val not in ("", None, "0"):
@@ -309,12 +311,97 @@ def _unit_combat_skill(unit: Row | None) -> int | None:
     val = unit.get("combat_stats")
     if val not in ("", None, "0"):
         return int(_num(val))
-    if val not in ("", None):
+    if unit.get("kind") == "animal":
+        val = unit.get("animal_strength")
+        if val not in ("", None, "0"):
+            return int(_num(val))
+    if unit.get("stat_attack") == "0" or unit.get("combat_stats") == "0":
+        return 0
+    if unit.get("kind") == "animal" and unit.get("animal_strength") == "0":
+        return 0
+    return None
+
+
+def _unit_stat_defence(unit: Row | None) -> int | None:
+    """Извлекает боевой навык защиты юнита (stat_defence / combat_stats / animal_strength)."""
+    if not unit:
+        return None
+    val = unit.get("stat_defence")
+    if val not in ("", None, "0"):
         return int(_num(val))
-    val = unit.get("stat_attack")
+    val = unit.get("combat_stats")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    if unit.get("kind") == "animal":
+        val = unit.get("animal_strength")
+        if val not in ("", None, "0"):
+            return int(_num(val))
+    if unit.get("stat_defence") == "0" or unit.get("combat_stats") == "0":
+        return 0
+    if unit.get("kind") == "animal" and unit.get("animal_strength") == "0":
+        return 0
+    return None
+
+
+def _unit_stat_strength(unit: Row | None) -> int | None:
+    """Извлекает показатель силы юнита (stat_strength / strength / animal_strength / combat_stats)."""
+    if not unit:
+        return None
+    val = unit.get("stat_strength")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    val = unit.get("strength")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    if unit.get("kind") == "animal":
+        val = unit.get("animal_strength")
+        if val not in ("", None, "0"):
+            return int(_num(val))
+    val = unit.get("combat_stats")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    if (unit.get("stat_strength") == "0" or unit.get("strength") == "0"
+            or unit.get("combat_stats") == "0"):
+        return 0
+    if unit.get("kind") == "animal" and unit.get("animal_strength") == "0":
+        return 0
+    return None
+
+
+def _unit_stat_toughness(unit: Row | None) -> int | None:
+    """Извлекает показатель стойкости юнита (stat_toughness2 / combat_stats / animal_strength)."""
+    if not unit:
+        return None
+    val = unit.get("stat_toughness2")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    val = unit.get("combat_stats")
+    if val not in ("", None, "0"):
+        return int(_num(val))
+    if unit.get("kind") == "animal":
+        val = unit.get("animal_strength")
+        if val not in ("", None, "0"):
+            return int(_num(val))
+    if unit.get("stat_toughness2") == "0" or unit.get("combat_stats") == "0":
+        return 0
+    if unit.get("kind") == "animal" and unit.get("animal_strength") == "0":
+        return 0
+    return None
+
+
+def _unit_stats_randomise(unit: Row | None) -> int | None:
+    """Извлекает разброс характеристик stats_randomise."""
+    if not unit:
+        return None
+    val = unit.get("stats_randomise")
     if val not in ("", None):
         return int(_num(val))
     return None
+
+
+def _unit_combat_skill(unit: Row | None) -> int | None:
+    """Сохранено для обратной совместимости: возвращает навык атаки."""
+    return _unit_stat_attack(unit)
 
 
 def _parse_armour_grade(val: Any) -> tuple[int | None, str]:
@@ -330,6 +417,21 @@ def _parse_armour_grade(val: Any) -> tuple[int | None, str]:
         return code, ARMOUR_GRADES.get(code, s)
     except Exception:
         return None, s
+
+
+def _aggregate_stats(
+    reg_vals: Sequence[int],
+    leader_val: int | None,
+) -> tuple[int | str, int | str, int | str]:
+    """Вычисляет min, median, max для рядовых или наследует стат лидера."""
+    if reg_vals:
+        s_min = min(reg_vals)
+        s_max = max(reg_vals)
+        s_med = int(round(statistics.median(reg_vals)))
+        return s_min, s_med, s_max
+    if leader_val is not None:
+        return leader_val, leader_val, leader_val
+    return "", "", ""
 
 
 def _squad_size_range(members: Sequence[Row], template: Row | None) -> tuple[int, int]:
@@ -409,8 +511,11 @@ def build_region_encounters(tables: Tables) -> list[dict[str, Any]]:
                 l_u = units.get(l_sid)
                 l_name = (l_u.get("name_ru") or l_u.get("name_en") or leader.get("member_name") or l_sid) if l_u else (leader.get("member_name") or l_sid)
                 leader_template_name = neutral_gender(l_name)
-                l_skill = _unit_combat_skill(l_u)
-                leader_combat_skill = l_skill if l_skill is not None else ""
+                leader_attack = _unit_stat_attack(l_u)
+                leader_defence = _unit_stat_defence(l_u)
+                leader_strength = _unit_stat_strength(l_u)
+                leader_toughness = _unit_stat_toughness(l_u)
+                leader_stats_randomise = _unit_stats_randomise(l_u)
 
                 l_gear = gear_by_unit.get(l_sid, [])
                 l_weapons = [neutral_gender(g["ref_name"]) for g in l_gear if g.get("category") in ("weapons", "crossbows", "weapon") and g.get("ref_name")]
@@ -435,42 +540,67 @@ def build_region_encounters(tables: Tables) -> list[dict[str, Any]]:
                     leader_armour = ""
             else:
                 leader_template_name = ""
-                leader_combat_skill = ""
+                leader_attack = None
+                leader_defence = None
+                leader_strength = None
+                leader_toughness = None
+                leader_stats_randomise = None
                 leader_weapon = ""
                 leader_armour = ""
 
             # Боевые метрики рядовых участников (без лидера)
             regular = [m for m in mems if m["role"] != "leader" and not (_num(m.get("v0")) == 0 and _num(m.get("v1")) == 0)]
-            reg_skills = []
-            for m in regular:
-                sk = _unit_combat_skill(units.get(m["member_sid"]))
-                if sk is not None:
-                    reg_skills.append(sk)
+            reg_attacks: list[int] = []
+            reg_defences: list[int] = []
+            reg_strengths: list[int] = []
+            reg_toughnesses: list[int] = []
+            reg_randomises: list[int] = []
 
-            if reg_skills:
-                members_combat_min = min(reg_skills)
-                members_combat_max = max(reg_skills)
-                members_combat_median = int(round(statistics.median(reg_skills)))
-            elif leader_combat_skill != "":
-                members_combat_min = leader_combat_skill
-                members_combat_median = leader_combat_skill
-                members_combat_max = leader_combat_skill
+            for m in regular:
+                u = units.get(m["member_sid"])
+                atk = _unit_stat_attack(u)
+                if atk is not None:
+                    reg_attacks.append(atk)
+                df = _unit_stat_defence(u)
+                if df is not None:
+                    reg_defences.append(df)
+                st = _unit_stat_strength(u)
+                if st is not None:
+                    reg_strengths.append(st)
+                tgh = _unit_stat_toughness(u)
+                if tgh is not None:
+                    reg_toughnesses.append(tgh)
+                rnd = _unit_stats_randomise(u)
+                if rnd is not None:
+                    reg_randomises.append(rnd)
+
+            members_attack_min, members_attack_median, members_attack_max = _aggregate_stats(reg_attacks, leader_attack)
+            members_defence_min, members_defence_median, members_defence_max = _aggregate_stats(reg_defences, leader_defence)
+            members_strength_min, members_strength_median, members_strength_max = _aggregate_stats(reg_strengths, leader_strength)
+            members_toughness_min, members_toughness_median, members_toughness_max = _aggregate_stats(reg_toughnesses, leader_toughness)
+
+            if reg_randomises:
+                members_stats_randomise: str = _range(str(min(reg_randomises)), str(max(reg_randomises)))
+            elif leader_stats_randomise is not None:
+                members_stats_randomise = str(leader_stats_randomise)
             else:
-                members_combat_min = ""
-                members_combat_median = ""
-                members_combat_max = ""
+                members_stats_randomise = ""
 
-            # Типичное оружие рядовых отряда
-            typical_weapons = []
+            # Типичное оружие рядовых отряда (с учетом производителя/грейда weapon level)
+            typical_weapons: list[str] = []
             for m in regular:
-                for g in gear_by_unit.get(m["member_sid"], []):
+                u_gear = gear_by_unit.get(m["member_sid"], [])
+                u_mfgs = [neutral_gender(g["ref_name"]) for g in u_gear if g.get("category") == "weapon level" and g.get("ref_name")]
+                mfg_suffix = f" ({u_mfgs[0]})" if u_mfgs else ""
+                for g in u_gear:
                     if g.get("category") in ("weapons", "crossbows", "weapon") and g.get("ref_name"):
                         wname = neutral_gender(g["ref_name"])
-                        if wname not in typical_weapons:
-                            typical_weapons.append(wname)
+                        w_formatted = f"{wname}{mfg_suffix}"
+                        if w_formatted not in typical_weapons:
+                            typical_weapons.append(w_formatted)
             weapons_typical = "; ".join(sorted(typical_weapons))
 
-            # Максимальный грейд брони в отряде
+            # Максимальный грейд брони в отряде (код + название)
             squad_grade_codes: list[int] = []
             for m in mems:
                 if _num(m.get("v0")) == 0 and _num(m.get("v1")) == 0 and m.get("role") != "leader":
@@ -480,7 +610,11 @@ def build_region_encounters(tables: Tables) -> list[dict[str, Any]]:
                     code, _ = _parse_armour_grade(u.get("armour_grade"))
                     if code is not None:
                         squad_grade_codes.append(code)
-            armour_grade_max = max(squad_grade_codes) if squad_grade_codes else ""
+            if squad_grade_codes:
+                max_code = max(squad_grade_codes)
+                armour_grade_max = f"{max_code} ({ARMOUR_GRADES[max_code]})" if max_code in ARMOUR_GRADES else str(max_code)
+            else:
+                armour_grade_max = ""
 
             # Фракция отряда
             faction_sid = (t or {}).get("faction_sids") or ""
@@ -505,12 +639,26 @@ def build_region_encounters(tables: Tables) -> list[dict[str, Any]]:
                 "squad_size_max": size_max,
                 "members_summary": _squad_composition(mems, t),
                 "leader_template_name": leader_template_name,
-                "leader_combat_skill": leader_combat_skill,
+                "leader_attack": leader_attack if leader_attack is not None else "",
+                "leader_defence": leader_defence if leader_defence is not None else "",
+                "leader_strength": leader_strength if leader_strength is not None else "",
+                "leader_toughness": leader_toughness if leader_toughness is not None else "",
+                "leader_stats_randomise": leader_stats_randomise if leader_stats_randomise is not None else "",
                 "leader_weapon": leader_weapon,
                 "leader_armour": leader_armour,
-                "members_combat_min": members_combat_min,
-                "members_combat_median": members_combat_median,
-                "members_combat_max": members_combat_max,
+                "members_attack_min": members_attack_min,
+                "members_attack_median": members_attack_median,
+                "members_attack_max": members_attack_max,
+                "members_defence_min": members_defence_min,
+                "members_defence_median": members_defence_median,
+                "members_defence_max": members_defence_max,
+                "members_strength_min": members_strength_min,
+                "members_strength_median": members_strength_median,
+                "members_strength_max": members_strength_max,
+                "members_toughness_min": members_toughness_min,
+                "members_toughness_median": members_toughness_median,
+                "members_toughness_max": members_toughness_max,
+                "members_stats_randomise": members_stats_randomise,
                 "weapons_typical": weapons_typical,
                 "armour_grade_max": armour_grade_max,
                 "world_state_conditions": (t or {}).get("world_state_sids") or "",

@@ -2293,14 +2293,14 @@ def render_table_dict(table: Table, game_notes: Sequence[str] = ()) -> str:
         )
     elif table.name == "region_encounters.csv":
         notes.append(
-            "Боевые навыки юнитов вычисляются по stat_attack или combat_stats (для животных — animal_strength)."
+            "Боевые параметры юнитов (атака, защита, сила, стойкость) вычисляются по stat_*, combat_stats или strength (для животных — animal_strength)."
         )
         notes.append(
-            "Для рядовых участников отряда рассчитываются members_combat_min, members_combat_median и members_combat_max; "
+            "Для рядовых участников отряда рассчитываются min, median и max по характеристикам и диапазон stats_randomise; "
             "при их отсутствии значения наследуются от лидера."
         )
         notes.append(
-            "Оружие и броня лидера фиксируют экипировку и грейд шаблона лидера; weapons_typical перечисляет типичное оружие рядовых."
+            "Оружие и броня лидера фиксируют экипировку и грейд шаблона лидера; weapons_typical перечисляет типичное оружие рядовых с грейдом/производителем."
         )
         notes.append(
             "Ключ соединения region_name_en связывает витрину с локациями справочника мира и просмотрщиком карты."
