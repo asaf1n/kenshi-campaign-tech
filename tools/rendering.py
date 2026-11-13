@@ -45,8 +45,10 @@ def limb_summary(prosthetics: list[dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
-def render_change_lines(changes: dict[str, Any]) -> list[str]:
-    """Маркированный список ключевых изменений дельты; общий для brief.md и changes.md."""
+def render_change_lines(changes: dict[str, Any], *, compact: bool = False) -> list[str]:
+    """Маркированный список ключевых изменений дельты; общий для brief.md и changes.md.
+
+    `compact` (brief.md): навыки, перемещения предметов и отношения — счётчиками; построчно они остаются в changes.md."""
     lines: list[str] = []
     valid = changes.get("valid", False)
     if not valid:
@@ -85,7 +87,9 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
         if status_changed:
             st_str = ", ".join(f"{c.get('name')} (`{c.get('id')}`: {c.get('field')}={c.get('to')})" for c in status_changed)
             lines.append(f"- **Смена статуса ({len(status_changed)}):** {st_str}")
-        if transfers:
+        if transfers and compact:
+            lines.append(f"- **Перемещения предметов:** {len(transfers)}")
+        elif transfers:
             lines.append(f"- **Перемещения предметов ({len(transfers)}):**")
             for t in transfers:
                 item = t.get("item", t.get("sid", "предмет"))
@@ -94,7 +98,7 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
                 lines.append(f"  - `{item}`: от [{from_str}] к [{to_str}]")
         if skills:
             lines.append(f"- **Изменения навыков:** у {len(skills)} участников")
-            for sk in sorted(skills, key=lambda s: (str(s.get("name") or ""), str(s.get("id") or ""))):
+            for sk in [] if compact else sorted(skills, key=lambda s: (str(s.get("name") or ""), str(s.get("id") or ""))):
                 ch_str = ", ".join(f"{k}: {v.get('from')} -> {v.get('to')}" for k, v in sorted(sk.get("changes", {}).items()))
                 lines.append(f"  - {sk.get('name')} (`{sk.get('id')}`): {ch_str}")
         if equipment:
@@ -103,7 +107,9 @@ def render_change_lines(changes: dict[str, Any]) -> list[str]:
             lines.append(f"- **Изменения здоровья:** у {len(health)} участников")
 
         dip_ch = changes.get("diplomacy", [])
-        if dip_ch:
+        if dip_ch and compact:
+            lines.append(f"- **Изменения отношений с фракциями:** {len(dip_ch)}")
+        elif dip_ch:
             lines.append(f"- **Изменения отношений с фракциями ({len(dip_ch)}):**")
             for d in dip_ch:
                 d_name = d.get("faction_name") or d.get("faction_sid")
@@ -211,8 +217,6 @@ def render_brief(
     time = world.get("time")
     money = world.get("money")
 
-    day_str = f"День {day}" if day is not None else "День: не получено"
-    time_str = f", время {time}" if time is not None else ""
     money_str = f"{money:,} кат.".replace(",", " ") if isinstance(money, (int, float)) else "не получено"
 
     characters = current.get("characters", [])
@@ -224,9 +228,7 @@ def render_brief(
         f"# Краткая сводка: {game_time_title(day, time)}",
         "",
         *_publication_header(publication, day, time),
-        "## Игровой мир",
-        f"- **Время:** {day_str}{time_str}",
-        f"- **Баланс (казна):** {money_str}",
+        f"- **Казна:** {money_str}",
         "",
         "## Состав и группы отряда",
         f"- **Всего участников:** {len(characters)} (гуманоидов: {len(humanoids)}, животных: {len(animals)})",
@@ -261,10 +263,10 @@ def render_brief(
         "",
         "## Ключевые изменения",
     ])
-    lines.extend(render_change_lines(changes))
+    lines.extend(render_change_lines(changes, compact=True))
     lines.extend([
         "",
-        "Детальный протокол изменений: [changes.md](changes.md)",
+        "Построчные изменения: [changes.md](changes.md)",
     ])
 
     warnings = current.get("warnings", [])
@@ -278,19 +280,19 @@ def render_brief(
 
     lines.extend([
         "",
-        "## Карта витрин и табличные данные",
-        "- [tables/index.md](tables/index.md) — реестр таблиц",
-        "- [tables/squad.csv](tables/squad.csv) — полный состав отряда, характеристики и экипировка",
-        "- [tables/unique_entities.csv](tables/unique_entities.csv) — уникальные сущности (NPC, боссы, оружие Мейто)",
-        "- [tables/diplomacy.csv](tables/diplomacy.csv) — отношения со всеми фракциями мира",
-        "- [tables/storage.csv](tables/storage.csv) — складские запасы баз и поселений",
-        "- [tables/buildings.csv](tables/buildings.csv) — постройки, станки и добывающие узлы",
-        "- [tables/research.csv](tables/research.csv) — технологическое дерево и очередь исследований",
-        "- [tables/biome_resources.csv](tables/biome_resources.csv) — ресурсы биомов под форпосты",
-        "- [tables/town_overrides.csv](tables/town_overrides.csv) — переопределения городов и состояния мира",
-        "- [changes.md](changes.md) — хроника и детальные изменения между снимками",
-        "- [screenshots/index.md](screenshots/index.md) — коллекция игровых скриншотов",
-        "- [locations.json](locations.json) — пространственные координаты и группы",
+        "## Таблицы",
+        "- [tables/index.md](tables/index.md) — оглавление; словари колонок — `tables/dict/`",
+        "- [tables/squad.csv](tables/squad.csv) — отряд: навыки, состояние, расположение",
+        "- [tables/region_encounters.csv](tables/region_encounters.csv) — отряды по регионам",
+        "- [tables/location_garrisons.csv](tables/location_garrisons.csv) — обитатели объектов",
+        "- [tables/unique_entities.csv](tables/unique_entities.csv) — уникальные NPC и Мейто",
+        "- [tables/skills_history.csv](tables/skills_history.csv), [campaign_history.csv](tables/campaign_history.csv), [relations_history.csv](tables/relations_history.csv) — история по дням",
+        "- [tables/storage.csv](tables/storage.csv) — склады; снаряжение и инвентарь — `equipment.csv`, `inventory.csv`",
+        "- [tables/diplomacy.csv](tables/diplomacy.csv) — отношения с фракциями",
+        "- [tables/town_overrides.csv](tables/town_overrides.csv) — переопределения городов",
+        "- [changes.md](changes.md) — изменения между снимками",
+        "- [screenshots/index.md](screenshots/index.md) — скриншоты",
+        "- [locations.json](locations.json) — координаты и группы",
     ])
     if timeline is not None:
         lines.append("- [timeline.jsonl](timeline.jsonl) — журнал событий")

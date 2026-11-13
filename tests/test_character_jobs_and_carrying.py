@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from tools.config import Config
 from tools.io_utils import read_json, tree_hashes
 from tools.pipeline import run_pipeline
-from tools.rendering import render_brief
+from tools.rendering import render_brief, render_change_lines
 from tests.test_save_reader import _make_file, _make_record
 from tools.save_reader import (
     clean_handle,
@@ -108,7 +108,8 @@ class TestCharacterJobsAndCarryingSynthetic(unittest.TestCase):
     def test_render_extended_changes_with_unknown_relation(self) -> None:
         changes = {"valid": True, "diplomacy": [{"faction_sid": "other", "relation": {"from": None, "to": 5}}]}
         brief = render_brief({}, changes, "fixture")
-        self.assertIn("отношение: None -> 5", brief)
+        self.assertIn("**Изменения отношений с фракциями:** 1", brief)
+        self.assertIn("отношение: None -> 5", "\n".join(render_change_lines(changes)))
         self.assertNotIn("Изменений в отслеживаемых категориях не зафиксировано", brief)
         self.assertEqual(brief, render_brief({}, changes, "fixture"))
 

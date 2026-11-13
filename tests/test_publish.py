@@ -368,7 +368,7 @@ class PublishTests(unittest.TestCase):
         # 2. Сверка чисел в brief.md и squad.md с JSON
         # День игры
         self.assertIn("День 25", brief1)
-        self.assertIn("время 14:30", brief1)
+        self.assertIn("14:30", brief1)
         # Баланс
         self.assertIn("77 700 кат.", brief1)
         # Число участников и отрядов
@@ -384,7 +384,9 @@ class PublishTests(unittest.TestCase):
         self.assertIn("[tables/index.md](tables/index.md)", brief1)
         self.assertIn("[tables/squad.csv](tables/squad.csv)", brief1)
         self.assertIn("[tables/diplomacy.csv](tables/diplomacy.csv)", brief1)
-        self.assertIn("[tables/storage.csv](tables/storage.csv)", brief1)
+        self.assertIn("[tables/region_encounters.csv](tables/region_encounters.csv)", brief1)
+        self.assertIn("[tables/location_garrisons.csv](tables/location_garrisons.csv)", brief1)
+        self.assertNotIn("форпост", brief1)
         self.assertIn("[changes.md](changes.md)", brief1)
         # Сведения о местоположении: «не получено» в fallback-режиме без locations
         brief_fallback = render_brief(cur, ch, snap_id)

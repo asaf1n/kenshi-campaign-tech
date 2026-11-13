@@ -138,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     progress_parser.add_argument("--published-dir", type=Path, help="Каталог выпуска со справочником мира")
     progress_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
 
+    entities_parser = commands.add_parser("check-entities-progress", help="Проверка ручного слоя исходов уникальных сущностей перед коммитом")
+    entities_parser.add_argument("--published-dir", type=Path, help="Каталог выпуска с реестром уникальных сущностей")
+    entities_parser.add_argument("--companion-dir", type=Path, help="Каталог репозитория Kenshi-Compain")
+
     # 7.4. sync-drive
     sync_parser = commands.add_parser("sync-drive", help="Синхронизация published и Campaign/ с Google Диском")
     sync_parser.add_argument("--published-dir", type=Path, default=ROOT / "published", help="Каталог публикации")
@@ -480,6 +484,10 @@ def main(argv: list[str] | None = None) -> int:
             from tools.deliver_companion import check_location_progress
             result = check_location_progress(args.published_dir, args.companion_dir)
 
+        elif args.command == "check-entities-progress":
+            from tools.deliver_companion import check_entities_progress
+            result = check_entities_progress(args.published_dir, args.companion_dir)
+
         elif args.command == "sync-drive":
             from tools.config import find_gdrive_root
             from tools.deliver_companion import companion_root
@@ -538,6 +546,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "check-save" and not result["belongs"]:
             return 1
         if args.command == "check-location-progress" and result["status"] != "passed":
+            return 1
+        if args.command == "check-entities-progress" and result["status"] not in ("passed", "absent"):
             return 1
         if args.command == "screenshots-index" and result["indexed"] < result["frames"]:
             return 1

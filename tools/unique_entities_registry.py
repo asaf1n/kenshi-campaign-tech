@@ -18,8 +18,11 @@ MANUFACTURER_SID = "52288-rebirth.mod"
 TOWN_LINKS = {"residents": "resident", "bar squads": "bar_squad", "roaming squads": "roaming"}
 # Подтверждённые заданием боссы. Остальные выводятся из игровых признаков.
 CUSTOM_BOSS_SIDS = frozenset({"50519-rebirth.mod", "96407-rebirth.mod", "96409-rebirth.mod"})
-# Исходы ручного слоя entities_progress, означающие победу/захват босса.
-BOSS_CLEARED_OUTCOMES = frozenset({"dead", "defeated", "captured"})
+# Словарь исходов ручного слоя entities_progress (протокол [итог] Kenshi-Compain).
+NPC_OUTCOMES = frozenset({"dead", "defeated", "captured", "handed_over", "released", "recruited"})
+TROPHY_OUTCOMES = frozenset({"trophy_claimed"})
+# Исходы, означающие победу над боссом или его захват (сданный пленник был захвачен).
+BOSS_CLEARED_OUTCOMES = frozenset({"dead", "defeated", "captured", "handed_over"})
 
 
 def resolve_primary_location(links: list[dict[str, Any]] | None) -> tuple[str | None, str | None]:

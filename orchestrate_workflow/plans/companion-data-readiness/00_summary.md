@@ -1,12 +1,12 @@
 # companion-data-readiness
 
-Статус плана: открыт повторно 2026-11-13 (внешнее ревью выпуска, задача 07)
+Статус плана: завершён 2026-11-13; ожидает доставки выпуска при следующем запуске Initialize-Pipeline.ps1
 
 Цель плана: Довести опубликованные артефакты published/ и конвейер доставки до полной готовности под задачи игрового компаньона Kenshi (выбор направлений походов с учётом Stronger Opponent Logic — модель сама оценивает сопротивление и потенциал прокачки по объективным характеристикам отрядов, лидеру и снаряжению; исследование лута руин; персональные подтверждения боссов и Мейто через ручной слой; компактный объём контекста для GitHub-коннектора Custom GPT; локализация и история прокачки отряда) в соответствии с находками аудита и корректировкой после ревью.
 
 Архитектурное решение по Находке 9 (монолит tools/tables.py и парсеры): Декомпозиция новых витрин выносится в отдельные специализированные модули (`tools/skills_history.py`, `tools/encounters.py`, `tools/ruins_loot.py`), исключая раздувание исторического монолита `tools/tables.py` (в нём остаётся только минимальная регистрация внешних генераторов). Глубокий рефакторинг исторического монолита `tables.py` (деление на `tables_squad.py`, `tables_world.py`, `tables_gamedata.py`) и связки `session_export` + `save_reader` мотивированно отложен в отдельный техдолг-план, чтобы не рисковать стабильностью базового парсера форматов v10/v11 при создании новой аналитической функциональности компаньона.
 
-Открытая задача: [07-review-followups](07-review-followups.md)
+Открытая задача: нет (07 закрыта по коду; доставка — при следующем запуске конвейера)
 
 | Задача | Состояние очереди | Назначение |
 |---|---|---|
@@ -17,4 +17,4 @@
 | [04-skills-history-and-squad-dynamics](04-skills-history-and-squad-dynamics.md) | закрыта | Историческая витрина skills_history.csv в выделенном модуле tools/skills_history.py по цепочке снимков кампании, динамика характеристик, казны и состава отряда во времени (Находка 5, архитектурное решение по Находке 9). Завершена 2026-11-12 |
 | [05-region-encounters-and-ruins-loot](05-region-encounters-and-ruins-loot.md) | закрыта | Сводная плоская витрина region_encounters.csv в tools/encounters.py; исследование структуры лута руин и фиксация нормативного ограничения Artifact Distribution System в docs/data-contract.md (Находка 1, архитектурное решение по Находке 9). Завершена 2026-11-12 |
 | [06-contract-tests-and-e2e-verification](06-contract-tests-and-e2e-verification.md) | закрыта | Синхронизация docs/data-contract.md по state_code/location_resolution, калибровка 64 предметов unverified_class, стабилизация 4 LIVE-SLOT тестов, прогон unit-тестов, схем и сквозного конвейера Initialize-Pipeline.ps1 (Находки 6, 7, 10). Завершена 2026-11-12 |
-| [07-review-followups](07-review-followups.md) | открыта | Внешнее ревью выпуска: отрицательные уровни в skills_history.csv, раздельные атака и защита в region_encounters.csv, гарнизоны объектов location_garrisons.csv, сжатие brief.md, набор outcome и защита истории entities_progress |
+| [07-review-followups](07-review-followups.md) | закрыта | Внешнее ревью выпуска: отрицательные уровни в skills_history.csv, раздельные атака и защита в region_encounters.csv, гарнизоны объектов location_garrisons.csv, сжатие brief.md, набор outcome и защита истории entities_progress |

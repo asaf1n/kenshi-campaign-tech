@@ -200,6 +200,31 @@ def _read_progress(
     return progress, validate_progress(progress, campaign_id, world_ref, previous=baseline)
 
 
+def _entities_progress_history(repo: Path) -> set[str]:
+    """Ключи `entities`, встречавшиеся в валидных версиях ручного слоя по первым родителям истории Git.
+
+    Запись, однажды попавшая в историю, не удаляется: исход может уточняться, ключ остаётся."""
+    if not (repo / ".git").exists() or run_git(repo, "rev-parse", "--verify", "HEAD").returncode != 0:
+        return set()
+    if require_git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise ValueError("Для проверки ручного слоя entities_progress требуется полная история Git")
+    versions = require_git(repo, "log", "--first-parent", "--full-history", "--format=%H",
+                           "HEAD", "--", ENTITIES_PROGRESS_RELATIVE.as_posix()).splitlines()
+    keys: set[str] = set()
+    seen: set[str] = set()
+    for revision in versions:
+        try:
+            blob = _git_blob(repo, revision, ENTITIES_PROGRESS_RELATIVE)
+            if blob is None or blob in seen:
+                continue
+            seen.add(blob)
+            keys |= set(load_entities_progress(require_git(repo, "cat-file", "blob", blob).encode("utf-8"))["entities"])
+        except (ValueError, ValidationError, ExtractionError, RecursionError):
+            # Невалидная старая версия (в том числе каталог на месте файла) не фиксирует ключей.
+            continue
+    return keys
+
+
 def _read_entities_progress(
     target_repo: Path, campaign_id: str | None,
 ) -> tuple[dict[str, Any] | None, str, str | None]:
@@ -213,6 +238,8 @@ def _read_entities_progress(
             raise ValueError("Путь к ручному слою entities_progress содержит ссылку")
 
         if not progress_path.exists():
+            if _entities_progress_history(target_repo):
+                raise ValueError(f"Ручной слой {ENTITIES_PROGRESS_RELATIVE.name} удалён")
             return None, "absent", "Ручной слой entities_progress отсутствует"
         if not progress_path.is_file():
             raise ValueError(f"Путь к ручному слою {ENTITIES_PROGRESS_RELATIVE.name} занят каталогом")
@@ -222,6 +249,9 @@ def _read_entities_progress(
             raise ValueError(
                 f"Ручной слой entities_progress относится к кампании {progress.get('campaign_id')}, ожидается {campaign_id}"
             )
+        removed = sorted(_entities_progress_history(target_repo) - set(progress["entities"]))
+        if removed:
+            raise ValueError("Из ручного слоя entities_progress удалены записи, уже попавшие в историю: " + ", ".join(removed))
         return progress, "ok", None
     except ValidationError as exc:
         field = ".".join(map(str, exc.absolute_path)) or "корень файла"
@@ -253,6 +283,38 @@ def check_location_progress(published_dir: Path | None = None, companion_dir: Pa
         "status": "passed" if progress is not None else "absent",
         "entries": len(progress["locations"]) if progress is not None else 0,
         "unmatched_instance_ids": unmatched,
+    }
+
+
+def check_entities_progress(published_dir: Path | None = None, companion_dir: Path | None = None) -> dict[str, Any]:
+    """Проверяет ручной слой entities_progress клона: схема, кампания, сохранность записей истории, словарь исходов."""
+    from tools.unique_entities_registry import NPC_OUTCOMES, TROPHY_OUTCOMES
+
+    pub_path = (published_dir or DEFAULT_PUBLISHED_DIR).resolve()
+    manifest = read_json((pub_path / "manifest.json").read_bytes())
+    target_repo = companion_root(companion_dir)
+    progress, status, reason = _read_entities_progress(target_repo, manifest.get("campaign_id"))
+    if progress is None:
+        return {"status": "absent" if status == "absent" else "invalid", "reason": reason, "entries": 0}
+    known: dict[str, str] = {}
+    entities_path = pub_path / "unique_entities_registry.json"
+    if entities_path.is_file():
+        registry = read_json(entities_path.read_bytes())
+        known |= {row["npc_sid"]: "npc" for row in registry.get("unique_npcs", []) + registry.get("bosses", [])}
+        known |= {row["base_sid"]: "meitou" for row in registry.get("meitou_weapons", [])}
+    unknown_sids, unknown_outcomes = [], []
+    for sid, entry in sorted(progress["entities"].items()):
+        kind = known.get(sid)
+        if kind is None:
+            unknown_sids.append(sid)
+        elif entry["outcome"] not in (TROPHY_OUTCOMES if kind == "meitou" else NPC_OUTCOMES):
+            unknown_outcomes.append(f"{sid}: {entry['outcome']}")
+    return {
+        "status": "passed" if not unknown_sids and not unknown_outcomes else "warnings",
+        "reason": None,
+        "entries": len(progress["entities"]),
+        "unknown_sids": unknown_sids,
+        "unknown_outcomes": unknown_outcomes,
     }
 
 

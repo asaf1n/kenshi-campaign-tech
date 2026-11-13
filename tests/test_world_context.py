@@ -332,7 +332,7 @@ class TestWorldContextAndProduction(unittest.TestCase):
 
         brief = render_brief(current, {}, "test_snap")
         self.assertIn("гуманоидов: 1, животных: 1", brief)
-        self.assertIn("**Баланс (казна):** 50 000 кат.", brief)
+        self.assertIn("**Казна:** 50 000 кат.", brief)
         self.assertIn("Отряд `sq1`", brief)
         self.assertIn("[tables/storage.csv](tables/storage.csv)", brief)
         self.assertNotIn("Складской баланс по базам и поселениям", brief)

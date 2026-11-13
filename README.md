@@ -20,6 +20,10 @@ python -m tools.campaign pipeline --source-kind save --source "$env:LOCALAPPDATA
 
 # 2. Односторонняя доставка release bundle в репозиторий компаньона (с отправкой в origin/main):
 python -m tools.campaign deliver-companion --companion-dir "C:\Users\artem\Kenshi Compain" --push
+
+# Проверка ручных слоёв компаньона перед коммитом в Kenshi-Compain:
+python -m tools.campaign check-location-progress --companion-dir "C:\Users\artem\Kenshi Compain"
+python -m tools.campaign check-entities-progress --companion-dir "C:\Users\artem\Kenshi Compain"
 ```
 
 ## Состав release bundle (`published/`)
@@ -28,14 +32,14 @@ python -m tools.campaign deliver-companion --companion-dir "C:\Users\artem\Kensh
 
 1. `manifest.json` (`kenshi-publication/2`) — машинный паспорт публикации (`snapshot_id`, `parent_snapshot_id`, `world_ref_id`, статус валидации `validation.status == "passed"`).
 2. `extended/current.json` (`kenshi-session/11`) — полный нормализованный срез сохранения.
-3. `brief.md` и `squad.md` — текстовая сводка и детализированная ведомость отряда для контекста LLM.
+3. `brief.md` — шапка выпуска, казна, численность и расположение групп, счётчики изменений и карта таблиц.
 4. `changes.json` (`kenshi-session-diff/5`) и `changes.md` — структурный и читаемый diff относительно предка.
 5. `locations.json` (`kenshi-locations/1`) — пространственные координаты и группы отряда.
 6. `world_reference.json` (`kenshi-world-reference/1`) — статический паспорт локаций и регионов мира.
 7. `location_registry.json` (`kenshi-location-registry/3`) — реестр известности и зачистки 261 локации.
 8. `unique_entities_registry.json` (`kenshi-unique-entities-registry/2`) — уникальные NPC, боссы и оружие Meitou.
 9. `timeline.jsonl` (`kenshi-event/1`) — журнал подтверждённых и автоматических событий цепочки.
-10. `tables/` — 24 таблицы CSV и `tables/index.md` (отряд, экипировка, инвентарь, склады, исследования и др.).
+10. `tables/` — CSV-таблицы, оглавление `tables/index.md` и словари колонок `tables/dict/<таблица>.md`: отряд, экипировка, инвентарь, склады, постройки, исследования, цены, дипломатия, реакции мира, шаблоны юнитов, встречи по регионам (`region_encounters.csv`), гарнизоны объектов (`location_garrisons.csv`), уникальные NPC и Мейто, история навыков, казны и отношений.
 11. `screenshots/` — индекс (`index.json`, `index.md`) и ключевые кадры окна 7 суток (`annotations.jsonl`, `feed.md` при OCR).
 
 Полное описание форматов и валидация приведены в [Контракте данных](docs/data-contract.md).

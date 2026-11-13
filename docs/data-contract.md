@@ -286,6 +286,18 @@ Publisher читает журнал целиком, проверяет его, �
 
 Отчёт доставки содержит `location_progress` (`ok`, `invalid`, `absent`) и `location_progress_reason` (`null` при `ok`). При отсутствующем или невалидном ручном слое доставляется реестр без отметок. Превышение лимита размера при наложении отметок даёт `invalid` и тот же результат. `status=failed` относится к сбою доставки выпуска `published/`.
 
+### Ручной слой исходов `entities_progress.json`
+
+Файл `Campaign/Хроники Хот Лон/entities_progress.json` игрового репозитория по схеме [kenshi-entities-progress/1](../contracts/entities-progress.schema.json) заполняет компаньон при утверждённом `[итог]`. Корень: `format`, `campaign_id`, необязательный `world_ref_id`, объект `entities`. Ключ `entities` — `sid` из `tables/unique_entities.csv` (`npc_sid` персонажа или `base_sid` клинка Мейто); значение — `outcome`, `evidence` (текст со ссылкой на сессию `S-…`) и необязательное `game_time` (`Day N HH:MM`).
+
+Словарь `outcome` (протокол `[итог]` компаньона): для персонажей — `dead`, `defeated`, `captured`, `handed_over`, `released`, `recruited`; для Мейто — `trophy_claimed`. На персонажа ведётся одна запись с последним подтверждённым исходом. Исходы `dead`, `defeated`, `captured`, `handed_over` заполняют `cleared_evidence` босса; запись Мейто ставит `provenance_status = confirmed_trophy`. Схема принимает любую непустую строку `outcome`; значения вне словаря выявляет `check-entities-progress`.
+
+Ключ, попавший в историю Git по первым родителям, из файла не удаляется: исход по нему можно уточнить, ключ остаётся. Удаление ключа или всего файла после его появления в истории даёт `entities_progress = invalid`. Невалидные старые версии (в том числе каталог на месте файла) ключей не фиксируют.
+
+`python -m tools.campaign check-entities-progress --companion-dir <игровой клон> [--published-dir <выпуск>]` проверяет схему, кампанию и сохранность истории, а по `unique_entities_registry.json` выпуска — известность `sid` и соответствие `outcome` словарю. Результат: `passed`, `absent`, `warnings` (неизвестные `sid` или исходы — списки `unknown_sids`, `unknown_outcomes`) или `invalid`; код выхода `1` при `warnings` и `invalid`.
+
+Отчёт доставки содержит `entities_progress` (`ok`, `invalid`, `absent`) и `entities_progress_reason`. При `invalid` реестр уникальных сущностей и `unique_entities.csv` в клоне не перезаписываются, статус доставки — `degraded`.
+
 ## Реестр уникальных сущностей: kenshi-unique-entities-registry/2
 
 `publish` формирует `published/unique_entities_registry.json` по схеме [kenshi-unique-entities-registry/2](../contracts/unique-entities-registry.schema.json) (с полной поддержкой обратной совместимости с версией `/1`). Модуль построения — `tools.unique_entities_registry` (`build_unique_entities_registry`). Назначение артефакта — единый детерминированный реестр уникальных NPC, боссов и оружия Мейто со статической привязкой к локациям игрового мира, динамическим состоянием из текущего снимка сохранения и подтверждёнными свидетельствами из ручного слоя прогресса сущностей `entities_progress.json` (`kenshi-entities-progress/1`) и отметок локаций `locations_progress.json` (`kenshi-location-progress/3`).
